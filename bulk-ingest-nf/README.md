@@ -211,19 +211,42 @@ Tests use [nf-test](https://www.nf-test.com). They run against a pinned manifest
 datasets are smallest today.
 
 ```bash
-nf-test test --tag validation     # parameter validation: fast, no network, no credentials
-nf-test test --tag integration    # ingests the pinned datasets from object storage
-nf-test test                      # both of the above
+nf-test test --tag validation       # parameter validation: fast, no network, no credentials
+nf-test test --tag ingest           # ingests the pinned datasets from object storage
+nf-test test --tag integration      # those ingests, plus the test that writes to S3
+nf-test test --tag validation,ingest  # the union, which is what CI runs
+nf-test test                        # everything
 ```
 
-nf-test can only select tags, not exclude them, so a bare `nf-test test` includes the
-integration tests.
+nf-test can only select tags, not exclude them, so a bare `nf-test test` includes every test that
+reaches object storage.
 
 Install nf-test with `curl -fsSL https://get.nf-test.com | bash`. It needs a JRE on `PATH`, which
 Nextflow does not provide; set `JAVA_HOME` if `java` is missing.
 
-The integration tests need AWS credentials in the environment and take about a minute. Regenerate
-the pinned manifest when you want different fixtures:
+The ingest tests need either AWS credentials in the environment or a mock endpoint, and they take
+about a minute.
+
+**Running the ingest tests with no credentials.** Serve the fixture datasets from a mock S3, under
+the bucket and key the manifest already names. The bytes come from the public CDN.
+
+```bash
+pipx install 'moto[server]'
+moto_server -H 0.0.0.0 -p 9000 &
+
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+AWS_ENDPOINT_URL=http://127.0.0.1:9000 tools/seed-mock-s3.py
+
+# A task runs in a container, so it needs an address that reaches the host. On
+# Linux use the docker bridge gateway instead of this name.
+export AWS_ENDPOINT_URL=http://host.docker.internal:9000
+nf-test test --tag validation,ingest
+```
+
+The variable reaches the task because `conf/docker.config` passes it through, and the AWS CLI
+honours it. `.github/workflows/bulk-ingest-nf.yml` is this same recipe with the Linux address.
+
+Regenerate the pinned manifest when you want different fixtures:
 
 ```bash
 tools/cxg-manifest.py --limit 2 --sort size_asc --out tests/fixtures/manifest.jsonl

@@ -3,10 +3,12 @@ nextflow_pipeline {
     name "ingestion"
     script "../../main.nf"
 
-    // These fetch real datasets from object storage, so they need AWS
-    // credentials in the environment and take a minute. Run them with
-    //   nf-test test --tag integration
+    // These fetch the pinned datasets from object storage, so they need either
+    // AWS credentials or a mock S3 endpoint, and they take a minute.
+    //   nf-test test --tag integration   a workstation, real credentials
+    //   nf-test test --tag ingest        what CI runs, against a mock
     tag "integration"
+    tag "ingest"
 
     test("ingests the pinned datasets and verifies each round trip") {
         when {

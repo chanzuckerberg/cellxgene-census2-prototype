@@ -20,7 +20,9 @@ pipx run ruff check .           # then work through what is left, by hand
 `pipx run` takes the current ruff release, and we take its default rules and its default width.
 There is no ruff configuration file, and nothing pins a version. This suits a small codebase at the
 start of a project: the defaults cost us no decisions, and a release that moves them costs little
-to absorb.
+to absorb. CI runs these same unpinned commands, so a runner and a workstation cannot disagree. The
+cost is that a ruff release can fail a commit that changed nothing, and the fix is to run the
+commands again and commit the result.
 
 Every Python file carries a `.py` extension, the Nextflow module binaries included. Ruff finds
 files by extension, so a script without one is skipped without a word. That is also what keeps a
@@ -147,6 +149,12 @@ integration tests too. Every test carries a tag, and the offline set is `--tag v
 that checks a validation rule but still reaches a task belongs with the integration set, because
 starting a task needs Docker. Assert that the tasks were created: asserting only that an error
 message is absent also passes when the run fails for some other reason.
+
+A comma-separated `--tag validation,ingest` selects the union of the two, which is what CI runs.
+`ingest` is a second tag on the ingest suite, so CI can take those four tests without the `s3_//`
+escape test: that one writes to object storage, and against a mock it would pass without proving
+anything. Note that `nf-test list` takes `--tags` rather than `--tag`, and does not filter the way
+`test` does.
 
 ## Rakes: AWS HealthOmics and credentials
 
