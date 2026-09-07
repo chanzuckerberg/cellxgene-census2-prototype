@@ -33,7 +33,7 @@ def fetch_datasets(api_base: str, schema_version: str | None) -> list[dict]:
     with urllib.request.urlopen(req, timeout=600) as resp:
         payload = json.load(resp)
     if not isinstance(payload, list):
-        raise RuntimeError(f"unexpected response shape from {url}")
+        raise TypeError(f"unexpected response shape from {url}: expected a list")
     return payload
 
 
@@ -88,8 +88,15 @@ def order(records: list[dict], sort: str, seed: int) -> list[dict]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--organism", default=HUMAN, help=f"ontology term ID (default {HUMAN})")
-    p.add_argument("--limit", type=int, default=0, help="take the first N after sorting; 0 means all")
+    p.add_argument(
+        "--organism", default=HUMAN, help=f"ontology term ID (default {HUMAN})"
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="take the first N after sorting; 0 means all",
+    )
     p.add_argument(
         "--sort",
         default="size_asc",
@@ -113,7 +120,11 @@ def main() -> int:
     datasets = fetch_datasets(args.api_base, args.schema_version)
     print(f"manifest: Discover API returned {len(datasets)} datasets", file=sys.stderr)
 
-    records = [to_record(d, args.source_bucket) for d in datasets if matches_organism(d, args.organism)]
+    records = [
+        to_record(d, args.source_bucket)
+        for d in datasets
+        if matches_organism(d, args.organism)
+    ]
     print(f"manifest: {len(records)} match organism {args.organism}", file=sys.stderr)
 
     records = order(records, args.sort, args.seed)
@@ -121,8 +132,7 @@ def main() -> int:
         records = records[: args.limit]
 
     with open(args.out, "w") as fh:
-        for r in records:
-            fh.write(json.dumps(r) + "\n")
+        fh.writelines(json.dumps(r) + "\n" for r in records)
 
     total = sum(r["filesize"] for r in records)
     print(

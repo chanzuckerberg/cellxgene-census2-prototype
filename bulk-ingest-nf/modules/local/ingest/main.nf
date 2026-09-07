@@ -61,7 +61,7 @@ process INGEST {
     def cfg    = config  ? "--config ${config}"   : ''
     def ref    = refdata ? "--refdata ${refdata}" : ''
     """
-    cxg-ingest \\
+    cxg-ingest.py \\
         --record '${record}' \\
         --outdir '${outdir}' ${stage} \\
         ${cfg} ${ref} ${all} ${chk}

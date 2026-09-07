@@ -1,6 +1,6 @@
 {
   "manifest": {
-    "description": "S3 URI of the JSONL manifest from tools/cxg-manifest",
+    "description": "S3 URI of the JSONL manifest from tools/cxg-manifest.py",
     "optional": false
   },
   "outdir": {

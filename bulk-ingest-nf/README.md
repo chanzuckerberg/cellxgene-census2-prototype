@@ -21,7 +21,7 @@ source. That is temporary. Which steps get applied is not decided yet.
 
 - Nextflow 24.04 or later.
 - Docker.
-- Internet access for `tools/cxg-manifest` only. The pipeline itself needs none.
+- Internet access for `tools/cxg-manifest.py` only. The pipeline itself needs none.
 - AWS credentials that can read the source bucket.
 
 **Getting credentials into the container.** Tasks read them from the environment, and nothing is
@@ -49,7 +49,7 @@ Running the pipeline takes two steps. First prepare a manifest, then ingest it.
 internet access. It needs only the Python standard library.
 
 ```bash
-tools/cxg-manifest --limit 5 --sort size_asc --out manifest.jsonl
+tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 ```
 
 **Step 2 — ingest.** The pipeline reads only the manifest and S3, so it needs no internet access.
@@ -93,7 +93,7 @@ returning part of one.
 
 | Parameter | Default | Meaning |
 |---|---|---|
-| `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest`. Local path or `s3://` URI. |
+| `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
 | `--all_slots` | `false` | Override the config's `all_slots`: carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`. |
 | `--check` | `false` | Verify each output against its source. A failure lands in the receipt and `COLLECT` fails the run. Meaningful only while harmonization is a stub. |
@@ -102,7 +102,7 @@ returning part of one.
 
 ## Manifest options
 
-`tools/cxg-manifest` selects which datasets to ingest. Run `--help` for the full list.
+`tools/cxg-manifest.py` selects which datasets to ingest. Run `--help` for the full list.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -126,16 +126,16 @@ Use `--all_slots` when the consumer needs a complete CxG object.
 ## Running a component alone
 
 Each step is a plain script and runs without Nextflow. Nextflow puts the module binaries on
-`PATH` inside a task; from a shell, call them by path. `cxg-ingest` needs the image's Python
+`PATH` inside a task; from a shell, call them by path. `cxg-ingest.py` needs the image's Python
 dependencies, so run it in the image or in a virtualenv built from `docker/requirements.txt`.
 
 ```bash
-tools/cxg-manifest --limit 5 --sort size_asc --out manifest.jsonl
+tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 
-modules/local/ingest/resources/usr/bin/cxg-ingest \
+modules/local/ingest/resources/usr/bin/cxg-ingest.py \
     --record "$(head -1 manifest.jsonl)" --outdir ./out --check
 
-modules/local/collect/resources/usr/bin/cxg-collect ./out/v1/*.json --out run_summary.json
+modules/local/collect/resources/usr/bin/cxg-collect.py ./out/v1/*.json --out run_summary.json
 ```
 
 ## Using the store builder directly
@@ -153,6 +153,7 @@ if not result["admitted"]:
 
 # or process first, inspect or alter, then write
 import h5py
+
 with h5py.File("dataset.h5ad") as f:
     adata, slots = census2_store.build(f)
     census2_store.write(adata, "store.zarr")
@@ -165,8 +166,8 @@ instance metadata and does not resolve AWS profiles, so export them first. Note
 that the source must stay open until the write, because the expression matrix is read lazily —
 `create` handles that, and it is only a consideration when composing `build` and `write` yourself.
 
-`tools/cxg-manifest` is not part of the pipeline and is not a module binary. It uses only the
-Python standard library, so it runs anywhere. `cxg-ingest` and `cxg-collect` ship as Nextflow
+`tools/cxg-manifest.py` is not part of the pipeline and is not a module binary. It uses only the
+Python standard library, so it runs anywhere. `cxg-ingest.py` and `cxg-collect.py` ship as Nextflow
 module binaries under `modules/local/*/resources/usr/bin/`.
 
 ## Output layout
@@ -225,5 +226,5 @@ The integration tests need AWS credentials in the environment and take about a m
 the pinned manifest when you want different fixtures:
 
 ```bash
-tools/cxg-manifest --limit 2 --sort size_asc --out tests/fixtures/manifest.jsonl
+tools/cxg-manifest.py --limit 2 --sort size_asc --out tests/fixtures/manifest.jsonl
 ```

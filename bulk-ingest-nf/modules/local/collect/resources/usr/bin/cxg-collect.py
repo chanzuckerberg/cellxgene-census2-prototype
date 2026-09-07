@@ -41,7 +41,9 @@ def main() -> int:
         "output_bytes": sum(r.get("output_bytes") or 0 for r in admitted),
         "cells": sum(r.get("cell_count") or 0 for r in admitted),
         "elapsed_sec": round(sum(r.get("elapsed_sec") or 0 for r in receipts), 1),
-        "slot_policy": sorted({r["slot_policy"] for r in admitted if "slot_policy" in r}),
+        "slot_policy": sorted(
+            {r["slot_policy"] for r in admitted if "slot_policy" in r}
+        ),
         "anndata_version": sorted({r["anndata_version"] for r in receipts}),
         "checked": len(checked),
         "check_failures": [r["dataset_version_id"] for r in failed],
@@ -53,17 +55,25 @@ def main() -> int:
 
     src, out = summary["source_bytes"], summary["output_bytes"]
     ratio = (out / src) if src else 0
-    print(f"collect: {summary['datasets']} datasets seen, "
-          f"{summary['admitted']} admitted, {summary['not_admitted']} not admitted",
-          file=sys.stderr)
+    print(
+        f"collect: {summary['datasets']} datasets seen, "
+        f"{summary['admitted']} admitted, {summary['not_admitted']} not admitted",
+        file=sys.stderr,
+    )
     for reason in summary["not_admitted_reasons"]:
         n = sum(1 for r in rejected if (r.get("reason") or "unstated") == reason)
         print(f"collect:   not admitted x{n}: {reason}", file=sys.stderr)
     print(f"collect: {summary['cells']:,} cells admitted", file=sys.stderr)
-    print(f"collect: {src / 1024**2:.1f} MiB h5ad -> {out / 1024**2:.1f} MiB zarr ({ratio:.2f}x)", file=sys.stderr)
+    print(
+        f"collect: {src / 1024**2:.1f} MiB h5ad -> {out / 1024**2:.1f} MiB zarr ({ratio:.2f}x)",
+        file=sys.stderr,
+    )
     print(f"collect: {summary['elapsed_sec']}s total task time", file=sys.stderr)
     if checked:
-        print(f"collect: round-trip checked {len(checked)}, failed {len(failed)}", file=sys.stderr)
+        print(
+            f"collect: round-trip checked {len(checked)}, failed {len(failed)}",
+            file=sys.stderr,
+        )
     for vid in summary["check_failures"]:
         print(f"collect: CHECK FAILED {vid}", file=sys.stderr)
 

@@ -6,6 +6,8 @@ work/
 .nf-test/
 .nf-test.log
 nf-test
+# python
+__pycache__/
 # pipeline output
 out/
 reports/

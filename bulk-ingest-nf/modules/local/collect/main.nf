@@ -9,6 +9,6 @@ process COLLECT {
 
     script:
     """
-    cxg-collect ${receipts} --out run_summary.json
+    cxg-collect.py ${receipts} --out run_summary.json
     """
 }

@@ -28,7 +28,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
 
 # Fail fast if the import surface the converter relies on is missing. Keep this
-# list matched to what census2_store.py and cxg-ingest import.
+# list matched to what census2_store.py and cxg-ingest.py import.
 RUN python -c "\
 import anndata, zarr, h5py, scipy, numpy, dask, obstore, obstore.store; \
 from anndata.experimental import read_elem_lazy; \

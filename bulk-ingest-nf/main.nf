@@ -3,14 +3,14 @@
 include { INGEST } from './modules/local/ingest'
 include { COLLECT } from './modules/local/collect'
 
-// The pipeline consumes a manifest that `tools/cxg-manifest` prepared. It never
+// The pipeline consumes a manifest that `tools/cxg-manifest.py` prepared. It never
 // calls the Discover API, so no task needs public internet access.
 
 workflow {
 
     if (!params.manifest) {
         error "Missing --manifest. Prepare one first:\n" +
-              "  tools/cxg-manifest --limit 5 --sort size_asc --out manifest.jsonl"
+              "  tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl"
     }
 
     // Executors whose workers do not share this filesystem cannot publish to a

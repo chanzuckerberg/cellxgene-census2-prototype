@@ -15,7 +15,7 @@ nextflow_pipeline {
         then {
             assert workflow.failed
             assert workflow.stdout.any { it.contains("Missing --manifest") }
-            assert workflow.stdout.any { it.contains("tools/cxg-manifest") }
+            assert workflow.stdout.any { it.contains("tools/cxg-manifest.py") }
         }
     }
 

@@ -22,6 +22,9 @@ for item in main.nf nextflow.config conf modules; do
     cp -R "$item" "$STAGE/"
 done
 
+# Running the scripts from a shell leaves bytecode beside them.
+find "$STAGE" -name __pycache__ -type d -prune -exec rm -rf {} +
+
 cat >> "$STAGE/nextflow.config" <<'CFG'
 
 // Appended by tools/build-healthomics-bundle.sh. HealthOmics cannot select a

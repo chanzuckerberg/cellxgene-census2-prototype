@@ -6,6 +6,29 @@ Bulk ingestion of CELLxGENE Discover datasets into Census 2 stores, as a Nextflo
 Census 2 tentpoles and the documentation policy. This file records the rakes: the things that cost
 us effort to find, and that are easy to step on again.
 
+## Python style
+
+Lint and format the Python code with `pipx run ruff` before you commit a change to it. Run it in
+this order, and let ruff fix as much as it can before you touch anything yourself:
+
+```bash
+pipx run ruff check --fix .     # ruff fixes what it can
+pipx run ruff format .
+pipx run ruff check .           # then work through what is left, by hand
+```
+
+`pipx run` takes the current ruff release, and we take its default rules and its default width.
+There is no ruff configuration file, and nothing pins a version. This suits a small codebase at the
+start of a project: the defaults cost us no decisions, and a release that moves them costs little
+to absorb.
+
+Every Python file carries a `.py` extension, the Nextflow module binaries included. Ruff finds
+files by extension, so a script without one is skipped without a word. That is also what keeps a
+configuration file unnecessary today.
+
+`ruff format` also reformats the Python blocks inside the markdown files, so expect `README.md` to
+appear in the diff.
+
 ## Seams, and how provisional they are
 
 `census2_store.py` decides what a store contains. It holds three decisions, and two of them are
@@ -18,7 +41,7 @@ placeholders waiting on the harmonization design:
   builder reads, which drops embeddings and most of `uns`. `all_slots` carries everything.
 - `harmonize` returns its input.
 
-`cxg-ingest` handles what running this as a pipeline needs: fetching the source, publishing, and
+`cxg-ingest.py` handles what running this as a pipeline needs: fetching the source, publishing, and
 the receipt. Policy that a caller might choose lives in the configuration rather than in function
 arguments, so that there is one place to look.
 
@@ -111,7 +134,7 @@ Tests read a pinned manifest from `tests/fixtures`, so a failure means the code 
 the corpus, and they assert on the receipt, which has to stay correct anyway.
 
 Nextflow publishes nothing from a failed task. A task that has to report a failure downstream must
-therefore exit 0 and record the failure in its output. `cxg-ingest` exits 0 on a failed round-trip
+therefore exit 0 and record the failure in its output. `cxg-ingest.py` exits 0 on a failed round-trip
 check for that reason, and `COLLECT` fails the run. Exiting non-zero there hid the receipt that
 named the failure and stopped `COLLECT` from running at all.
 

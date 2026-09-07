@@ -24,19 +24,17 @@ import argparse
 import importlib.metadata
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
 
+# Sits next to this script in the staged module-binaries directory. Python puts a
+# script's own directory on sys.path, so a plain import works with no path shim.
+import census2_store
 import h5py
 import numpy as np
 import zarr
 from anndata.io import read_elem
-
-# Sits next to this script in the staged module-binaries directory. Python puts a
-# script's own directory on sys.path, so a plain import works with no path shim.
-import census2_store
 
 RECIPE = "v1"
 
@@ -131,9 +129,10 @@ def check(src: str, dst: str) -> dict:
             for col in a.columns:
                 if str(a[col].dtype) != str(b[col].dtype):
                     fail(f"{key}.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
-                elif isinstance(a[col].dtype, pd.CategoricalDtype):
-                    if list(a[col].cat.categories) != list(b[col].cat.categories):
-                        fail(f"{key}.{col}", "categories differ")
+                elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
+                    list(a[col].cat.categories) != list(b[col].cat.categories)
+                ):
+                    fail(f"{key}.{col}", "categories differ")
 
         # An absent matrix is only acceptable when neither side has it. Skipping
         # a present one would let the check pass having compared nothing.
@@ -240,15 +239,17 @@ def main() -> int:
         "--check",
         action="store_true",
         help="verify the output against the source; a failure lands in the receipt "
-             "and COLLECT fails the run",
+        "and COLLECT fails the run",
     )
     p.add_argument(
         "--stage-local",
         action="store_true",
         help="write the store and receipt into the working directory for the "
-             "workflow to publish, instead of writing them to --outdir directly",
+        "workflow to publish, instead of writing them to --outdir directly",
     )
-    p.add_argument("--keep-source", action="store_true", help="do not delete the staged h5ad")
+    p.add_argument(
+        "--keep-source", action="store_true", help="do not delete the staged h5ad"
+    )
     args = p.parse_args()
 
     rec = json.loads(args.record)
