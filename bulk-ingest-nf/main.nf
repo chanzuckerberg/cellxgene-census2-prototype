@@ -1,7 +1,7 @@
 #!/usr/bin/env nextflow
 
 include { INGEST } from './modules/local/ingest'
-include { COLLECT } from './modules/local/collect'
+include { REPORT } from './modules/local/report'
 
 // The pipeline consumes a manifest that `tools/cxg-manifest.py` prepared. It never
 // calls the Discover API, so no task needs public internet access.
@@ -41,7 +41,7 @@ workflow {
         .filter { it }
         .map { line -> new groovy.json.JsonSlurper().parseText(line) }
         // Without this an empty manifest gives a successful run that writes
-        // nothing: no task runs, so COLLECT never runs either.
+        // nothing: no task runs, so REPORT never runs either.
         .ifEmpty { error "No dataset records in ${params.manifest}" }
 
     // Optional and shared by every task. An empty list stages nothing.
@@ -50,7 +50,7 @@ workflow {
 
     INGEST(datasets, ch_config, ch_refdata)
 
-    COLLECT(INGEST.out.receipt.collect())
+    REPORT(INGEST.out.receipt.collect())
 
-    COLLECT.out.summary.view { "run summary: ${it}" }
+    REPORT.out.report.view { "ingestion report: ${it}" }
 }

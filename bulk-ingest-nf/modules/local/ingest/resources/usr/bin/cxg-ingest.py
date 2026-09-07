@@ -239,7 +239,7 @@ def main() -> int:
         "--check",
         action="store_true",
         help="verify the output against the source; a failure lands in the receipt "
-        "and COLLECT fails the run",
+        "and REPORT fails the run",
     )
     p.add_argument(
         "--stage-local",
@@ -358,7 +358,7 @@ def main() -> int:
 
     # A failed check is recorded, not raised. Nextflow publishes nothing from a
     # failed task, so exiting non-zero here would hide the receipt that names the
-    # failure and would stop COLLECT from running. COLLECT fails the run instead,
+    # failure and would stop REPORT from running. REPORT fails the run instead,
     # which also reports every failure together rather than only the first.
     return 0
 

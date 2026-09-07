@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Gather conversion receipts into one run summary.
+"""Read the ingestion receipts and report on the run as a whole.
 
-Reads every receipt JSON given on the command line. Writes a combined JSON
-summary and prints a short report. Uses only the standard library.
+Reads every receipt JSON named on the command line, writes one combined report,
+and prints a short version to stderr. It computes nothing about the data: every
+number comes from what the ingest step already recorded.
+
+Exits non-zero when a receipt records a failed round-trip check, which is what
+fails the pipeline run. Uses only the standard library.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import sys
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("receipts", nargs="+")
-    p.add_argument("--out", default="run_summary.json")
+    p.add_argument("--out", default="ingestion_report.json")
     args = p.parse_args()
 
     receipts = []
@@ -29,7 +33,7 @@ def main() -> int:
     checked = [r for r in admitted if "check" in r]
     failed = [r for r in checked if not r["check"].get("passed")]
 
-    summary = {
+    report = {
         "recipe": receipts[0]["recipe"] if receipts else None,
         "datasets": len(receipts),
         "admitted": len(admitted),
@@ -51,31 +55,31 @@ def main() -> int:
     }
 
     with open(args.out, "w") as fh:
-        json.dump(summary, fh, indent=1)
+        json.dump(report, fh, indent=1)
 
-    src, out = summary["source_bytes"], summary["output_bytes"]
+    src, out = report["source_bytes"], report["output_bytes"]
     ratio = (out / src) if src else 0
     print(
-        f"collect: {summary['datasets']} datasets seen, "
-        f"{summary['admitted']} admitted, {summary['not_admitted']} not admitted",
+        f"report: {report['datasets']} datasets seen, "
+        f"{report['admitted']} admitted, {report['not_admitted']} not admitted",
         file=sys.stderr,
     )
-    for reason in summary["not_admitted_reasons"]:
+    for reason in report["not_admitted_reasons"]:
         n = sum(1 for r in rejected if (r.get("reason") or "unstated") == reason)
-        print(f"collect:   not admitted x{n}: {reason}", file=sys.stderr)
-    print(f"collect: {summary['cells']:,} cells admitted", file=sys.stderr)
+        print(f"report:   not admitted x{n}: {reason}", file=sys.stderr)
+    print(f"report: {report['cells']:,} cells admitted", file=sys.stderr)
     print(
-        f"collect: {src / 1024**2:.1f} MiB h5ad -> {out / 1024**2:.1f} MiB zarr ({ratio:.2f}x)",
+        f"report: {src / 1024**2:.1f} MiB h5ad -> {out / 1024**2:.1f} MiB zarr ({ratio:.2f}x)",
         file=sys.stderr,
     )
-    print(f"collect: {summary['elapsed_sec']}s total task time", file=sys.stderr)
+    print(f"report: {report['elapsed_sec']}s total task time", file=sys.stderr)
     if checked:
         print(
-            f"collect: round-trip checked {len(checked)}, failed {len(failed)}",
+            f"report: round-trip checked {len(checked)}, failed {len(failed)}",
             file=sys.stderr,
         )
-    for vid in summary["check_failures"]:
-        print(f"collect: CHECK FAILED {vid}", file=sys.stderr)
+    for vid in report["check_failures"]:
+        print(f"report: CHECK FAILED {vid}", file=sys.stderr)
 
     return 1 if failed else 0
 

@@ -113,7 +113,7 @@ for them.
 
 `publishDir` with `mode: 'move'` removes the file from the work directory, so a downstream process
 that consumes the same output then fails. The store moves and the receipt is copied, because
-`COLLECT` reads the receipt.
+`REPORT` reads the receipt.
 
 A `publishDir` `enabled:` value must be a static expression. Only `path:` accepts a closure.
 
@@ -137,11 +137,11 @@ the corpus, and they assert on the receipt, which has to stay correct anyway.
 
 Nextflow publishes nothing from a failed task. A task that has to report a failure downstream must
 therefore exit 0 and record the failure in its output. `cxg-ingest.py` exits 0 on a failed round-trip
-check for that reason, and `COLLECT` fails the run. Exiting non-zero there hid the receipt that
-named the failure and stopped `COLLECT` from running at all.
+check for that reason, and `REPORT` fails the run. Exiting non-zero there hid the receipt that
+named the failure and stopped `REPORT` from running at all.
 
 An empty manifest gives a successful run that writes nothing, because no task runs and
-`collect()` on an empty channel emits nothing, so `COLLECT` is skipped as well. `main.nf` fails
+`collect()` on an empty channel emits nothing, so `REPORT` is skipped as well. `main.nf` fails
 early instead.
 
 `nf-test --tag` selects tests and cannot exclude them, so a bare `nf-test test` runs the

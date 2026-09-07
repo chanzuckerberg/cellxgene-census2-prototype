@@ -12,7 +12,7 @@ process INGEST {
     // spellings mean the destination is remote.
     //
     // The store moves, because copying it would duplicate gigabytes. The receipt
-    // is copied, because COLLECT consumes it from the work directory and 'move'
+    // is copied, because REPORT consumes it from the work directory and 'move'
     // would take it away.
     publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}/v1",
                mode: 'move', pattern: '*.zarr',

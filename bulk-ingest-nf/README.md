@@ -96,7 +96,7 @@ returning part of one.
 | `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
 | `--all_slots` | `false` | Override the config's `all_slots`: carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`. |
-| `--check` | `false` | Verify each output against its source. A failure lands in the receipt and `COLLECT` fails the run. Meaningful only while harmonization is a stub. |
+| `--check` | `false` | Verify each output against its source. A failure lands in the receipt and `REPORT` fails the run. Meaningful only while harmonization is a stub. |
 | `--config` | none | Ingestion configuration file, staged into every task. Holds policy such as `all_slots`; the file format is not defined yet. |
 | `--refdata` | none | Directory of reference data, staged into every task. Nothing reads it yet. |
 
@@ -135,7 +135,8 @@ tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 modules/local/ingest/resources/usr/bin/cxg-ingest.py \
     --record "$(head -1 manifest.jsonl)" --outdir ./out --check
 
-modules/local/collect/resources/usr/bin/cxg-collect.py ./out/v1/*.json --out run_summary.json
+modules/local/report/resources/usr/bin/ingestion-report.py ./out/v1/*.json \
+    --out ingestion_report.json
 ```
 
 ## Using the store builder directly
@@ -167,7 +168,7 @@ that the source must stay open until the write, because the expression matrix is
 `create` handles that, and it is only a consideration when composing `build` and `write` yourself.
 
 `tools/cxg-manifest.py` is not part of the pipeline and is not a module binary. It uses only the
-Python standard library, so it runs anywhere. `cxg-ingest.py` and `cxg-collect.py` ship as Nextflow
+Python standard library, so it runs anywhere. `cxg-ingest.py` and `ingestion-report.py` ship as Nextflow
 module binaries under `modules/local/*/resources/usr/bin/`.
 
 ## Output layout
