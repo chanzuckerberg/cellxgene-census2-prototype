@@ -3,7 +3,12 @@ nextflow_pipeline {
     name "parameter validation"
     script "../../main.nf"
 
+    // nf-test selects tags and cannot exclude them, so the offline tests carry
+    // their own tag rather than relying on a bare run to skip the others.
+
     test("fails clearly when no manifest is given") {
+        tag "validation"
+
         when {
             params { manifest = null }
         }
@@ -17,6 +22,8 @@ nextflow_pipeline {
     test("refuses a local outdir when the profile needs a remote one") {
         // A remote worker does not share this filesystem, so a local
         // destination would be written inside the worker and lost.
+        tag "validation"
+
         when {
             params {
                 remote_outdir_required = true
@@ -33,6 +40,13 @@ nextflow_pipeline {
         // HealthOmics validates an s3:// parameter as an existing input object,
         // so an output prefix has to be passed escaped. The pipeline normalizes
         // it, which means the remote-outdir guard must see through the escape.
+        //
+        // Tasks exist only if validation passed, so their presence is the signal
+        // this test wants. Asserting only that the error message is absent would
+        // pass for any other failure. Starting real tasks needs Docker, hence
+        // the tag; the tasks themselves are expected to fail.
+        tag "integration"
+
         when {
             params {
                 remote_outdir_required = true
@@ -42,11 +56,69 @@ nextflow_pipeline {
         then {
             // Reaches ingestion rather than being refused as a local path.
             assert !workflow.stdout.any { it.contains("must be an s3:// URI") }
+            assert workflow.trace.tasks().size() == 2
+        }
+    }
+
+    test("a boolean parameter given as the string \"false\" is false") {
+        // Every HealthOmics parameter arrives as a string, and a non-empty
+        // string is true in Groovy. Passing "true" would prove nothing, because
+        // a truthy string fails the same way. So pass "false" with a local
+        // outdir: the run must get past that guard and stop at the empty
+        // manifest instead.
+        tag "validation"
+
+        when {
+            params {
+                remote_outdir_required = "false"
+                outdir                 = "./out"
+                manifest               = "$projectDir/tests/fixtures/empty.jsonl"
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("No dataset records") }
+            assert !workflow.stdout.any { it.contains("must be an s3:// URI") }
+        }
+    }
+
+    test("fails when the manifest holds no record") {
+        tag "validation"
+
+        when {
+            params {
+                manifest = "$projectDir/tests/fixtures/empty.jsonl"
+                outdir   = "$outputDir"
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("No dataset records") }
+        }
+    }
+
+    test("the healthomics profile refuses to run without an image") {
+        // There is no usable default image: it has to be a private ECR URI in
+        // the same region. An outdir that passes the remote check isolates the
+        // container check as the reason for the failure.
+        config "./healthomics.config"
+        tag "validation"
+
+        when {
+            params {
+                outdir    = "s3_//bucket/prefix/out"
+                container = null
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("--container must be") }
         }
     }
 
     test("the healthomics profile declares that it needs a remote outdir") {
         config "./healthomics.config"
+        tag "validation"
 
         when {
             params { outdir = "./out" }

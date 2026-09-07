@@ -10,7 +10,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-OUT="${1:-$PWD/healthomics-bundle.zip}"
+# Absolute: zip runs from the staging directory, so a relative path would land
+# there and be removed with it.
+ARG="${1:-healthomics-bundle.zip}"
+OUT="$(cd "$(dirname "$ARG")" && pwd)/$(basename "$ARG")"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 

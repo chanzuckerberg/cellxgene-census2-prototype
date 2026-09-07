@@ -7,7 +7,6 @@ h5py>=3.11
 scipy>=1.11
 numpy>=1.26
 pandas>=2.1
-requests>=2.31
 # read_elem_lazy returns a dask array of sparse blocks, which is how the
 # expression matrix stays out of memory while harmonization sees a whole AnnData.
 dask>=2024.1

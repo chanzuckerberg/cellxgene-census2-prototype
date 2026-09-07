@@ -69,6 +69,9 @@ pinned exactly. The same release moved `X` into `layers[None]` in memory; on dis
 Because `X` arrives as an unevaluated dask graph, the `h5py` handle has to stay open until the
 store is written.
 
+The round trip widens the sparse index arrays of `X` from int32 to int64. The values do not change.
+`--check` therefore compares integer arrays by value and not by stored bytes.
+
 A CSR matrix cannot serve gene-axis queries. Selecting genes requires reading the whole `indices`
 array, and no chunk size, shard size, or codec changes that. Serving those queries needs a second
 orientation or a dense two-dimensional chunk grid, which is a change of output format rather than
@@ -107,6 +110,21 @@ tested without the platform. Inferring it from the profile name was untestable.
 Tests read a pinned manifest from `tests/fixtures`, so a failure means the code changed rather than
 the corpus, and they assert on the receipt, which has to stay correct anyway.
 
+Nextflow publishes nothing from a failed task. A task that has to report a failure downstream must
+therefore exit 0 and record the failure in its output. `cxg-ingest` exits 0 on a failed round-trip
+check for that reason, and `COLLECT` fails the run. Exiting non-zero there hid the receipt that
+named the failure and stopped `COLLECT` from running at all.
+
+An empty manifest gives a successful run that writes nothing, because no task runs and
+`collect()` on an empty channel emits nothing, so `COLLECT` is skipped as well. `main.nf` fails
+early instead.
+
+`nf-test --tag` selects tests and cannot exclude them, so a bare `nf-test test` runs the
+integration tests too. Every test carries a tag, and the offline set is `--tag validation`. A test
+that checks a validation rule but still reaches a task belongs with the integration set, because
+starting a task needs Docker. Assert that the tasks were created: asserting only that an error
+message is absent also passes when the run fails for some other reason.
+
 ## Rakes: AWS HealthOmics and credentials
 
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
@@ -119,6 +137,10 @@ arguments, so the platform settings have to be the defaults inside the bundle.
 `tools/build-healthomics-bundle.sh` appends that include when it builds the zip, which keeps the
 repository free of a HealthOmics-only default that would surprise a local run.
 
+HealthOmics has no boolean parameter type, so every parameter arrives as a string. A non-empty
+string is true in Groovy, so `check=false` would switch the check on. Read a boolean parameter
+through `.toString().toBoolean()`.
+
 Tasks have no public internet access; `StartRun` reports `networkingMode: RESTRICTED`. Images must
 be private ECR URIs in the same region, and ARM images are unsupported, so build `linux/amd64`.
 
@@ -128,3 +150,7 @@ directory makes it worse: the CLI then finds the configuration and tries to run 
 not there. Resolve on the host and export with `aws configure export-credentials --format env`. On
 HealthOmics and Batch the task role supplies credentials through the environment, so this matches
 the deployment target.
+
+Naming a credential variable in the Nextflow `env` scope exports an empty value when the launcher
+does not have it, and Nextflow warns once for each empty variable. `-e NAME` in
+`docker.runOptions` passes the value through and omits the variable instead.

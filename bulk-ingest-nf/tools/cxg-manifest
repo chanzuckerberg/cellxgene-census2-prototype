@@ -79,8 +79,6 @@ def order(records: list[dict], sort: str, seed: int) -> list[dict]:
         return sorted(records, key=lambda r: r["filesize"])
     if sort == "size_desc":
         return sorted(records, key=lambda r: -r["filesize"])
-    if sort == "published_at":
-        return sorted(records, key=lambda r: r["dataset_version_id"])
     if sort == "random":
         shuffled = list(records)
         random.Random(seed).shuffle(shuffled)
@@ -95,7 +93,7 @@ def main() -> int:
     p.add_argument(
         "--sort",
         default="size_asc",
-        choices=["size_asc", "size_desc", "random", "published_at"],
+        choices=["size_asc", "size_desc", "random"],
     )
     p.add_argument("--seed", type=int, default=0, help="seed for --sort random")
     p.add_argument(

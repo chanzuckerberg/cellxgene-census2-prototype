@@ -18,10 +18,18 @@ workflow {
     // names, so the rule travels with the profile and is testable on its own.
     // `s3_//` is an accepted escape for `s3://`; see modules/local/ingest/main.nf.
     def outdir = params.outdir.toString().replaceFirst('^s3_//', 's3://')
-    if (params.remote_outdir_required && !outdir.startsWith('s3://')) {
+    // Coerced for the same reason as the flags in modules/local/ingest: a
+    // parameter that arrives as a string would otherwise always be true.
+    if (params.remote_outdir_required.toString().toBoolean() && !outdir.startsWith('s3://')) {
         error "--outdir must be an s3:// URI for this execution profile.\n" +
               "  A local path cannot be published from a remote worker.\n" +
               "  Got: ${params.outdir}"
+    }
+
+    // Profiles that cannot pull a public image declare that, for the same reason
+    // as remote_outdir_required: the rule travels with the profile.
+    if (params.container_required.toString().toBoolean() && !params.container) {
+        error "--container must be a private ECR image URI for this execution profile."
     }
 
     // JSONL: one dataset per line. Each record travels whole, because the
@@ -32,6 +40,9 @@ workflow {
         .map { line -> line.trim() }
         .filter { it }
         .map { line -> new groovy.json.JsonSlurper().parseText(line) }
+        // Without this an empty manifest gives a successful run that writes
+        // nothing: no task runs, so COLLECT never runs either.
+        .ifEmpty { error "No dataset records in ${params.manifest}" }
 
     // Optional and shared by every task. An empty list stages nothing.
     ch_config  = Channel.value(params.config  ? file(params.config,  checkIfExists: true) : [])

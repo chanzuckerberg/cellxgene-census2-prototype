@@ -1,6 +1,6 @@
 # census2-bulk-ingest
 
-Ingest CZ CELLxGENE Discover datasets into AnnData-Zarr stores, one store per dataset, and
+Ingest CELLxGENE Discover datasets into AnnData-Zarr stores, one store per dataset, and
 publish them to S3.
 
 This is the ingestion step of a per-dataset store model: stores are written independently and
@@ -11,7 +11,7 @@ is **not** the Discover h5ad saved in another format.
 writes it out. It is reusable on its own; see "Using the store builder directly" below. For the
 design and the reasons behind it, read `CLAUDE.md`.
 
-Not every dataset is admitted. A rejection is a normal success: no store is written, and the
+Not every dataset is admitted. A rejection is not an error: no store is written, and the
 receipt records `admitted: false` with a reason. Which datasets Census 2 admits is not decided
 yet, so today everything is admitted.
 Harmonization is currently a stub that returns its input, so today's output does still match its
@@ -66,11 +66,10 @@ Results land in `./out/v1/<dataset_version_id>.zarr`, with one receipt JSON besi
 
 A local destination is published by Nextflow from the task's declared output, so any local path
 works. A remote destination is written straight to object storage by the task, and the directory
-output is absent. On HealthOmics `--outdir` must be an `s3://` URI, and the pipeline refuses a
-local path rather than discarding the output.
+output is absent.
 
-Write straight to S3 instead, and read the manifest from S3 as well. Stores are written to their
-final location; there is no staging step.
+To write straight to S3, give `--outdir` a remote prefix and read the manifest from S3 as well.
+Stores go to their final location; there is no staging step.
 
 ```bash
 aws s3 cp manifest.jsonl s3://my-bucket/census2-ingest/manifest.jsonl
@@ -83,8 +82,8 @@ nextflow run . -profile docker \
 Policy lives in the configuration rather than in separate flags. `all_slots` is a config key
 today, with `--all_slots` as a convenience override. Admission and harmonization will need more
 configuration and some reference data; both are stubbed. `--config FILE` and `--refdata DIR` are
-staged into every task and recorded in the receipt, but no config file format is defined yet. They are staged rather than fetched because a HealthOmics
-task has no internet access.
+staged into every task and recorded in the receipt, but no config file format is defined yet.
+They are staged rather than fetched because a HealthOmics task has no internet access.
 
 Because a store is written in place, a reader can see it partially written. Consolidated metadata
 is written last, so opening with `zarr.open_consolidated` fails on an incomplete store rather than
@@ -97,7 +96,7 @@ returning part of one.
 | `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
 | `--all_slots` | `false` | Override the config's `all_slots`: carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`. |
-| `--check` | `false` | Verify each output against its source. Meaningful only while harmonization is a stub. |
+| `--check` | `false` | Verify each output against its source. A failure lands in the receipt and `COLLECT` fails the run. Meaningful only while harmonization is a stub. |
 | `--config` | none | Ingestion configuration file, staged into every task. Holds policy such as `all_slots`; the file format is not defined yet. |
 | `--refdata` | none | Directory of reference data, staged into every task. Nothing reads it yet. |
 
@@ -109,9 +108,9 @@ returning part of one.
 |---|---|---|
 | `--organism` | `NCBITaxon:9606` | Ontology term ID. A dataset is included if any of its organisms matches. |
 | `--limit` | `0` | Take the first N after sorting. `0` means all. |
-| `--sort` | `size_asc` | `size_asc`, `size_desc`, `random`, or `published_at`. |
+| `--sort` | `size_asc` | `size_asc`, `size_desc`, or `random`. |
 | `--seed` | `0` | Seed for `--sort random`. |
-| `--schema-version` | none | Omit for the current corpus. See `CLAUDE.md` section 4. |
+| `--schema-version` | none | Omit for the current corpus. See "Rakes: upstream data" in `CLAUDE.md`. |
 | `--source-bucket` | `dataset-assets-public-prod` | Bucket holding the source `.h5ad` files. |
 
 By default the pipeline writes the Census slot set: `obs`, `var`, `X`, `raw`, and two `uns` keys.
@@ -122,16 +121,21 @@ Use `--all_slots` when the consumer needs a complete CxG object.
 | Profile | Use |
 |---|---|
 | `docker` | Run tasks locally in the runtime image. Credentials come from the environment. |
-| `healthomics` | Run on AWS HealthOmics. Set `--container` to a private ECR URI. |
+| `healthomics` | Run on AWS HealthOmics. `--container` is required and must be a private ECR URI. |
 
 ## Running a component alone
 
-Each step is a plain script and runs without Nextflow:
+Each step is a plain script and runs without Nextflow. Nextflow puts the module binaries on
+`PATH` inside a task; from a shell, call them by path. `cxg-ingest` needs the image's Python
+dependencies, so run it in the image or in a virtualenv built from `docker/requirements.txt`.
 
 ```bash
 tools/cxg-manifest --limit 5 --sort size_asc --out manifest.jsonl
-cxg-ingest --record "$(head -1 manifest.jsonl)" --outdir ./out --check
-cxg-collect ./*.json --out run_summary.json
+
+modules/local/ingest/resources/usr/bin/cxg-ingest \
+    --record "$(head -1 manifest.jsonl)" --outdir ./out --check
+
+modules/local/collect/resources/usr/bin/cxg-collect ./out/v1/*.json --out run_summary.json
 ```
 
 ## Using the store builder directly
@@ -168,14 +172,14 @@ module binaries under `modules/local/*/resources/usr/bin/`.
 ## Output layout
 
 ```
-<outdir>/v1/<dataset_version_id>.zarr/    the store, if the dataset was admitted
-<outdir>/v1/<dataset_version_id>.json     the receipt, always
+<outdir>/<recipe>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
+<outdir>/<recipe>/<dataset_version_id>.json     the receipt, always
 ```
 
 `<recipe>` is `v1`. It covers the anndata version, the Zarr format, the X encoding, the slot
 policy, and harmonization. Raise it when any of those change. Outputs are keyed on
-`dataset_version_id`, which names an immutable snapshot, so
-a rerun can skip work by listing the prefix and subtracting it from the manifest.
+`dataset_version_id`, which names an immutable snapshot, so a rerun can skip work by listing
+the prefix and subtracting it from the manifest.
 
 ## AWS HealthOmics
 
@@ -206,9 +210,13 @@ Tests use [nf-test](https://www.nf-test.com). They run against a pinned manifest
 datasets are smallest today.
 
 ```bash
-nf-test test                      # validation only: fast, no network, no credentials
-nf-test test --tag integration    # also ingests the pinned datasets from object storage
+nf-test test --tag validation     # parameter validation: fast, no network, no credentials
+nf-test test --tag integration    # ingests the pinned datasets from object storage
+nf-test test                      # both of the above
 ```
+
+nf-test can only select tags, not exclude them, so a bare `nf-test test` includes the
+integration tests.
 
 Install nf-test with `curl -fsSL https://get.nf-test.com | bash`. It needs a JRE on `PATH`, which
 Nextflow does not provide; set `JAVA_HOME` if `java` is missing.

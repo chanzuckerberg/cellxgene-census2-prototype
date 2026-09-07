@@ -70,23 +70,48 @@ def ingest(src: str, dest: str, *, config=None, refdata=None) -> dict:
 
 
 def check(src: str, dst: str) -> dict:
-    """Compare the Zarr output against the h5ad source, field by field."""
+    """Compare the Zarr output against the h5ad source, field by field.
+
+    `compared` lists what the comparison covered, so a check that silently
+    covered nothing is visible in the receipt instead of reading as a pass.
+    """
     import hashlib
 
     import pandas as pd
 
-    result: dict = {"passed": True}
+    result: dict = {"passed": True, "compared": []}
 
     def fail(name, detail):
         result["passed"] = False
         result.setdefault("failures", []).append(f"{name}: {detail}")
+
+    # Walk one segment at a time. h5py and zarr both support that, while support
+    # for a nested "raw/X" lookup differs between them.
+    def has(node, path):
+        for part in path.split("/"):
+            if part not in node:
+                return False
+            node = node[part]
+        return True
+
+    def get(node, path):
+        for part in path.split("/"):
+            node = node[part]
+        return node
 
     def digest(arr):
         h = hashlib.sha256()
         n = arr.shape[0]
         step = max(1, census2_store.BLOCK_BYTES // max(arr.dtype.itemsize, 1))
         for i in range(0, n, step):
-            h.update(np.ascontiguousarray(arr[i : min(i + step, n)]).tobytes())
+            block = np.ascontiguousarray(arr[i : min(i + step, n)])
+            # The round trip widens sparse index arrays from int32 to int64, so
+            # hashing the raw bytes would report a difference that is not one.
+            # Integers compare by value; floats stay strict, because a change of
+            # precision in the data is worth reporting.
+            if block.dtype.kind in "iu":
+                block = block.astype(np.int64, copy=False)
+            h.update(block.tobytes())
         return h.hexdigest()[:16]
 
     with h5py.File(src, "r") as f:
@@ -98,6 +123,7 @@ def check(src: str, dst: str) -> dict:
 
         for key in ("obs", "var"):
             a, b = read_elem(f[key]), read_elem(zroot[key])
+            result["compared"].append(key)
             if not a.index.equals(b.index):
                 fail(key, "index differs")
             if list(a.columns) != list(b.columns):
@@ -109,19 +135,39 @@ def check(src: str, dst: str) -> dict:
                     if list(a[col].cat.categories) != list(b[col].cat.categories):
                         fail(f"{key}.{col}", "categories differ")
 
+        # An absent matrix is only acceptable when neither side has it. Skipping
+        # a present one would let the check pass having compared nothing.
         for path in ("X", "raw/X"):
-            if path not in f or path not in zroot:
+            in_src, in_out = has(f, path), has(zroot, path)
+            if not in_src and not in_out:
                 continue
-            h5o, zo = f[path], zroot[path]
-            if not isinstance(h5o, h5py.Group):
+            if not in_out:
+                fail(path, "missing from the store")
                 continue
-            if h5o["data"].shape != zo["data"].shape:
-                fail(path, f"nnz {h5o['data'].shape} != {zo['data'].shape}")
+            if not in_src:
+                fail(path, "in the store but not in the source")
                 continue
-            for part in ("data", "indices", "indptr"):
-                if digest(h5o[part]) != digest(zo[part]):
-                    fail(f"{path}/{part}", "checksum differs")
-            result[f"{path}.nnz"] = int(h5o["data"].shape[0])
+
+            h5o, zo = get(f, path), get(zroot, path)
+            if isinstance(h5o, h5py.Group):  # sparse
+                if h5o["data"].shape != zo["data"].shape:
+                    fail(path, f"nnz {h5o['data'].shape} != {zo['data'].shape}")
+                    continue
+                for part in ("data", "indices", "indptr"):
+                    if digest(h5o[part]) != digest(zo[part]):
+                        fail(
+                            f"{path}/{part}",
+                            f"values differ (h5ad {h5o[part].dtype}, zarr {zo[part].dtype})",
+                        )
+                result[f"{path}.nnz"] = int(h5o["data"].shape[0])
+            else:  # dense
+                if tuple(h5o.shape) != tuple(zo.shape):
+                    fail(path, f"shape {h5o.shape} != {zo.shape}")
+                    continue
+                if digest(h5o) != digest(zo):
+                    fail(path, "checksum differs")
+                result[f"{path}.shape"] = list(h5o.shape)
+            result["compared"].append(path)
 
     return result
 
@@ -190,7 +236,12 @@ def main() -> int:
         default=None,
         help="directory of reference data, staged by the workflow (optional)",
     )
-    p.add_argument("--check", action="store_true", help="verify the output against the source")
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the output against the source; a failure lands in the receipt "
+             "and COLLECT fails the run",
+    )
     p.add_argument(
         "--stage-local",
         action="store_true",
@@ -304,8 +355,10 @@ def main() -> int:
     else:
         log(f"done {version_id} in {receipt['elapsed_sec']}s, no store written")
 
-    if receipt.get("check") and not receipt["check"]["passed"]:
-        return 1
+    # A failed check is recorded, not raised. Nextflow publishes nothing from a
+    # failed task, so exiting non-zero here would hide the receipt that names the
+    # failure and would stop COLLECT from running. COLLECT fails the run instead,
+    # which also reports every failure together rather than only the first.
     return 0
 
 

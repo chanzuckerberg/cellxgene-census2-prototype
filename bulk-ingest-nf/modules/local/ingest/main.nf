@@ -25,12 +25,15 @@ process INGEST {
     // ~0.23 GiB and the largest is ~50 GiB, so a fixed request either wastes
     // most of the fleet or dies on the tail. Each retry raises the request.
     memory { def gib = (meta.filesize as long) / (1024L ** 3)
-             def want = Math.max(4.0d, gib * 2.5d) * task.attempt
-             (Math.min(want, 128.0d) as int).GB }
+             def want = (Math.max(4.0d, gib * 2.5d) * task.attempt as int).GB
+             def cap  = params.max_memory as nextflow.util.MemoryUnit
+             want > cap ? cap : want }
 
-    // Staged h5ad plus the local zarr, both on scratch before the sync.
+    // Staged h5ad plus the local zarr, both on scratch before the sync. This
+    // also rises with the attempt, so a retry after a full disk can succeed.
     disk   { def gib = (meta.filesize as long) / (1024L ** 3)
-             (Math.max(8.0d, gib * 2.5d) as int).GB }
+             def want = Math.max(8.0d, gib * 2.5d) * task.attempt
+             (want as int).GB }
 
     input:
     val meta
@@ -51,8 +54,10 @@ process INGEST {
     // workflow publishes; with a remote one the task writes to object storage.
     def outdir = params.outdir.toString().replaceFirst('^s3_//', 's3://')
     def stage  = outdir.startsWith('s3://') ? '' : '--stage-local'
-    def all    = params.all_slots ? '--all-slots' : ''
-    def chk    = params.check     ? '--check'     : ''
+    // A HealthOmics parameter always arrives as a string, and a non-empty string
+    // is true in Groovy, so a plain truth test would read "false" as true.
+    def all    = params.all_slots.toString().toBoolean() ? '--all-slots' : ''
+    def chk    = params.check.toString().toBoolean()     ? '--check'     : ''
     def cfg    = config  ? "--config ${config}"   : ''
     def ref    = refdata ? "--refdata ${refdata}" : ''
     """

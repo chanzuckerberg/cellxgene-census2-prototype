@@ -28,6 +28,9 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
+                // A pass means nothing unless the check compared the matrices.
+                assert rec.check.compared.contains("X")
+                assert rec.check.compared.contains("raw/X")
                 assert rec.output_bytes > 0
                 assert rec.published_by == "workflow"
                 assert rec.recipe == "v1"
@@ -62,6 +65,30 @@ nextflow_pipeline {
             }
             // Every pinned dataset carries more than the Census set.
             assert slotCounts.every { it > 5 }
+        }
+    }
+
+    test("string \"false\" disables a flag, as HealthOmics passes it") {
+        // HealthOmics has no boolean type, so these arrive as strings.
+        when {
+            params {
+                outdir    = "$outputDir"
+                all_slots = "false"
+                check     = "false"
+            }
+        }
+        then {
+            assert workflow.success
+
+            def receipts = path("$outputDir/v1").list().findAll { it.toString().endsWith(".json") }
+            assert receipts.size() == 2
+            receipts.each { r ->
+                def rec = new groovy.json.JsonSlurper().parse(r.toFile())
+                assert rec.slot_policy == "census"
+                assert rec.config_effective.all_slots == false
+                // No check ran, so the receipt carries no check block.
+                assert rec.check == null
+            }
         }
     }
 
