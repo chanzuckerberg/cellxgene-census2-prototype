@@ -1,0 +1,16 @@
+# Pinned exactly: anndata 0.13 changed the default zarr write format to v3 with
+# automatic sharding. Re-read the anndata release notes before bumping this.
+anndata==0.13.*
+zarr>=3.1,<4
+numcodecs>=0.15
+h5py>=3.11
+scipy>=1.11
+numpy>=1.26
+pandas>=2.1
+requests>=2.31
+# read_elem_lazy returns a dask array of sparse blocks, which is how the
+# expression matrix stays out of memory while harmonization sees a whole AnnData.
+dask>=2024.1
+# zarr has no S3 client of its own. obstore is the lean backend: two packages,
+# against twenty for s3fs. Lets --outdir be an s3:// URI.
+obstore>=0.11

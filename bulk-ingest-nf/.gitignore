@@ -1,0 +1,14 @@
+# Nextflow
+work/
+.nextflow/
+.nextflow.log*
+# nf-test
+.nf-test/
+.nf-test.log
+nf-test
+# pipeline output
+out/
+reports/
+# scratch manifests; tests/fixtures/manifest.jsonl is tracked on purpose
+/*.jsonl
+healthomics-bundle.zip

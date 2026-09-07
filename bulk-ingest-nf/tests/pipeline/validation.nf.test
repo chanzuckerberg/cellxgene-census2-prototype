@@ -1,0 +1,59 @@
+nextflow_pipeline {
+
+    name "parameter validation"
+    script "../../main.nf"
+
+    test("fails clearly when no manifest is given") {
+        when {
+            params { manifest = null }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("Missing --manifest") }
+            assert workflow.stdout.any { it.contains("tools/cxg-manifest") }
+        }
+    }
+
+    test("refuses a local outdir when the profile needs a remote one") {
+        // A remote worker does not share this filesystem, so a local
+        // destination would be written inside the worker and lost.
+        when {
+            params {
+                remote_outdir_required = true
+                outdir                 = "./out"
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("must be an s3:// URI") }
+        }
+    }
+
+    test("s3_// is accepted as an escape for s3:// and satisfies the remote requirement") {
+        // HealthOmics validates an s3:// parameter as an existing input object,
+        // so an output prefix has to be passed escaped. The pipeline normalizes
+        // it, which means the remote-outdir guard must see through the escape.
+        when {
+            params {
+                remote_outdir_required = true
+                outdir                 = "s3_//bucket/prefix/out"
+            }
+        }
+        then {
+            // Reaches ingestion rather than being refused as a local path.
+            assert !workflow.stdout.any { it.contains("must be an s3:// URI") }
+        }
+    }
+
+    test("the healthomics profile declares that it needs a remote outdir") {
+        config "./healthomics.config"
+
+        when {
+            params { outdir = "./out" }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("must be an s3:// URI") }
+        }
+    }
+}

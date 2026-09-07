@@ -1,0 +1,87 @@
+nextflow_pipeline {
+
+    name "ingestion"
+    script "../../main.nf"
+
+    // These fetch real datasets from object storage, so they need AWS
+    // credentials in the environment and take a minute. Run them with
+    //   nf-test test --tag integration
+    tag "integration"
+
+    test("ingests the pinned datasets and verifies each round trip") {
+        when {
+            params {
+                outdir = "$outputDir"
+                check  = true
+            }
+        }
+        then {
+            assert workflow.success
+
+            // One store and one receipt per manifest line.
+            def receipts = path("$outputDir/v1").list().findAll { it.toString().endsWith(".json") }
+            def stores   = path("$outputDir/v1").list().findAll { it.toString().endsWith(".zarr") }
+            assert receipts.size() == 2
+            assert stores.size() == 2
+
+            receipts.each { r ->
+                def rec = new groovy.json.JsonSlurper().parse(r.toFile())
+                assert rec.admitted
+                assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
+                assert rec.output_bytes > 0
+                assert rec.published_by == "workflow"
+                assert rec.recipe == "v1"
+                // Default policy is the Census slot set, not a whole dataset.
+                assert rec.slot_policy == "census"
+                assert rec.slots_written.contains("X")
+                assert rec.slots_written.contains("raw")
+            }
+        }
+    }
+
+    test("all_slots carries the optional slots and the full uns") {
+        when {
+            params {
+                outdir    = "$outputDir"
+                all_slots = true
+                check     = true
+            }
+        }
+        then {
+            assert workflow.success
+
+            def receipts = path("$outputDir/v1").list().findAll { it.toString().endsWith(".json") }
+            assert receipts.size() == 2
+
+            def slotCounts = receipts.collect { r ->
+                def rec = new groovy.json.JsonSlurper().parse(r.toFile())
+                assert rec.slot_policy == "all"
+                assert rec.config_effective.all_slots == true
+                assert rec.check.passed
+                rec.slots_written.size()
+            }
+            // Every pinned dataset carries more than the Census set.
+            assert slotCounts.every { it > 5 }
+        }
+    }
+
+    test("the store is a readable AnnData-Zarr, not just a directory of files") {
+        when {
+            params { outdir = "$outputDir" }
+        }
+        then {
+            assert workflow.success
+            def stores = path("$outputDir/v1").list().findAll { it.toString().endsWith(".zarr") }
+            assert stores.size() == 2
+            stores.each { s ->
+                // Consolidated metadata is written last, so its presence is also
+                // the signal that the store is complete.
+                assert path("${s}/zarr.json").exists()
+                assert path("${s}/obs").exists()
+                assert path("${s}/var").exists()
+                assert path("${s}/X").exists()
+                assert path("${s}/raw").exists()
+            }
+        }
+    }
+}
