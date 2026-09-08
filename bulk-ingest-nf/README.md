@@ -9,14 +9,11 @@ record per dataset. The pipeline then runs one task per dataset: fetch the sourc
 Discover's asset bucket on S3, build the store, write the store and a receipt to `--outdir`. A
 final task reads the receipts and reports on the run.
 
-What a store contains is not decided here. That belongs to `census2-store`, a package at the
-repository root which the runtime image installs as a dependency: it decides whether a dataset is
-admitted, what a store carries, and writes it out. This pipeline is the I/O around it. Read that
-package's docs for the data model, and `CLAUDE.md` here for this pipeline's.
-
-Two of those decisions are still stubs. Every dataset is admitted, because which datasets Census 2
-admits is undecided. Harmonization returns its input, so a store still matches its source. Both
-will change.
+What a store contains is not decided here. That belongs to
+[`census2-store`](../census2-store/README.md), a package at the repository root which the runtime
+image installs as a dependency: it decides whether a dataset is admitted, what a store carries, and
+writes it out. This pipeline is the I/O around it; [`CLAUDE.md`](CLAUDE.md) records how it is put
+together.
 
 ## Requirements
 
