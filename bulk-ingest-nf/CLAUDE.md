@@ -106,8 +106,8 @@ The dependency set is declared once, in `census2-store/pyproject.toml`. The imag
 staging that file beside an empty module, so that pip resolves the dependencies without the
 package, and a later layer replaces the module with the real source. pip has no flag for
 dependencies only, and the alternative is a second list to keep in step. The layer split is what
-makes the trick worth it: the dependencies are about 400 MB against about 1 MB for the package, so
-editing the package rebuilds only the small layer.
+makes the trick worth it: the dependencies are bulky and the package is tiny, so editing the
+package rebuilds only the small layer.
 
 Nothing pins an exact version. The bound that matters is `anndata<0.14`, and every receipt records
 the versions that wrote a store.
@@ -115,12 +115,12 @@ the versions that wrote a store.
 uv and pixi were both considered, and the image stays on pip for now.
 
 uv installs a project's dependencies directly, with `-r pyproject.toml`, which reads better than
-the stub. It is another build tool, and it does not precompile bytecode, which takes about 87 MB
-off the image and moves that work to the first import inside each container.
+the stub. It is another build tool, and it does not precompile bytecode, which trades image size
+against work at the first import in each container.
 
 pixi is feasible rather than hypothetical: an image built from a `pixi.lock` ran the pipeline end
 to end, with the same resolved versions. It produces one lock file covering `linux-64`,
-`linux-aarch64`, and `osx-arm64`, and it removes 48 lines of apt and AWS CLI setup from the
+`linux-aarch64`, and `osx-arm64`, and it removes the apt layer and the AWS CLI install from the
 Dockerfile, because conda-forge carries every dependency this project uses, `obstore` included,
 along with `awscli` version 2 and `procps-ng`. The image is larger. pixi also needs every platform
 declared, and a package that exists for only some of them, such as `procps-ng`, has to move to
