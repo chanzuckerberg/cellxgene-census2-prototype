@@ -1,8 +1,8 @@
 # census2-store
 
 The data model: what a Census 2 store contains. `README.md` covers installing and using it, and
-the module docstring in `src/census2_store/__init__.py` is the design record — the three decisions,
-the memory contract, and the constraints on anything added to `harmonize`.
+the module docstring in `src/census2_store/__init__.py` is the design record: the three
+decisions, the memory contract, and the constraints on anything added to `harmonize`.
 
 This file records the rakes: what cost us effort to find, and what is easy to step on again. The
 repository root `CLAUDE.md` gives the Census 2 tentpoles and the code and documentation policy.
@@ -24,9 +24,9 @@ consolidation is redundant. Consolidated metadata is written last, so a reader t
 `zarr.open_consolidated` fails on a partially written store instead of reading part of one.
 
 anndata 0.13 made Zarr v3 the default write format with automatic sharding, so `pyproject.toml`
-declares `anndata>=0.13,<0.14`. The upper bound is the constraint that matters, and it is the only
-place any component states it: the runtime image resolves its dependencies from this file. The same release moved `X` into `layers[None]` in memory; on disk `X` stays at
-`/X`.
+declares `anndata>=0.13,<0.14`. The upper bound is the constraint that matters, and this is the
+only place any component states it: the runtime image resolves its dependencies from this file.
+The same release moved `X` into `layers[None]` in memory; on disk `X` stays at `/X`.
 
 `anndata.experimental.read_lazy` looks like the natural way to get a lazy whole object, but as of
 0.13 it does not round-trip: anndata cannot write an AnnData whose `obs` is a `Dataset2D`, and
@@ -58,6 +58,13 @@ back a wide union. The annotations here narrow at the boundary with `cast`, whic
 know that the checker cannot: for a matrix, `read_elem_lazy` returns a dask array, and the memory
 contract depends on that.
 
-h5py ships no type information, so `H5Matrix` and `Source` are `Any` with a comment naming what a
-caller must pass. `pandas-stubs` is a dev dependency, and without it `obs` and `var` check as `Any`
-rather than as DataFrames.
+h5py alone ships no type information, so `H5Matrix` and `Source` are `Any` with a comment naming
+what a caller must pass, and h5py is the only entry in the `ignore_missing_imports` override.
+Everything else is typed: dask, obstore, anndata and zarr ship `py.typed`, and `pandas-stubs` and
+`scipy-stubs` are dev dependencies. Adding a package to that override throws away types we can
+have; that is how `adata.X` being `Optional` stayed hidden in a test fixture.
+
+`Result` and `Receipt` are `TypedDict`s rather than named tuples, because both serialize into JSON
+and callers index them. A `TypedDict` is closed, which is why `Config` is not one: the config file
+format is undecided and has to carry keys we have not named. When that format is designed it needs
+run-time validation, not annotations, because it is external input.
