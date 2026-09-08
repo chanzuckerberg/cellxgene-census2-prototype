@@ -4,28 +4,19 @@ A Nextflow pipeline that converts CELLxGENE Discover datasets into Census 2 stor
 AnnData-Zarr store per dataset, written independently and composed at query time through a
 catalog. It runs locally under Docker, and on AWS HealthOmics.
 
-A run starts from a manifest, one JSON record per dataset, which `tools/cxg-manifest.py` prepares
-from the Discover API. The pipeline then runs one task per dataset: it fetches the source h5ad from
-Discover's asset bucket, builds the store, and writes the store and a receipt to `--outdir`. A
-final task reads every receipt and reports on the run as a whole.
-
-The source is always on S3, and it refuses anonymous reads, so every run needs AWS credentials
-that can read it. The destination is your choice: `--outdir` takes a local path or an `s3://`
-prefix, and only a remote one also needs write access. HealthOmics requires a remote destination,
-because its workers do not share the filesystem you launch from. Nothing in the pipeline reaches
-the public internet, which is what lets it run there at all.
+A run starts from a manifest that `tools/cxg-manifest.py` prepares from the Discover API, one
+record per dataset. The pipeline then runs one task per dataset: fetch the source h5ad from
+Discover's asset bucket on S3, build the store, write the store and a receipt to `--outdir`. A
+final task reads the receipts and reports on the run.
 
 What a store contains is not decided here. That belongs to `census2-store`, a package at the
-repository root: it decides whether a dataset is admitted, what a store carries, and writes it out,
-and the runtime image installs it as a dependency. This pipeline is the I/O around it — fetching,
-publishing, receipts, and per-dataset resources. Read that package's docs for the data model, and
-`CLAUDE.md` here for how this pipeline is put together.
+repository root which the runtime image installs as a dependency: it decides whether a dataset is
+admitted, what a store carries, and writes it out. This pipeline is the I/O around it. Read that
+package's docs for the data model, and `CLAUDE.md` here for this pipeline's.
 
-Two of those decisions are still stubs, which shapes what a run means today. Every dataset is
-admitted, because which datasets Census 2 admits is undecided; a rejection, when there is one, is
-not an error, and the receipt records `admitted: false` with a reason while the task succeeds.
-Harmonization returns its input, so a store today still matches its source, which is what makes
-`--check` able to compare the two. Both will change.
+Two of those decisions are still stubs. Every dataset is admitted, because which datasets Census 2
+admits is undecided. Harmonization returns its input, so a store still matches its source. Both
+will change.
 
 ## Requirements
 
@@ -178,6 +169,9 @@ package rather than as a staged file.
 <outdir>/<recipe>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
 <outdir>/<recipe>/<dataset_version_id>.json     the receipt, always
 ```
+
+A rejection is not an error: the task succeeds, no store is written, and the receipt records
+`admitted: false` with a reason.
 
 `<recipe>` is `census2_store.RECIPE`, `v1` today. It covers the anndata version, the Zarr format,
 the X encoding, the slot policy, and harmonization. Raise it there when any of those change. Outputs are keyed on
