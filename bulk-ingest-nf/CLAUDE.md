@@ -100,6 +100,47 @@ escape test: that one writes to object storage, and against a mock it would pass
 anything. Note that `nf-test list` takes `--tags` rather than `--tag`, and does not filter the way
 `test` does.
 
+## Rakes: dependency tooling
+
+The dependency set is declared once, in `census2-store/pyproject.toml`. The image installs it by
+staging that file beside an empty module, so that pip resolves the dependencies without the
+package, and a later layer replaces the module with the real source. pip has no flag for
+dependencies only, and the alternative is a second list to keep in step. The layer split is what
+makes the trick worth it: the dependencies are about 400 MB against about 1 MB for the package, so
+a source edit rebuilds in roughly 4 seconds.
+
+Nothing pins an exact version. The bound that matters is `anndata<0.14`, and every receipt records
+the versions that wrote a store. Generate a lock file when a rebuild has to resolve identically.
+
+uv and pixi were both considered. uv installs a project's dependencies directly, with
+`-r pyproject.toml`, which reads better than the stub. It is another build tool, and it does not
+precompile bytecode: 87 MB off the image, and up to 0.74 s more per task start.
+
+pixi was measured rather than guessed:
+
+| | pip | pixi |
+|---|---|---|
+| image | 828 MB | 1.11 GB |
+| cold `import census2_store` | 0.7-1.3 s | 1.9 s |
+| lock file | none | 345 KB, three platforms |
+| OS setup in the Dockerfile | 48 lines | none |
+
+Every dependency is on conda-forge at the versions we already use, `obstore` included, and
+`awscli` there is version 2, so pixi removes both the apt layer and the AWS CLI install. It also
+locks `linux-64`, `linux-aarch64`, and `osx-arm64` in one file. Against that, pixi is an
+environment manager, so it owns the local loop and CI as well as the image, and it needs every
+platform declared: a Linux-only package such as `procps-ng` has to move to
+`[target.linux-64.dependencies]`, or the lock fails on `osx-arm64`. A pixi image did run the
+pipeline end to end, so this is a question of scope and not of feasibility.
+
+Two questions the evaluation left open: whether TLS to real S3 works with no apt
+`ca-certificates` layer, because the test only reached a local mock over HTTP, and whether the
+environment relocates, because it stayed at its build path.
+
+Revisit pixi when the second component lands, or when a store has to be reproducible from a
+rebuilt image. At that point it is the better answer than a `uv.lock`, because of conda-forge's
+coverage of the scientific binaries.
+
 ## Rakes: AWS HealthOmics and credentials
 
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
