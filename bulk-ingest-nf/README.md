@@ -9,10 +9,11 @@ from the Discover API. The pipeline then runs one task per dataset: it fetches t
 Discover's asset bucket, builds the store, and writes the store and a receipt to `--outdir`. A
 final task reads every receipt and reports on the run as a whole.
 
-Both ends are on S3, so a run needs AWS credentials that can read the source bucket and write the
-destination; the source bucket refuses anonymous reads. `--outdir` is a local path or an `s3://`
-prefix. Nothing in the pipeline reaches the public internet, which is what lets it run on
-HealthOmics, where a task has no route to it.
+The source is always on S3, and it refuses anonymous reads, so every run needs AWS credentials
+that can read it. The destination is your choice: `--outdir` takes a local path or an `s3://`
+prefix, and only a remote one also needs write access. HealthOmics requires a remote destination,
+because its workers do not share the filesystem you launch from. Nothing in the pipeline reaches
+the public internet, which is what lets it run there at all.
 
 What a store contains is not decided here. That belongs to `census2-store`, a package at the
 repository root: it decides whether a dataset is admitted, what a store carries, and writes it out,
