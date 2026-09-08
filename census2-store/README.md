@@ -5,7 +5,10 @@ Convert one CELLxGENE Discover dataset into one Census 2 store.
 A Census 2 store is an AnnData-Zarr store holding a single dataset, written independently and
 composed at query time through a catalog. This package is the data model: what a store contains,
 and the [three decisions](#the-three-decisions) behind it. The bulk ingestion pipeline runs this
-same code, so a store you build here matches a store the Census publishes.
+same code, so what you build here is what that pipeline writes.
+
+Two of those three decisions are stubs today, so a store is currently the dataset's Census slot set
+written to Zarr, and no more than that. Both stubs will change what a store contains.
 
 It reads one dataset at a time and never the corpus. That is a constraint the data model lives
 with, not a feature it lacks. The module docstring in
