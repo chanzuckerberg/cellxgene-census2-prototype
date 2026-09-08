@@ -1,22 +1,30 @@
 # census2-bulk-ingest
 
-Ingest CELLxGENE Discover datasets into AnnData-Zarr stores, one store per dataset, and
-publish them to S3.
+A Nextflow pipeline that converts CELLxGENE Discover datasets into Census 2 stores in bulk: one
+AnnData-Zarr store per dataset, written independently and composed at query time through a
+catalog. It runs locally under Docker, and on AWS HealthOmics.
 
-This is the ingestion step of a per-dataset store model: stores are written independently and
-composed at query time through a catalog. Harmonization is applied during ingestion, so a store
-is **not** the Discover h5ad saved in another format.
+A run starts from a manifest, one JSON record per dataset, which `tools/cxg-manifest.py` prepares
+from the Discover API. The pipeline then runs one task per dataset: it fetches the source h5ad from
+Discover's asset bucket, builds the store, and writes the store and a receipt to `--outdir`. A
+final task reads every receipt and reports on the run as a whole.
 
-The data model lives in `census2-store/`, a package at the repository root: it decides whether a
-dataset is admitted at all, what a store contains, and writes it out. This pipeline is the I/O
-around it, and the runtime image installs it like any other dependency. For the design and the
-reasons behind it, read that package's docs; for this pipeline's, read `CLAUDE.md` here.
+Both ends are on S3, so a run needs AWS credentials that can read the source bucket and write the
+destination; the source bucket refuses anonymous reads. `--outdir` is a local path or an `s3://`
+prefix. Nothing in the pipeline reaches the public internet, which is what lets it run on
+HealthOmics, where a task has no route to it.
 
-Not every dataset is admitted. A rejection is not an error: no store is written, and the
-receipt records `admitted: false` with a reason. Which datasets Census 2 admits is not decided
-yet, so today everything is admitted.
-Harmonization is currently a stub that returns its input, so today's output does still match its
-source. That is temporary. Which steps get applied is not decided yet.
+What a store contains is not decided here. That belongs to `census2-store`, a package at the
+repository root: it decides whether a dataset is admitted, what a store carries, and writes it out,
+and the runtime image installs it as a dependency. This pipeline is the I/O around it — fetching,
+publishing, receipts, and per-dataset resources. Read that package's docs for the data model, and
+`CLAUDE.md` here for how this pipeline is put together.
+
+Two of those decisions are still stubs, which shapes what a run means today. Every dataset is
+admitted, because which datasets Census 2 admits is undecided; a rejection, when there is one, is
+not an error, and the receipt records `admitted: false` with a reason while the task succeeds.
+Harmonization returns its input, so a store today still matches its source, which is what makes
+`--check` able to compare the two. Both will change.
 
 ## Requirements
 
