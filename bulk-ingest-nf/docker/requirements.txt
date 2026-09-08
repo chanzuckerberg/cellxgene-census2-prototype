@@ -1,3 +1,8 @@
+# The image's dependency set, pinned. census2-store declares the same
+# dependencies as ranges, because a library states what it works with and an
+# application fixes it. This file is that fixing, and it also lets the Dockerfile
+# install the package with --no-deps, so a package edit rebuilds one small layer.
+#
 # Pinned exactly: anndata 0.13 changed the default zarr write format to v3 with
 # automatic sharding. Re-read the anndata release notes before bumping this.
 anndata==0.13.*
@@ -11,5 +16,6 @@ pandas>=2.1
 # expression matrix stays out of memory while harmonization sees a whole AnnData.
 dask>=2024.1
 # zarr has no S3 client of its own. obstore is the lean backend: two packages,
-# against twenty for s3fs. Lets --outdir be an s3:// URI.
+# against twenty for s3fs. Lets --outdir be an s3:// URI, and satisfies the
+# census2-store [s3] extra.
 obstore>=0.11

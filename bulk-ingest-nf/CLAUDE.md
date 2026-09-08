@@ -8,32 +8,13 @@ us effort to find, and that are easy to step on again.
 
 ## Python style
 
-Lint and format the Python code with `pipx run ruff` before you commit a change to it. Run it in
-this order, and let ruff fix as much as it can before you touch anything yourself:
+See the repository root `CLAUDE.md`. Every script here is glue, so ruff applies and `mypy --strict`
+does not.
 
-```bash
-pipx run ruff check --fix .     # ruff fixes what it can
-pipx run ruff format .
-pipx run ruff check .           # then work through what is left, by hand
-```
-
-`pipx run` takes the current ruff release, and we take its default rules and its default width.
-There is no ruff configuration file, and nothing pins a version. This suits a small codebase at the
-start of a project: the defaults cost us no decisions, and a release that moves them costs little
-to absorb. CI runs these same unpinned commands, so a runner and a workstation cannot disagree. The
-cost is that a ruff release can fail a commit that changed nothing, and the fix is to run the
-commands again and commit the result.
-
-Every Python file carries a `.py` extension, the Nextflow module binaries included. Ruff finds
-files by extension, so a script without one is skipped without a word. That is also what keeps a
-configuration file unnecessary today.
-
-`ruff format` also reformats the Python blocks inside the markdown files, so expect `README.md` to
-appear in the diff.
 
 ## Seams, and how provisional they are
 
-`census2_store.py` decides what a store contains. It holds three decisions, and two of them are
+The `census2-store` package decides what a store contains. It holds three decisions, two of them
 placeholders waiting on the harmonization design:
 
 - `admit` decides whether a dataset belongs in Census 2. It currently admits everything. A
@@ -68,46 +49,9 @@ full reconversion at each schema release.
 
 ## Rakes: anndata and zarr
 
-zarr has no S3 client of its own. It defines a store interface, and two adapters exist:
-`FsspecStore` over `s3fs`, and `ObjectStore` over `obstore`. This component uses `obstore` for its
-smaller dependency footprint and its object listing, which saves a second dependency for sizing a
-store. Every zarr call that takes a destination has to go through `census2_store.as_store`. A bare
-`s3://` string makes zarr fall back to fsspec and fail with `Install s3fs to access S3`, and a
-local path hides the mistake because it works.
+These moved to `census2-store/CLAUDE.md`, beside the code they describe. Read them before changing
+how a store is written.
 
-`obstore` reads credentials from the environment or from instance metadata. It does not resolve
-AWS profiles, so `AWS_PROFILE` alone is not enough on a workstation.
-
-anndata consolidates Zarr metadata itself, through `write_zarr(consolidate_metadata=...)`. A second
-consolidation is redundant. Consolidated metadata is written last, so a reader that opens with
-`zarr.open_consolidated` fails on a partially written store instead of reading part of one.
-
-anndata 0.13 made Zarr v3 the default write format with automatic sharding, so the version is
-pinned exactly. The same release moved `X` into `layers[None]` in memory; on disk `X` stays at
-`/X`.
-
-`anndata.experimental.read_lazy` looks like the natural way to get a lazy whole object, but as of
-0.13 it does not round-trip: anndata cannot write an AnnData whose `obs` is a `Dataset2D`, and
-`read_lazy` takes no `chunks` argument. Hence the hybrid of eager small slots and
-`read_elem_lazy` matrices.
-
-Because `X` arrives as an unevaluated dask graph, the `h5py` handle has to stay open until the
-store is written.
-
-The round trip widens the sparse index arrays of `X` from int32 to int64. The values do not change.
-`--check` therefore compares integer arrays by value and not by stored bytes.
-
-A CSR matrix cannot serve gene-axis queries. Selecting genes requires reading the whole `indices`
-array, and no chunk size, shard size, or codec changes that. Serving those queries needs a second
-orientation or a dense two-dimensional chunk grid, which is a change of output format rather than
-tuning.
-
-Census 1's TileDB-SOMA arrays are configured with equal 2048 tile extents on an array of about
-159 million cells by 61,500 genes, which makes that build obs-major in practice: selecting a few
-genes reads close to the volume of selecting all of them. The format supports other layouts, so
-this is a property of that build rather than of TileDB-SOMA. It matters here only because it means
-gene-axis queries are unsolved on both sides, and neither corpus can be presented as the answer
-for them.
 
 ## Rakes: Nextflow
 

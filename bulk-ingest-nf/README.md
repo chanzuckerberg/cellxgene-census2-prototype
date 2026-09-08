@@ -7,9 +7,10 @@ This is the ingestion step of a per-dataset store model: stores are written inde
 composed at query time through a catalog. Harmonization is applied during ingestion, so a store
 is **not** the Discover h5ad saved in another format.
 
-`census2_store.py` decides whether a dataset is admitted at all, what a store contains, and
-writes it out. It is reusable on its own; see "Using the store builder directly" below. For the
-design and the reasons behind it, read `CLAUDE.md`.
+The data model lives in `census2-store/`, a package at the repository root: it decides whether a
+dataset is admitted at all, what a store contains, and writes it out. This pipeline is the I/O
+around it, and the runtime image installs it like any other dependency. For the design and the
+reasons behind it, read that package's docs; for this pipeline's, read `CLAUDE.md` here.
 
 Not every dataset is admitted. A rejection is not an error: no store is written, and the
 receipt records `admitted: false` with a reason. Which datasets Census 2 admits is not decided
@@ -40,7 +41,8 @@ On HealthOmics this is handled for you: the run role supplies credentials to eac
 Build the runtime image:
 
 ```bash
-docker build -t census2-bulk-ingest:dev -f docker/Dockerfile docker/
+docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile ..
+# ^ from the repository root: the image installs the census2-store package
 ```
 
 Running the pipeline takes two steps. First prepare a manifest, then ingest it.
@@ -141,35 +143,25 @@ modules/local/report/resources/usr/bin/ingestion-report.py ./out/v1/*.json \
 
 ## Using the store builder directly
 
-`census2_store.py` is importable on its own, for callers that want the transformation without the
-pipeline:
+The data model is an installable package, so a caller that wants the transformation without the
+pipeline copies nothing out of `modules/`:
 
-```python
-import census2_store
-
-# build and write in one call; writes nothing if the dataset is not admitted
-result = census2_store.create("dataset.h5ad", "store.zarr")
-if not result["admitted"]:
-    print("skipped:", result["reason"])
-
-# or process first, inspect or alter, then write
-import h5py
-
-with h5py.File("dataset.h5ad") as f:
-    adata, slots = census2_store.build(f)
-    census2_store.write(adata, "store.zarr")
+```bash
+pip install './census2-store[s3]'      # the extra only if the destination is remote
 ```
 
-`dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a zarr `Store`
-instance. zarr has no S3 client of its own, so a remote URL is adapted to
-`zarr.storage.ObjectStore` over `obstore`. `obstore` reads credentials from the environment or
-instance metadata and does not resolve AWS profiles, so export them first. Note
-that the source must stay open until the write, because the expression matrix is read lazily —
-`create` handles that, and it is only a consideration when composing `build` and `write` yourself.
+`census2-store/README.md` has the API and the standalone example, and
+`census2-store/CLAUDE.md` has the anndata and zarr behaviour behind it. One habit carries over
+from there: `obstore` reads credentials from the environment and does not resolve AWS profiles, so
+export them first, exactly as the pipeline requires.
 
-`tools/cxg-manifest.py` is not part of the pipeline and is not a module binary. It uses only the
-Python standard library, so it runs anywhere. `cxg-ingest.py` and `ingestion-report.py` ship as Nextflow
-module binaries under `modules/local/*/resources/usr/bin/`.
+## What runs where
+
+`tools/cxg-manifest.py` and `tools/seed-mock-s3.py` are not part of the pipeline and are not
+module binaries. They use only the Python standard library, so they run anywhere. `cxg-ingest.py`
+and `ingestion-report.py` ship as Nextflow module binaries under
+`modules/local/*/resources/usr/bin/`, and the data model arrives in the image as an installed
+package rather than as a staged file.
 
 ## Output layout
 
@@ -191,8 +183,8 @@ Build the bundle, push an `amd64` image to private ECR, then create a workflow a
 tools/build-healthomics-bundle.sh healthomics-bundle.zip
 
 docker buildx build --platform linux/amd64 \
-    -t <account>.dkr.ecr.<region>.amazonaws.com/<repo>:cxg-zarr-0.1.0 \
-    -f docker/Dockerfile --push docker/
+    -t <account>.dkr.ecr.<region>.amazonaws.com/<repo>:census2-bulk-ingest-0.1.0 \
+    -f bulk-ingest-nf/docker/Dockerfile --push ..
 
 aws omics create-workflow --engine NEXTFLOW --main main.nf \
     --definition-zip fileb://healthomics-bundle.zip \

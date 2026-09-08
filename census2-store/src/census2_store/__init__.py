@@ -103,6 +103,8 @@ from __future__ import annotations
 
 import contextlib
 import os
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import anndata
 import h5py
@@ -110,6 +112,26 @@ import numpy as np
 import zarr
 from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
+from zarr.abc.store import Store
+
+if TYPE_CHECKING:  # these are only ever types here, never constructed
+    import dask.array as da
+    import pandas as pd
+
+# What the public functions accept. The prose above describes these unions; the
+# aliases are the same statement in a form a type checker and an editor can use.
+PathLike: TypeAlias = str | os.PathLike[str]
+StoreLike: TypeAlias = "PathLike | Store"
+# h5py ships no type information, so anything reached through it is Any. The
+# names still record what a caller has to pass:
+#   H5Matrix  a group of data/indices/indptr when sparse, a dataset when dense
+#   Source    a path to an h5ad, or an already open h5py.File
+H5Matrix: TypeAlias = Any
+Source: TypeAlias = Any
+# Configuration is open: its schema is not decided, so the values stay Any.
+Config: TypeAlias = dict[str, Any]
+# What build() and create() report: admitted, reason, slots.
+Result: TypeAlias = dict[str, Any]
 
 # Slots the CELLxGENE Census builder reads. See AnnDataProxy in the
 # chanzuckerberg/cellxgene-census repository, at
@@ -121,31 +143,38 @@ OPTIONAL_SLOTS = ("obsm", "varm", "obsp", "varp", "layers")
 BLOCK_BYTES = 64 * 1024**2
 
 
-def row_chunk(h5_obj, n_rows: int) -> int:
+def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
     """Rows per dask block, sized so one block is about BLOCK_BYTES."""
     if isinstance(h5_obj, h5py.Group):  # sparse: data + indices per stored value
-        nnz = h5_obj["data"].shape[0]
-        per_value = h5_obj["data"].dtype.itemsize + h5_obj["indices"].dtype.itemsize
+        nnz = int(h5_obj["data"].shape[0])
+        per_value = int(h5_obj["data"].dtype.itemsize) + int(
+            h5_obj["indices"].dtype.itemsize
+        )
         row_bytes = max(1, (nnz // max(n_rows, 1)) * per_value)
     else:  # dense
-        row_bytes = max(1, int(np.prod(h5_obj.shape[1:])) * h5_obj.dtype.itemsize)
+        row_bytes = max(1, int(np.prod(h5_obj.shape[1:])) * int(h5_obj.dtype.itemsize))
     return max(1, min(n_rows, BLOCK_BYTES // row_bytes))
 
 
-def lazy_matrix(h5_obj, n_rows: int):
+def lazy_matrix(h5_obj: H5Matrix, n_rows: int) -> da.Array:
     """A dask array of sparse row blocks."""
-    return read_elem_lazy(h5_obj, chunks=(row_chunk(h5_obj, n_rows), -1))
+    # `read_elem_lazy` is typed for every element kind it can return. For a
+    # matrix it returns a dask array, and the memory contract depends on that,
+    # so state it here rather than widening the signature.
+    return cast(
+        "da.Array", read_elem_lazy(h5_obj, chunks=(row_chunk(h5_obj, n_rows), -1))
+    )
 
 
 # Policy that is already decided. Anything a caller can choose about what a store
 # contains belongs here, not in a separate function argument.
-DEFAULTS: dict = {
+DEFAULTS: Config = {
     # Carry every AnnData slot instead of the Census set. See build().
     "all_slots": False,
 }
 
 
-def load_config(path=None) -> dict:
+def load_config(path: PathLike | None = None) -> Config:
     """Read ingestion configuration from `path`, over `DEFAULTS`.
 
     STUB: ignores `path` and returns the defaults. No file format is defined yet.
@@ -158,7 +187,9 @@ def load_config(path=None) -> dict:
 
 
 def admit(
-    adata: anndata.AnnData, config: dict | None = None, refdata=None
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
 ) -> str | None:
     """Decide whether this dataset belongs in Census 2.
 
@@ -171,13 +202,18 @@ def admit(
     it, so a criterion may read any `uns` key. `X` and `raw.X` are still lazy, so
     reading either forces a compute.
 
+    `refdata` is a directory that the caller staged; resolve reference file names
+    against it rather than taking paths from configuration.
+
     STUB: admits everything. Which datasets Census 2 admits is not decided yet.
     """
     return None
 
 
 def harmonize(
-    adata: anndata.AnnData, config: dict | None = None, refdata=None
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
 ) -> anndata.AnnData:
     """Apply harmonization. STUB: returns its input unchanged.
 
@@ -188,8 +224,11 @@ def harmonize(
 
 
 def build(
-    f: h5py.File, *, config: dict | None = None, refdata=None
-) -> tuple[anndata.AnnData | None, dict]:
+    f: h5py.File,
+    *,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> tuple[anndata.AnnData | None, Result]:
     """Read one Discover dataset and return (AnnData to store, result).
 
     The AnnData is `None` when the dataset is not admitted, which is a normal
@@ -202,14 +241,17 @@ def build(
 
     # Assemble the core object first: obs, var, uns are small and X is lazy, so
     # this is cheap even for a dataset that turns out not to be admitted.
-    obs = read_elem(f["obs"])
-    var = read_elem(f["var"])
-    n_rows = obs.shape[0]
+    # `read_elem` is typed for every element kind, so name what these are.
+    obs = cast("pd.DataFrame", read_elem(f["obs"]))
+    var = cast("pd.DataFrame", read_elem(f["var"]))
+    n_rows = int(obs.shape[0])
 
     adata = anndata.AnnData(X=lazy_matrix(f["X"], n_rows), obs=obs, var=var)
-    adata.uns = read_elem(f["uns"]) if "uns" in f else {}
+    adata.uns = cast("Config", read_elem(f["uns"])) if "uns" in f else {}
     if "raw" in f and "X" in f["raw"]:
-        raw_var = read_elem(f["raw/var"]) if "var" in f["raw"] else var
+        raw_var = (
+            cast("pd.DataFrame", read_elem(f["raw/var"])) if "var" in f["raw"] else var
+        )
         adata.raw = anndata.AnnData(
             X=lazy_matrix(f["raw/X"], n_rows), obs=obs[[]], var=raw_var
         )
@@ -248,11 +290,12 @@ def build(
 REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")
 
 
-def is_remote(dest) -> bool:
+def is_remote(dest: object) -> bool:
+    """Whether `dest` names object storage rather than a local path."""
     return isinstance(dest, (str, os.PathLike)) and str(dest).startswith(REMOTE_SCHEMES)
 
 
-def as_store(dest):
+def as_store(dest: StoreLike) -> StoreLike:
     """Adapt a destination to something zarr can write to.
 
     zarr ships no S3 client, so a remote URL becomes a `zarr.storage.ObjectStore`
@@ -265,7 +308,7 @@ def as_store(dest):
     return dest
 
 
-def write(adata: anndata.AnnData, dest, *, consolidate: bool = True) -> None:
+def write(adata: anndata.AnnData, dest: StoreLike, *, consolidate: bool = True) -> None:
     """Write an AnnData to a Zarr store at `dest`.
 
     anndata consolidates the metadata itself, so this passes the choice through
@@ -279,7 +322,7 @@ def write(adata: anndata.AnnData, dest, *, consolidate: bool = True) -> None:
 
 
 @contextlib.contextmanager
-def _opened(source):
+def _opened(source: Source) -> Iterator[h5py.File]:
     """Yield an open h5py.File, whether given a path or an already-open file."""
     if isinstance(source, (str, os.PathLike)):
         with h5py.File(source, "r") as f:
@@ -289,13 +332,13 @@ def _opened(source):
 
 
 def create(
-    source,
-    dest,
+    source: Source,
+    dest: StoreLike,
     *,
     consolidate: bool = True,
-    config: dict | None = None,
-    refdata=None,
-) -> dict:
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> Result:
     """Build a store from `source` and write it to `dest`. Return the result.
 
     Writes nothing and reports `admitted: False` with a reason when the dataset

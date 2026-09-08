@@ -48,6 +48,8 @@ def main() -> int:
         "slot_policy": sorted(
             {r["slot_policy"] for r in admitted if "slot_policy" in r}
         ),
+        # More than one value here means the run was not built by one code base.
+        "census2_store_version": sorted({r["census2_store_version"] for r in receipts}),
         "anndata_version": sorted({r["anndata_version"] for r in receipts}),
         "checked": len(checked),
         "check_failures": [r["dataset_version_id"] for r in failed],

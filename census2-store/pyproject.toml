@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "census2-store"
+version = "0.1.0"
+description = "Build one Census 2 store from one CELLxGENE Discover dataset"
+readme = "README.md"
+# anndata 0.13 requires 3.12, so nothing lower is installable anyway.
+requires-python = ">=3.12"
+license = "MIT"
+
+# Ranges, not pins. An application pins; a library states what it works with, so
+# that a caller can resolve it alongside their own dependencies. The upper bound
+# on anndata is the real constraint: 0.13 made Zarr v3 with sharding the default
+# write format, so a store written by 0.14 may not be the store we describe.
+dependencies = [
+    "anndata>=0.13,<0.14",
+    "zarr>=3.1,<4",
+    "numcodecs>=0.15",
+    "h5py>=3.11",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    # obs and var are pandas DataFrames, so they appear in this package's own
+    # annotations. anndata requires pandas regardless; this states the reliance.
+    "pandas>=2.1",
+    # read_elem_lazy returns a dask array of sparse blocks, which is how the
+    # expression matrix stays out of memory.
+    "dask>=2024.1",
+]
+
+[project.optional-dependencies]
+# zarr ships no S3 client. Only a caller writing to object storage needs this,
+# and `as_store` imports it lazily, so a local conversion does not.
+s3 = ["obstore>=0.11"]
+# pandas-stubs is what makes the DataFrame annotations above check as
+# DataFrames rather than as Any.
+dev = ["pytest>=8", "mypy>=1.11", "pandas-stubs"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/census2_store"]
+
+[tool.mypy]
+# Strict, because this package is a published API and its types are part of the
+# contract. The glue scripts under bulk-ingest-nf are exempt; see the root
+# CLAUDE.md for where that line is drawn and why.
+strict = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# These ship no type information, so an import of them is untyped rather than
+# wrong. Values reaching us through them are Any, which the annotations above
+# narrow at the boundary.
+module = ["h5py.*", "dask.*", "obstore.*", "scipy.*"]
+ignore_missing_imports = true

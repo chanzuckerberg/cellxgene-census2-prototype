@@ -7,7 +7,7 @@ belongs here, during ingestion, because a store is meant to be queryable
 alongside other stores and not merely the Discover h5ad in another container.
 
 This script owns the I/O: fetch the source, write the store, publish it, and
-record a receipt. The data model lives in `census2_store.py`, which
+record a receipt. The data model lives in the `census2_store` package, which
 decides which slots a store carries and applies harmonization. Its harmonization
 is a stub today, so the output currently does match the source.
 That is a temporary state, not the design.
@@ -28,8 +28,9 @@ import subprocess
 import sys
 import time
 
-# Sits next to this script in the staged module-binaries directory. Python puts a
-# script's own directory on sys.path, so a plain import works with no path shim.
+# The data model, installed in the runtime image from census2-store/ at the
+# repository root. It lives there so that other components can use it; this
+# script is the pipeline's I/O around it.
 import census2_store
 import h5py
 import numpy as np
@@ -302,6 +303,9 @@ def main() -> int:
         "schema_version": rec.get("schema_version"),
         "admitted": result["admitted"],
         "reason": result["reason"],
+        # Which code wrote this store. The recipe still gates semantics; these
+        # are the evidence for what produced a given output.
+        "census2_store_version": importlib.metadata.version("census2-store"),
         "anndata_version": importlib.metadata.version("anndata"),
         "zarr_version": importlib.metadata.version("zarr"),
         **provenance,

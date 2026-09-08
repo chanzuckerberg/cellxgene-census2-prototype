@@ -1,0 +1,20 @@
+# The build context is the repository root, because the runtime image installs
+# the census2-store package. Everything a build does not read stays out of it:
+# a Nextflow work directory alone is larger than the whole image.
+.git
+.github
+**/.nf-test
+**/.nf-test.log
+**/nf-test
+**/work
+**/out
+**/reports
+**/.nextflow
+**/.nextflow.log*
+**/__pycache__
+**/*.egg-info
+**/dist
+**/build
+**/.venv
+*.zip
+*.jsonl

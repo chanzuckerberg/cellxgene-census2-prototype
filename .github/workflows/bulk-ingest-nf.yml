@@ -1,8 +1,9 @@
-# CI for the bulk ingestion pipeline.
+# CI for the census2-store package and the bulk ingestion pipeline.
 #
-# No AWS account is involved. The ingest tests need one thing from S3, a GET of
-# each fixture h5ad, so a mock S3 serves those objects under the bucket and key
-# that the pinned manifest names, and the bytes come from the public CxG CDN.
+# No AWS account is involved. The package's tests need nothing but Python. The
+# ingest tests need one thing from S3, a GET of each fixture h5ad, so a mock S3
+# serves those objects under the bucket and key that the pinned manifest names,
+# and the bytes come from the public CxG CDN.
 name: bulk-ingest-nf
 
 on:
@@ -10,10 +11,12 @@ on:
     branches: [main]
     paths:
       - "bulk-ingest-nf/**"
+      - "census2-store/**"
       - ".github/workflows/bulk-ingest-nf.yml"
   pull_request:
     paths:
       - "bulk-ingest-nf/**"
+      - "census2-store/**"
       - ".github/workflows/bulk-ingest-nf.yml"
 
 permissions:
@@ -23,10 +26,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-defaults:
-  run:
-    working-directory: bulk-ingest-nf
-
 jobs:
   lint:
     name: ruff
@@ -34,17 +33,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The standing directive is `pipx run ruff`, unpinned, so this runs what a
-      # committer runs. See bulk-ingest-nf/CLAUDE.md, "Python style".
+      # From the repository root, so one invocation covers both trees. The
+      # directive is `pipx run ruff`, unpinned, so this runs what a committer
+      # runs. See the root CLAUDE.md, "Python style".
       - name: Lint
         run: pipx run ruff check .
 
       - name: Check formatting
         run: pipx run ruff format --check .
 
+  package:
+    name: census2-store
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: census2-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Not editable: the tests then run against the installed package, which is
+      # what the image ships and what an external user gets.
+      - name: Install
+        run: pip install '.[dev,s3]'
+
+      - name: Unit tests
+        run: pytest -q
+
+      # Strict, per the root CLAUDE.md. Settings come from this package's own
+      # pyproject, which is why this runs from the package directory.
+      - name: Type check
+        run: mypy
+
   test:
     name: nf-test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bulk-ingest-nf
     env:
       # A mock accepts any credentials, but the AWS CLI needs some value.
       AWS_ACCESS_KEY_ID: test
@@ -69,13 +98,13 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      # The image holds only dependencies; the pipeline's own scripts ship as
-      # Nextflow module binaries. Its build also runs the import check in the
+      # The context is the repository root, because the image installs the
+      # census2-store package. The build also runs the import check in the
       # Dockerfile, so a wrong dependency list fails here, not in a task.
       - name: Build the runtime image
         uses: docker/build-push-action@v6
         with:
-          context: bulk-ingest-nf/docker
+          context: .
           file: bulk-ingest-nf/docker/Dockerfile
           tags: census2-bulk-ingest:dev
           load: true
