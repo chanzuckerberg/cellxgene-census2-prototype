@@ -107,39 +107,42 @@ staging that file beside an empty module, so that pip resolves the dependencies 
 package, and a later layer replaces the module with the real source. pip has no flag for
 dependencies only, and the alternative is a second list to keep in step. The layer split is what
 makes the trick worth it: the dependencies are about 400 MB against about 1 MB for the package, so
-a source edit rebuilds in roughly 4 seconds.
+editing the package rebuilds only the small layer.
 
 Nothing pins an exact version. The bound that matters is `anndata<0.14`, and every receipt records
-the versions that wrote a store. Generate a lock file when a rebuild has to resolve identically.
+the versions that wrote a store.
 
-uv and pixi were both considered. uv installs a project's dependencies directly, with
-`-r pyproject.toml`, which reads better than the stub. It is another build tool, and it does not
-precompile bytecode: 87 MB off the image, and up to 0.74 s more per task start.
+uv and pixi were both considered, and the image stays on pip for now.
 
-pixi was measured rather than guessed:
+uv installs a project's dependencies directly, with `-r pyproject.toml`, which reads better than
+the stub. It is another build tool, and it does not precompile bytecode, which takes about 87 MB
+off the image and moves that work to the first import inside each container.
 
-| | pip | pixi |
-|---|---|---|
-| image | 828 MB | 1.11 GB |
-| cold `import census2_store` | 0.7-1.3 s | 1.9 s |
-| lock file | none | 345 KB, three platforms |
-| OS setup in the Dockerfile | 48 lines | none |
+pixi is feasible rather than hypothetical: an image built from a `pixi.lock` ran the pipeline end
+to end, with the same resolved versions. It produces one lock file covering `linux-64`,
+`linux-aarch64`, and `osx-arm64`, and it removes 48 lines of apt and AWS CLI setup from the
+Dockerfile, because conda-forge carries every dependency this project uses, `obstore` included,
+along with `awscli` version 2 and `procps-ng`. The image is larger. pixi also needs every platform
+declared, and a package that exists for only some of them, such as `procps-ng`, has to move to
+`[target.linux-64.dependencies]` or the lock fails on `osx-arm64`.
 
-Every dependency is on conda-forge at the versions we already use, `obstore` included, and
-`awscli` there is version 2, so pixi removes both the apt layer and the AWS CLI install. It also
-locks `linux-64`, `linux-aarch64`, and `osx-arm64` in one file. Against that, pixi is an
-environment manager, so it owns the local loop and CI as well as the image, and it needs every
-platform declared: a Linux-only package such as `procps-ng` has to move to
-`[target.linux-64.dependencies]`, or the lock fails on `osx-arm64`. A pixi image did run the
-pipeline end to end, so this is a question of scope and not of feasibility.
+Strongly consider pixi when any of the following becomes true:
+
+- The project is mature enough for a lock file, meaning a store has to be reproducible from a
+  rebuilt image rather than from whatever the ranges resolved to on the day.
+- The dependencies are mainly on conda-forge, with PyPI needed only for what is not published
+  there. pixi handles that mixture in one manifest; pip handles only the PyPI half.
+- Dependencies outside Python matter. The image already installs the AWS CLI and `procps-ng`
+  outside pip, and a component that needs a particular HDF5, a BLAS, or a command-line tool would
+  add more.
+- More than one environment shares the set: an image, CI, and a workstation, or several components
+  with an environment each.
+- A contributor should get a working environment with one command, on both macOS arm64 and Linux
+  amd64.
 
 Two questions the evaluation left open: whether TLS to real S3 works with no apt
 `ca-certificates` layer, because the test only reached a local mock over HTTP, and whether the
 environment relocates, because it stayed at its build path.
-
-Revisit pixi when the second component lands, or when a store has to be reproducible from a
-rebuilt image. At that point it is the better answer than a `uv.lock`, because of conda-forge's
-coverage of the scientific binaries.
 
 ## Rakes: AWS HealthOmics and credentials
 
