@@ -36,7 +36,7 @@ dependencies = [
 s3 = ["obstore>=0.11"]
 # pandas-stubs is what makes the DataFrame annotations above check as
 # DataFrames rather than as Any.
-dev = ["pytest>=8", "mypy>=1.11", "pandas-stubs"]
+dev = ["pytest>=8", "mypy>=1.11", "pandas-stubs", "scipy-stubs"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/census2_store"]
@@ -49,8 +49,12 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-# These ship no type information, so an import of them is untyped rather than
-# wrong. Values reaching us through them are Any, which the annotations above
-# narrow at the boundary.
-module = ["h5py.*", "dask.*", "obstore.*", "scipy.*"]
+# h5py alone ships no type information, so an import of it is untyped rather
+# than wrong, and what reaches us through it is Any. Everything else here is
+# typed: dask, obstore, anndata and zarr ship py.typed, and scipy has official
+# stubs. Listing them would discard types we can have.
+#
+# h5py-stubs exists on PyPI but is a thin third-party package; wrong stubs are
+# worse than Any, so the boundary stays narrow instead.
+module = ["h5py.*"]
 ignore_missing_imports = true

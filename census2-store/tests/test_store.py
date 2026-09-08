@@ -7,6 +7,7 @@ slot policy, admission as a normal outcome, and the memory contract.
 
 from __future__ import annotations
 
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -56,13 +57,13 @@ def dataset(
     if extras:
         adata.obsm["X_pca"] = rng.random((n_obs, 3), dtype="float32")
         adata.varm["gene_stuff"] = rng.random((n_var, 2), dtype="float32")
-        adata.layers["counts"] = adata.X
+        adata.layers["counts"] = x
     if raw:
         adata.raw = adata
     return adata
 
 
-def written(tmp_path: Path, **kwargs: Any) -> tuple[Path, dict[str, Any]]:
+def written(tmp_path: Path, **kwargs: Any) -> tuple[Path, census2_store.Result]:
     """Write a dataset to h5ad, build a store from it, return both."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
@@ -203,6 +204,25 @@ def test_row_chunk_is_bounded_by_the_row_count(tmp_path: Path) -> None:
     dataset(40, 12).write_h5ad(source)
     with h5py.File(source) as f:
         assert census2_store.row_chunk(f["X"], 40) == 40
+
+
+# --- provenance -----------------------------------------------------------
+
+
+def test_provenance_reports_the_code_that_wrote_a_store() -> None:
+    p = census2_store.provenance()
+    assert p["recipe"] == census2_store.RECIPE
+    assert p["zarr_format"] == census2_store.ZARR_FORMAT
+    # Read from the installed distributions, so a receipt cannot disagree with
+    # the code that produced it.
+    assert p["census2_store_version"] == version("census2-store")
+    assert p["anndata_version"] == version("anndata")
+    assert p["zarr_version"] == version("zarr")
+
+
+def test_provenance_follows_the_slot_policy() -> None:
+    assert census2_store.provenance()["slot_policy"] == "census"
+    assert census2_store.provenance({"all_slots": True})["slot_policy"] == "all"
 
 
 # --- destinations ---------------------------------------------------------

@@ -62,6 +62,20 @@ caller records that and succeeds.
 Ingestion reads exactly one dataset, so a harmonization step that needs a corpus-wide aggregate has
 to be redesigned or eliminated. That constraint is what lets many Census releases reuse one store.
 
+## Receipts
+
+A receipt is the JSON a writer publishes beside a store, and `Receipt` types it here rather than in
+any one pipeline, so that a reader parses the same keys whichever pipeline wrote the store.
+`provenance()` supplies the part this package knows — the recipe, the slot policy, the Zarr format,
+and the versions that ran — read from the installed distributions, so a receipt cannot disagree
+with the code that produced it. A pipeline adds where the dataset came from and what it did.
+
+```python
+census2_store.provenance()
+# {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
+#  'census2_store_version': ..., 'anndata_version': ..., 'zarr_version': ...}
+```
+
 ## Develop
 
 ```bash

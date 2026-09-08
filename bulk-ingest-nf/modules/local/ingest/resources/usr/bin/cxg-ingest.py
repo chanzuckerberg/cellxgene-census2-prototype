@@ -21,7 +21,6 @@ file size. The `h5py` handle therefore has to stay open until `write_zarr`.
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import json
 import os
 import subprocess
@@ -37,8 +36,6 @@ import numpy as np
 import zarr
 from anndata.io import read_elem
 
-RECIPE = "v1"
-
 
 def log(msg: str) -> None:
     print(f"ingest: {msg}", file=sys.stderr, flush=True)
@@ -46,7 +43,7 @@ def log(msg: str) -> None:
 
 def store_uri(outdir: str, name: str) -> str:
     """Final location of one artifact. Local path or s3:// URI."""
-    return f"{outdir.rstrip('/')}/{RECIPE}/{name}"
+    return f"{outdir.rstrip('/')}/{census2_store.RECIPE}/{name}"
 
 
 def _sha256(path: str) -> str:
@@ -274,14 +271,17 @@ def main() -> int:
 
     # A store must be traceable to the configuration that produced it, so record
     # the effective config and not just the file it came from.
-    provenance = {
+    config_provenance = {
         "config_file": os.path.basename(args.config) if args.config else None,
         "config_sha256": _sha256(args.config) if args.config else None,
         "config_effective": config,
         "refdata": os.path.basename(args.refdata.rstrip("/")) if args.refdata else None,
     }
     if args.config or args.refdata:
-        log(f"config={provenance['config_file']} refdata={provenance['refdata']}")
+        log(
+            f"config={config_provenance['config_file']} "
+            f"refdata={config_provenance['refdata']}"
+        )
 
     # Where the store ends up, recorded in the receipt either way.
     store = store_uri(args.outdir, f"{version_id}.zarr")
@@ -292,8 +292,12 @@ def main() -> int:
     log(f"ingest -> {store} (slots={'all' if config['all_slots'] else 'census'})")
     result = ingest(src, dest, config=config, refdata=args.refdata)
 
-    receipt = {
-        "recipe": RECIPE,
+    # The shape of a receipt is census2_store.Receipt: it is published beside
+    # the store, so a reader parses the same keys whichever pipeline wrote it.
+    # The store-level facts come from the package, so they cannot disagree with
+    # the code that ran.
+    receipt: census2_store.Receipt = {
+        **census2_store.provenance(config),
         "dataset_id": rec["dataset_id"],
         "dataset_version_id": version_id,
         "source_uri": rec["uri"],
@@ -303,12 +307,7 @@ def main() -> int:
         "schema_version": rec.get("schema_version"),
         "admitted": result["admitted"],
         "reason": result["reason"],
-        # Which code wrote this store. The recipe still gates semantics; these
-        # are the evidence for what produced a given output.
-        "census2_store_version": importlib.metadata.version("census2-store"),
-        "anndata_version": importlib.metadata.version("anndata"),
-        "zarr_version": importlib.metadata.version("zarr"),
-        **provenance,
+        **config_provenance,
     }
 
     if result["admitted"]:
@@ -316,9 +315,7 @@ def main() -> int:
             log(f"  wrote {slot}")
         receipt.update(
             {
-                "slot_policy": "all" if config["all_slots"] else "census",
                 "slots_written": result["slots"],
-                "zarr_format": 3,
                 "store": store,
                 "output_bytes": store_bytes(dest),
                 "published_by": "workflow" if args.stage_local else "task",

@@ -14,6 +14,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # For the shape only. This script stays runnable with the standard library
+    # alone, so that a receipt can be read anywhere, not just in the image.
+    from census2_store import Receipt
 
 
 def main() -> int:
@@ -22,7 +28,7 @@ def main() -> int:
     p.add_argument("--out", default="ingestion_report.json")
     args = p.parse_args()
 
-    receipts = []
+    receipts: list[Receipt] = []
     for path in args.receipts:
         with open(path) as fh:
             receipts.append(json.load(fh))

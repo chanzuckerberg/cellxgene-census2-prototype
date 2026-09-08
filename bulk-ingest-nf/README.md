@@ -170,8 +170,8 @@ package rather than as a staged file.
 <outdir>/<recipe>/<dataset_version_id>.json     the receipt, always
 ```
 
-`<recipe>` is `v1`. It covers the anndata version, the Zarr format, the X encoding, the slot
-policy, and harmonization. Raise it when any of those change. Outputs are keyed on
+`<recipe>` is `census2_store.RECIPE`, `v1` today. It covers the anndata version, the Zarr format,
+the X encoding, the slot policy, and harmonization. Raise it there when any of those change. Outputs are keyed on
 `dataset_version_id`, which names an immutable snapshot, so a rerun can skip work by listing
 the prefix and subtracting it from the manifest.
 

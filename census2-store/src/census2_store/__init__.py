@@ -78,6 +78,13 @@ Admission comes before slot policy so a criterion can read any `uns` key, and
 before the optional slots are read so a rejected dataset never pays for `obsm`
 or `obsp`.
 
+Receipts
+--------
+A receipt is the JSON a writer publishes beside a store. `Receipt` declares its
+shape and `provenance` supplies the part this module knows, because a receipt is
+part of the published artifact and not a private log: a reader parses the same
+keys whichever pipeline wrote the store.
+
 Memory contract
 ---------------
 `build` returns a whole AnnData, but not a whole read. `obs`, `var`, and
@@ -102,9 +109,10 @@ consistency is the object's job rather than a step author's.
 from __future__ import annotations
 
 import contextlib
+import importlib.metadata
 import os
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
 
 import anndata
 import h5py
@@ -130,8 +138,20 @@ H5Matrix: TypeAlias = Any
 Source: TypeAlias = Any
 # Configuration is open: its schema is not decided, so the values stay Any.
 Config: TypeAlias = dict[str, Any]
-# What build() and create() report: admitted, reason, slots.
-Result: TypeAlias = dict[str, Any]
+
+
+class Result(TypedDict):
+    """What `build` and `create` report about one dataset.
+
+    A dict, so that it serializes into a receipt unchanged, and a declared one,
+    so that reading a key which does not exist is an error rather than a
+    surprise at run time.
+    """
+
+    admitted: bool
+    reason: str | None
+    slots: list[str]
+
 
 # Slots the CELLxGENE Census builder reads. See AnnDataProxy in the
 # chanzuckerberg/cellxgene-census repository, at
@@ -141,6 +161,15 @@ OPTIONAL_SLOTS = ("obsm", "varm", "obsp", "varp", "layers")
 
 # Target bytes per row block of the expression matrix.
 BLOCK_BYTES = 64 * 1024**2
+
+# The recipe names the store format: the anndata version, the Zarr format, the X
+# encoding, the slot policy, and harmonization. Raise it when any of those
+# change, because outputs keyed on the old one are then no longer comparable.
+RECIPE = "v1"
+
+# anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
+# have to infer it.
+ZARR_FORMAT = 3
 
 
 def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
@@ -184,6 +213,69 @@ def load_config(path: PathLike | None = None) -> Config:
     and why reference data cannot be fetched at run time.
     """
     return dict(DEFAULTS)
+
+
+class StoreProvenance(TypedDict):
+    """What produced a store. Always present in a receipt, because this package
+    supplies all of it.
+    """
+
+    recipe: str
+    slot_policy: Literal["all", "census"]
+    zarr_format: int
+    census2_store_version: str
+    anndata_version: str
+    zarr_version: str
+
+
+class Receipt(StoreProvenance, total=False):
+    """The JSON a writer publishes beside a store.
+
+    A receipt is part of the published artifact, not a private log, so its shape
+    lives here rather than in any one pipeline: a reader parses the same keys
+    whichever pipeline wrote the store.
+
+    The `StoreProvenance` keys are always present. The rest is what a writer
+    knows about where the dataset came from and what it did, so it is optional
+    here; `bulk-ingest-nf` fills every one of them.
+    """
+
+    dataset_id: str
+    dataset_version_id: str
+    source_uri: str
+    source_url: str | None
+    source_filesize: int
+    cell_count: int | None
+    schema_version: str | None
+    admitted: bool
+    reason: str | None
+    slots_written: list[str]
+    store: str
+    output_bytes: int
+    published_by: str
+    elapsed_sec: float
+    check: dict[str, Any]
+    config_file: str | None
+    config_sha256: str | None
+    config_effective: Config
+    refdata: str | None
+
+
+def provenance(config: Config | None = None) -> StoreProvenance:
+    """The store-level facts for a receipt: what wrote a store, and to what format.
+
+    Read from the installed distributions rather than passed in, so that a
+    receipt cannot disagree with the code that produced it.
+    """
+    config = DEFAULTS if config is None else config
+    return {
+        "recipe": RECIPE,
+        "slot_policy": "all" if config.get("all_slots", False) else "census",
+        "zarr_format": ZARR_FORMAT,
+        "census2_store_version": importlib.metadata.version("census2-store"),
+        "anndata_version": importlib.metadata.version("anndata"),
+        "zarr_version": importlib.metadata.version("zarr"),
+    }
 
 
 def admit(

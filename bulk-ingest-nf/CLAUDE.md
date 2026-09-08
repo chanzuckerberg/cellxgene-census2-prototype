@@ -25,7 +25,8 @@ placeholders waiting on the harmonization design:
 - `harmonize` returns its input.
 
 `cxg-ingest.py` handles what running this as a pipeline needs: fetching the source, publishing, and
-the receipt. Policy that a caller might choose lives in the configuration rather than in function
+the receipt. The receipt's shape is `census2_store.Receipt`, and its store-level facts come from
+`census2_store.provenance`, so the two scripts here and any later pipeline agree on it. Policy that a caller might choose lives in the configuration rather than in function
 arguments, so that there is one place to look.
 
 These arrangements suit a stub. Expect to revisit them once the harmonization steps are known,
