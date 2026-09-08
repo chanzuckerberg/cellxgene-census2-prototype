@@ -3,8 +3,8 @@
 #
 # HealthOmics has no way to pass `-profile` to Nextflow, so the healthomics
 # profile's settings have to be the defaults inside the bundle. This script
-# copies the pipeline and appends that include, rather than the repository
-# carrying a HealthOmics-only default that would surprise a local run.
+# copies the pipeline and appends the include. The repository therefore carries
+# no HealthOmics-only default that would change a local run.
 #
 # Usage: tools/build-healthomics-bundle.sh [outfile.zip]
 set -euo pipefail
@@ -22,7 +22,7 @@ for item in main.nf nextflow.config conf modules; do
     cp -R "$item" "$STAGE/"
 done
 
-# Running the scripts from a shell leaves bytecode beside them.
+# Never ship bytecode, even if the working tree holds some.
 find "$STAGE" -name __pycache__ -type d -prune -exec rm -rf {} +
 
 cat >> "$STAGE/nextflow.config" <<'CFG'

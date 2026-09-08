@@ -1,8 +1,8 @@
 """Unit tests for the store builder. No network, no AWS, no container.
 
-These cover the properties the module docstring promises, because those are the
-ones a caller relies on and the ones that regress quietly: the round trip, the
-slot policy, admission as a normal outcome, and the memory contract.
+These cover the properties the module docstring promises, because a caller
+relies on them: the round trip, the slot policy, admission as a normal outcome,
+the memory contract, provenance, and destination handling.
 """
 
 from __future__ import annotations
@@ -185,7 +185,7 @@ def test_not_admitted_writes_nothing(
 
 
 def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
-    """`build` must not materialize X. A large dataset depends on this."""
+    """`build` must not materialize X. A large dataset does not fit in memory."""
     import dask.array as da
 
     source = tmp_path / "source.h5ad"
@@ -213,8 +213,7 @@ def test_provenance_reports_the_code_that_wrote_a_store() -> None:
     p = census2_store.provenance()
     assert p["recipe"] == census2_store.RECIPE
     assert p["zarr_format"] == census2_store.ZARR_FORMAT
-    # Read from the installed distributions, so a receipt cannot disagree with
-    # the code that produced it.
+    # Reported from the installed distributions.
     assert p["census2_store_version"] == version("census2-store")
     assert p["anndata_version"] == version("anndata")
     assert p["zarr_version"] == version("zarr")

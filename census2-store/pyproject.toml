@@ -11,8 +11,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 
-# Ranges, not pins. An application pins; a library states what it works with, so
-# that a caller can resolve it alongside their own dependencies. The upper bound
+# Ranges, not pins. An application pins its dependencies. A library states what it
+# works with, so a caller can resolve it beside other dependencies. The upper bound
 # on anndata is the real constraint: 0.13 made Zarr v3 with sharding the default
 # write format, so a store written by 0.14 may not be the store we describe.
 dependencies = [
@@ -51,10 +51,10 @@ files = ["src", "tests"]
 [[tool.mypy.overrides]]
 # h5py alone ships no type information, so an import of it is untyped rather
 # than wrong, and what reaches us through it is Any. Everything else here is
-# typed: dask, obstore, anndata and zarr ship py.typed, and scipy has official
-# stubs. Listing them would discard types we can have.
+# typed: dask, obstore, anndata and zarr ship py.typed, and scipy and pandas have
+# stub packages in the dev extra. Listing them would discard types we can have.
 #
-# h5py-stubs exists on PyPI but is a thin third-party package; wrong stubs are
-# worse than Any, so the boundary stays narrow instead.
+# h5py-stubs exists on PyPI, but it is unaffiliated with h5py. Stubs that do not
+# match the library would cost more than Any, so the boundary stays narrow.
 module = ["h5py.*"]
 ignore_missing_imports = true

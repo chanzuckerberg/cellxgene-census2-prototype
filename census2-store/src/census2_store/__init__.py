@@ -7,12 +7,12 @@ the result. It is usable standalone:
 
     # both steps; nothing is written if the dataset is not admitted
     result = census2_store.create("dataset.h5ad", "store.zarr")
+    if not result["admitted"]:
+        print("skipped:", result["reason"])
 
     # policy comes from configuration
     cfg = census2_store.load_config("ingest.json") | {"all_slots": True}
     census2_store.create("dataset.h5ad", "store.zarr", config=cfg)
-    if not result["admitted"]:
-        print("skipped:", result["reason"])
 
     # or the processing alone, to inspect or alter before writing
     with h5py.File("dataset.h5ad") as f:
@@ -39,14 +39,15 @@ Three kinds of decision live here.
 
 Census 2 writes one store per dataset and composes stores at query time, so
 cross-dataset queries need harmonized data and harmonization has to happen while
-writing a single store. A store is therefore not the Discover h5ad in another
-container. The constraint on whatever lands in `harmonize`: ingestion reads
-exactly one dataset, so a step needing a corpus-wide aggregate has to be
-redesigned or eliminated.
+writing a single store. A store must therefore be more than the Discover h5ad in
+another container, and `harmonize` is where that work goes. One constraint binds
+whatever lands there: ingestion reads exactly one dataset, so a step that needs a
+corpus-wide aggregate has to be redesigned or eliminated.
 
 Configuration and reference data
 --------------------------------
-STUB. `load_config` returns an empty mapping and nothing reads it yet.
+STUB. `load_config` ignores `path` and returns `DEFAULTS`. No file format is
+defined yet. `all_slots` is the only key that `build` and `provenance` read.
 
 Admission and harmonization will need both, and they are different things:
 
@@ -59,8 +60,8 @@ The constraint that shapes how they arrive: a HealthOmics task has no public
 internet access, so **nothing here may fetch a reference file at run time.** It
 has to be staged into the task as a workflow input. So `config` is a mapping the
 caller loads and passes in, and `refdata` is the path to a directory the caller
-staged. Config should name reference files rather than give paths to them,
-because the staged location is only known inside the task; resolve names against
+staged. Config should name reference files instead of giving paths to them. The
+staged location is known only inside the task. Resolve the names against
 `refdata`.
 
 Both are threaded through `admit` and `harmonize` now so the plumbing exists.
@@ -89,8 +90,9 @@ Memory contract
 ---------------
 `build` returns a whole AnnData, but not a whole read. `obs`, `var`, and
 `uns` are in memory, because they are small. `X` and `raw.X` are dask arrays of
-sparse row blocks, so memory tracks the block size and not the file size. That
-matters at the corpus p99 of about 26 GiB and its 50 GiB maximum.
+row blocks: sparse blocks for a sparse dataset, dense blocks for a dense one.
+Memory therefore tracks the block size and not the file size. That matters at the
+corpus p99 of about 26 GiB and its 50 GiB maximum.
 
 Two consequences the caller and any future step must respect:
 
@@ -102,8 +104,8 @@ Two consequences the caller and any future step must respect:
   a compute that a large dataset may not survive. Row-wise work maps over blocks
   and stays cheap.
 
-Subsetting the AnnData keeps `obs`, `var`, `X`, and the other slots aligned, so
-consistency is the object's job rather than a step author's.
+Subsetting the AnnData keeps `obs`, `var`, `X`, and the other slots aligned. A
+step author does not have to keep them consistent.
 """
 
 from __future__ import annotations
@@ -143,9 +145,8 @@ Config: TypeAlias = dict[str, Any]
 class Result(TypedDict):
     """What `build` and `create` report about one dataset.
 
-    A dict, so that it serializes into a receipt unchanged, and a declared one,
-    so that reading a key which does not exist is an error rather than a
-    surprise at run time.
+    A dict, so that it serializes into a receipt unchanged. It is declared, so
+    that a read of an undeclared key fails the type check.
     """
 
     admitted: bool
@@ -153,10 +154,11 @@ class Result(TypedDict):
     slots: list[str]
 
 
-# Slots the CELLxGENE Census builder reads. See AnnDataProxy in the
+# uns keys the CELLxGENE Census builder reads. See AnnDataProxy in the
 # chanzuckerberg/cellxgene-census repository, at
 # tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/anndata.py
 CENSUS_UNS_KEYS = ("schema_version", "organism_ontology_term_id")
+# Slots that only `all_slots` carries. The Census builder reads none of them.
 OPTIONAL_SLOTS = ("obsm", "varm", "obsp", "varp", "layers")
 
 # Target bytes per row block of the expression matrix.
@@ -186,7 +188,7 @@ def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
 
 
 def lazy_matrix(h5_obj: H5Matrix, n_rows: int) -> da.Array:
-    """A dask array of sparse row blocks."""
+    """A dask array of row blocks. The blocks are sparse if the source is."""
     # `read_elem_lazy` is typed for every element kind it can return. For a
     # matrix it returns a dask array, and the memory contract depends on that,
     # so state it here rather than widening the signature.
@@ -231,13 +233,14 @@ class StoreProvenance(TypedDict):
 class Receipt(StoreProvenance, total=False):
     """The JSON a writer publishes beside a store.
 
-    A receipt is part of the published artifact, not a private log, so its shape
-    lives here rather than in any one pipeline: a reader parses the same keys
-    whichever pipeline wrote the store.
+    A receipt is part of the published artifact, not a private log. Its shape
+    therefore lives here and not in any one pipeline.
 
     The `StoreProvenance` keys are always present. The rest is what a writer
     knows about where the dataset came from and what it did, so it is optional
-    here; `bulk-ingest-nf` fills every one of them.
+    here. `bulk-ingest-nf` fills all of them for an admitted dataset. A rejected
+    dataset gets no `slots_written`, `store`, `output_bytes`, or `published_by`,
+    and `check` appears only when the task runs with `--check`.
     """
 
     dataset_id: str
@@ -333,7 +336,7 @@ def build(
 
     # Assemble the core object first: obs, var, uns are small and X is lazy, so
     # this is cheap even for a dataset that turns out not to be admitted.
-    # `read_elem` is typed for every element kind, so name what these are.
+    # `read_elem` returns a wide union, so name what these are.
     obs = cast("pd.DataFrame", read_elem(f["obs"]))
     var = cast("pd.DataFrame", read_elem(f["var"]))
     n_rows = int(obs.shape[0])
@@ -348,9 +351,7 @@ def build(
             X=lazy_matrix(f["raw/X"], n_rows), obs=obs[[]], var=raw_var
         )
 
-    # Admission runs before slot policy, so a criterion can read any uns key.
-    # It also runs before the optional slots are read, so a rejected dataset
-    # never pays for obsm or obsp.
+    # Admission runs before slot policy, and before the optional slots are read.
     reason = admit(adata, config, refdata)
     if reason is not None:
         return None, {"admitted": False, "reason": reason, "slots": []}
@@ -383,7 +384,7 @@ REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")
 
 
 def is_remote(dest: object) -> bool:
-    """Whether `dest` names object storage rather than a local path."""
+    """Whether `dest` is a remote URL rather than a local path."""
     return isinstance(dest, (str, os.PathLike)) and str(dest).startswith(REMOTE_SCHEMES)
 
 
@@ -403,12 +404,12 @@ def as_store(dest: StoreLike) -> StoreLike:
 def write(adata: anndata.AnnData, dest: StoreLike, *, consolidate: bool = True) -> None:
     """Write an AnnData to a Zarr store at `dest`.
 
-    anndata consolidates the metadata itself, so this passes the choice through
-    rather than consolidating again. Leave it on: consolidated metadata is not
-    part of the Zarr v3 specification, so zarr warns about it, but readers such
-    as `anndata.experimental.read_lazy` need it for tolerable remote latency.
-    It is also written last, so a reader that opens with `zarr.open_consolidated`
-    fails on a partially written store rather than reading part of one.
+    anndata consolidates the metadata itself, so this passes the choice through.
+    Leave it on. Consolidated metadata is not part of the Zarr v3 specification,
+    so zarr warns about it. Readers such as `anndata.experimental.read_lazy`
+    still need it for tolerable remote latency. anndata also writes it last, so a
+    reader that opens with `zarr.open_consolidated` fails on a partially written
+    store rather than reading part of one.
     """
     adata.write_zarr(as_store(dest), consolidate_metadata=consolidate)
 

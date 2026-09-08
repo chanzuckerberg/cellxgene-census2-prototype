@@ -1,9 +1,9 @@
 # CI for the census2-store package and the bulk ingestion pipeline.
 #
 # No AWS account is involved. The package's tests need nothing but Python. The
-# ingest tests need one thing from S3, a GET of each fixture h5ad, so a mock S3
-# serves those objects under the bucket and key that the pinned manifest names,
-# and the bytes come from the public CxG CDN.
+# ingest tests need one thing from S3: a GET of each fixture h5ad. A mock S3
+# serves those objects under the bucket and key that the pinned manifest names.
+# The bytes come from the public CxG CDN.
 name: bulk-ingest-nf
 
 on:
@@ -100,7 +100,7 @@ jobs:
 
       # The context is the repository root, because the image installs the
       # census2-store package. The build also runs the import check in the
-      # Dockerfile, so a wrong dependency list fails here, not in a task.
+      # Dockerfile, so a missing dependency fails here, not in a task.
       - name: Build the runtime image
         uses: docker/build-push-action@v6
         with:

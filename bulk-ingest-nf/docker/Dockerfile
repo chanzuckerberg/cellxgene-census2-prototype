@@ -1,9 +1,8 @@
 # Dependencies, plus the census2-store package.
 #
-# Two kinds of code, with two different loops. The pipeline's own scripts ship as
-# Nextflow module binaries, so editing them needs no rebuild. The data model does
-# live in this image, so a change to census2-store means a rebuild, and for
-# HealthOmics a push under a new tag.
+# The pipeline's own scripts ship as Nextflow module binaries, so an edit to them
+# needs no rebuild. The data model lives in this image. A change to census2-store
+# therefore needs a rebuild, and for HealthOmics a push under a new tag.
 #
 # Build from the repository root: the context has to include the package.
 #   docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile .
@@ -17,7 +16,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl unzip ca-certificates procps \
  && rm -rf /var/lib/apt/lists/*
 
-# AWS CLI v2. All S3 traffic goes through this; nothing in the Python stack speaks S3.
+# AWS CLI v2. The task fetches each source h5ad with it. Writes to object storage
+# go through obstore instead.
 RUN set -eux; \
     case "$(uname -m)" in \
       x86_64)          A=x86_64 ;; \
@@ -36,8 +36,8 @@ RUN set -eux; \
 # package must not invalidate them.
 #
 # pip cannot install only a project's dependencies, so this stages the metadata
-# beside an empty module, installs that, and replaces it below. The alternative
-# is a second dependency list to keep in step, which is what this removes.
+# beside an empty module, installs that, and replaces it below. The dependency
+# set therefore stays declared in one place.
 #
 # The image therefore takes whatever satisfies the package's ranges at build
 # time. The range that matters is anndata <0.14, and every receipt records the

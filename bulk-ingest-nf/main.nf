@@ -14,8 +14,8 @@ workflow {
     }
 
     // Executors whose workers do not share this filesystem cannot publish to a
-    // local path. Their profile declares that, rather than this checking profile
-    // names, so the rule travels with the profile and is testable on its own.
+    // local path. The profile declares that. The rule then travels with the
+    // profile, and a test can check it without the platform.
     // `s3_//` is an accepted escape for `s3://`; see modules/local/ingest/main.nf.
     def outdir = params.outdir.toString().replaceFirst('^s3_//', 's3://')
     // Coerced for the same reason as the flags in modules/local/ingest: a

@@ -2,8 +2,8 @@
 """Read the ingestion receipts and report on the run as a whole.
 
 Reads every receipt JSON named on the command line, writes one combined report,
-and prints a short version to stderr. It computes nothing about the data: every
-number comes from what the ingest step already recorded.
+and prints a short version to stderr. It opens no store and no h5ad: every number
+comes from the receipts.
 
 Exits non-zero when a receipt records a failed round-trip check, which is what
 fails the pipeline run. Uses only the standard library.
@@ -54,7 +54,7 @@ def main() -> int:
         "slot_policy": sorted(
             {r["slot_policy"] for r in admitted if "slot_policy" in r}
         ),
-        # More than one value here means the run was not built by one code base.
+        # More than one value in either list means the tasks ran different code.
         "census2_store_version": sorted({r["census2_store_version"] for r in receipts}),
         "anndata_version": sorted({r["anndata_version"] for r in receipts}),
         "checked": len(checked),

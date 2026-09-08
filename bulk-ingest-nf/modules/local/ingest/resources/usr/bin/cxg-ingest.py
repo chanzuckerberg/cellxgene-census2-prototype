@@ -8,14 +8,15 @@ alongside other stores and not merely the Discover h5ad in another container.
 
 This script owns the I/O: fetch the source, write the store, publish it, and
 record a receipt. The data model lives in the `census2_store` package, which
-decides which slots a store carries and applies harmonization. Its harmonization
-is a stub today, so the output currently does match the source.
-That is a temporary state, not the design.
+decides which slots a store carries and applies harmonization. Harmonization is
+a stub today, so a store holds the source values in whichever slots the slot
+policy keeps.
 
-Memory discipline: this script never calls `read_h5ad`. `census2_store.build`
-returns a whole AnnData whose small slots are in memory and whose `X` and `raw.X` are dask
-arrays of sparse row blocks, so peak memory tracks the block size rather than the
-file size. The `h5py` handle therefore has to stay open until `write_zarr`.
+Memory discipline: this script never calls `read_h5ad`. It hands the source path
+to `census2_store.create`, which keeps the small slots in memory and leaves `X`
+and `raw.X` as dask arrays of row blocks. Peak memory therefore tracks the block
+size and not the file size. `create` holds the `h5py` handle open until the write
+finishes.
 """
 
 from __future__ import annotations
@@ -28,8 +29,7 @@ import sys
 import time
 
 # The data model, installed in the runtime image from census2-store/ at the
-# repository root. It lives there so that other components can use it; this
-# script is the pipeline's I/O around it.
+# repository root.
 import census2_store
 import h5py
 import numpy as np
@@ -102,8 +102,8 @@ def check(src: str, dst: str) -> dict:
         for i in range(0, n, step):
             block = np.ascontiguousarray(arr[i : min(i + step, n)])
             # The round trip widens sparse index arrays from int32 to int64, so
-            # hashing the raw bytes would report a difference that is not one.
-            # Integers compare by value; floats stay strict, because a change of
+            # a hash of the raw bytes reports a false difference. Integers
+            # therefore compare by value. Floats stay strict, because a change of
             # precision in the data is worth reporting.
             if block.dtype.kind in "iu":
                 block = block.astype(np.int64, copy=False)
@@ -112,8 +112,7 @@ def check(src: str, dst: str) -> dict:
 
     with h5py.File(src, "r") as f:
         # Route through as_store: a bare s3:// string makes zarr fall back to
-        # fsspec, which needs s3fs. This is why an earlier HealthOmics run failed
-        # after writing the store correctly.
+        # fsspec, which needs s3fs.
         zroot = zarr.open_consolidated(census2_store.as_store(dst), mode="r")
         result["consolidated"] = True
 
@@ -185,8 +184,8 @@ def verify_written(uri: str) -> None:
     """Confirm a directly written store arrived and is readable.
 
     A local destination is a declared Nextflow output, so the workflow fails if
-    it is missing. A direct write to object storage has no such check, and an
-    earlier version of this pipeline discarded stores silently. So verify here.
+    it is missing. A direct write to object storage has no such check, so verify
+    it here.
     """
     if store_bytes(uri) == 0:
         raise SystemExit(f"store is empty after writing: {uri}")
@@ -322,8 +321,6 @@ def main() -> int:
             }
         )
         if not args.stage_local:
-            # Nothing tracks a direct write, so confirm the store really arrived
-            # rather than trusting a silent success.
             verify_written(dest)
         if args.check:
             log("check round trip")
@@ -358,9 +355,9 @@ def main() -> int:
         log(f"done {version_id} in {receipt['elapsed_sec']}s, no store written")
 
     # A failed check is recorded, not raised. Nextflow publishes nothing from a
-    # failed task, so exiting non-zero here would hide the receipt that names the
-    # failure and would stop REPORT from running. REPORT fails the run instead,
-    # which also reports every failure together rather than only the first.
+    # failed task. A non-zero exit here would therefore hide the receipt that
+    # names the failure, and it would stop REPORT. REPORT fails the run instead,
+    # and it reports every failure together rather than only the first.
     return 0
 
 

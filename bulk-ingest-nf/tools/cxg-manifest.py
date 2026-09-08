@@ -65,7 +65,7 @@ def to_record(dataset: dict, bucket: str) -> dict:
         "collection_id": dataset.get("collection_id"),
         # The ingest step reads this. Same key as the CloudFront path segment.
         "uri": f"s3://{bucket}/{version_id}.h5ad",
-        # Kept for provenance only.
+        # The receipt records this. tools/seed-mock-s3.py also fetches it.
         "url": asset["url"],
         "filesize": asset["filesize"],
         "cell_count": dataset.get("cell_count"),
@@ -108,8 +108,8 @@ def main() -> int:
         default=None,
         help=(
             "Omit this for the current corpus. Each CxG schema version is a full, "
-            "separately versioned copy, so an older value returns that generation's "
-            "dataset_version_ids rather than a subset of today's."
+            "separately versioned copy. An older value therefore returns that "
+            "generation's dataset_version_ids, not a subset of today's."
         ),
     )
     p.add_argument("--api-base", default=API_BASE)

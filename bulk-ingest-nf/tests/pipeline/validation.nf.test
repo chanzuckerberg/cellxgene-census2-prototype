@@ -43,8 +43,9 @@ nextflow_pipeline {
         //
         // Tasks exist only if validation passed, so their presence is the signal
         // this test wants. Asserting only that the error message is absent would
-        // pass for any other failure. Starting real tasks needs Docker, hence
-        // the tag; the tasks themselves are expected to fail.
+        // pass for any other failure. Starting real tasks needs Docker, so this
+        // test carries the integration tag. The tasks themselves are expected to
+        // fail.
         tag "integration"
 
         when {
