@@ -23,8 +23,9 @@ anndata consolidates Zarr metadata itself, through `write_zarr(consolidate_metad
 consolidation is redundant. Consolidated metadata is written last, so a reader that opens with
 `zarr.open_consolidated` fails on a partially written store instead of reading part of one.
 
-anndata 0.13 made Zarr v3 the default write format with automatic sharding, so the version is
-pinned exactly. The same release moved `X` into `layers[None]` in memory; on disk `X` stays at
+anndata 0.13 made Zarr v3 the default write format with automatic sharding, so `pyproject.toml`
+declares `anndata>=0.13,<0.14`. The upper bound is the constraint that matters, and it is the only
+place any component states it: the runtime image resolves its dependencies from this file. The same release moved `X` into `layers[None]` in memory; on disk `X` stays at
 `/X`.
 
 `anndata.experimental.read_lazy` looks like the natural way to get a lazy whole object, but as of

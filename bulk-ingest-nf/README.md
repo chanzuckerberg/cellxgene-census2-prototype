@@ -129,7 +129,7 @@ Use `--all_slots` when the consumer needs a complete CxG object.
 
 Each step is a plain script and runs without Nextflow. Nextflow puts the module binaries on
 `PATH` inside a task; from a shell, call them by path. `cxg-ingest.py` needs the image's Python
-dependencies, so run it in the image or in a virtualenv built from `docker/requirements.txt`.
+dependencies, so run it in the image, or install the package: `pip install '../census2-store[s3]'`.
 
 ```bash
 tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl

@@ -30,11 +30,26 @@ RUN set -eux; \
     rm -rf /tmp/awscliv2.zip /tmp/aws; \
     aws --version
 
-# Dependencies first, and pinned. The image is the application, so it fixes
-# versions; census2-store is a library, so it states ranges. Their own layer is
-# also what keeps a package edit cheap to rebuild.
-COPY bulk-ingest-nf/docker/requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+# Dependencies first, in their own layer, resolved from the package's
+# pyproject.toml so that they are declared in exactly one place. uv installs the
+# dependencies of a project without installing the project itself, which pip
+# cannot do; it is a build tool, so it leaves in the same layer and never
+# reaches the image. The layer matters: these are ~400 MB, against ~1 MB for the
+# package, so a source edit must not invalidate them.
+#
+# The image therefore takes whatever satisfies the package's ranges at build
+# time. The range that matters is anndata <0.14, and every receipt records the
+# versions that wrote a store. Generate a lock file if a rebuild ever has to
+# resolve identically.
+#
+# uv does not precompile bytecode, which pip did. That is 87 MB off the image,
+# against a measured 0.74 s to import census2_store in a cold container, so at
+# most 0.74 s per task. Add --compile-bytecode to trade it back.
+COPY census2-store/pyproject.toml /tmp/census2-store/pyproject.toml
+RUN pip install --no-cache-dir uv \
+ && uv pip install --system --no-cache -r /tmp/census2-store/pyproject.toml --extra s3 \
+ && pip uninstall -y uv \
+ && rm -rf /tmp/census2-store
 
 # The package last, and --no-deps: everything it needs is installed above, so
 # editing it rebuilds one small layer and downloads nothing.
