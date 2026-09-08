@@ -1,15 +1,16 @@
 # census2-store
 
-Build one Census 2 store from one CELLxGENE Discover dataset.
+Convert one CELLxGENE Discover dataset into one Census 2 store.
 
-A Census 2 store is one AnnData-Zarr store per dataset, written independently and composed at query
-time through a catalog. This package holds the data model: what a store contains, and the three
-decisions behind it. It is the same code the bulk ingestion pipeline runs, so a store you build
-here matches a store the Census publishes.
+A Census 2 store is an AnnData-Zarr store holding a single dataset, written independently and
+composed at query time through a catalog. This package is the data model: what a store contains,
+and the [three decisions](#the-three-decisions) behind it. The bulk ingestion pipeline runs this
+same code, so a store you build here matches a store the Census publishes.
 
-Two of the three decisions are stubs today. The module docstring is the design record — read
-`help(census2_store)` or `src/census2_store/__init__.py` for the reasoning, the memory contract,
-and the constraints on anything added to `harmonize`.
+It reads one dataset at a time and never the corpus. That is a constraint the data model lives
+with, not a feature it lacks. The module docstring in
+[`src/census2_store/__init__.py`](src/census2_store/__init__.py) is the design record: the
+reasoning, the memory contract, and what a new harmonization step has to respect.
 
 ## Install
 
@@ -79,11 +80,18 @@ census2_store.provenance()
 ## Develop
 
 ```bash
-pip install './census2-store[dev,s3]'
-pytest census2-store
-mypy census2-store/src
+cd census2-store
+pip install -e '.[dev,s3]'
+pytest
+mypy
 ```
 
-The tests need no network, no credentials, and no container. See the repository root `CLAUDE.md`
-for the lint, format, and type-check policy, and `CLAUDE.md` here for the anndata and zarr
-behaviour that shaped this code.
+Run both from this directory. `mypy` reads its settings from `pyproject.toml` here, so invoking it
+from the repository root silently drops `strict` and reports an `h5py` error it should ignore.
+Install editable, or the tests import the copy in site-packages and keep passing against code you
+have already changed. CI installs non-editable on purpose, because there it should test what the
+image ships.
+
+The tests need no network, no credentials, and no container. See the repository root
+[`CLAUDE.md`](../CLAUDE.md) for the lint, format, and type-check policy, and
+[`CLAUDE.md`](CLAUDE.md) here for the anndata and zarr behaviour that shaped this code.

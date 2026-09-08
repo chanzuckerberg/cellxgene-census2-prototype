@@ -50,13 +50,13 @@ glue around `argparse` and `subprocess`, read top to bottom, and imported by not
 annotating them would cost more than it catches.
 
 ```bash
-pip install './census2-store[dev]' && mypy census2-store/src
+cd census2-store && pip install -e '.[dev]' && mypy
 ```
 
-The settings live in the package's own `pyproject.toml` rather than in a repository-wide file, and
-mypy runs from an environment where the package's dependencies are installed. It cannot run
-isolated the way `pipx run ruff` does, because it has to resolve the types of what the package
-imports.
+The settings live in the package's own `pyproject.toml` rather than in a repository-wide file, so
+run mypy from the package directory: from anywhere else it finds no configuration and silently
+drops `strict`. It also needs an environment where the package's dependencies are installed, so it
+cannot run isolated the way `pipx run ruff` does.
 
 ## Documentation policy
 
