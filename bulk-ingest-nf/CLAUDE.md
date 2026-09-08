@@ -102,47 +102,24 @@ anything. Note that `nf-test list` takes `--tags` rather than `--tag`, and does 
 
 ## Rakes: dependency tooling
 
-The dependency set is declared once, in `census2-store/pyproject.toml`. The image installs it by
-staging that file beside an empty module, so that pip resolves the dependencies without the
-package, and a later layer replaces the module with the real source. pip has no flag for
-dependencies only, and the alternative is a second list to keep in step. The layer split is what
-makes the trick worth it: the dependencies are bulky and the package is tiny, so editing the
-package rebuilds only the small layer.
+The dependency set is declared once, in `census2-store/pyproject.toml`. pip cannot install only a
+project's dependencies, so the image stages that file beside an empty module, installs it, and a
+later layer replaces the module with the real source. The trick earns its keep: the dependency
+layer is bulky and the package layer is tiny, so editing the package rebuilds only the small one.
+Nothing pins an exact version; the bound that matters is `anndata<0.14`, and every receipt records
+what wrote a store.
 
-Nothing pins an exact version. The bound that matters is `anndata<0.14`, and every receipt records
-the versions that wrote a store.
+uv and pixi were both evaluated, and the image stays on pip. uv reads better, with
+`-r pyproject.toml`, but is another build tool. pixi works: an image built from a `pixi.lock` ran
+the pipeline end to end. It locks `linux-64`, `linux-aarch64`, and `osx-arm64` in one file and
+removes the apt layer and the AWS CLI install, because conda-forge carries everything here,
+`obstore` and `awscli` version 2 included. Against that, its image is larger, it owns the local
+loop and CI as well as the image, and every platform has to be declared, with a Linux-only package
+such as `procps-ng` under `[target.linux-64.dependencies]`.
 
-uv and pixi were both considered, and the image stays on pip for now.
-
-uv installs a project's dependencies directly, with `-r pyproject.toml`, which reads better than
-the stub. It is another build tool, and it does not precompile bytecode, which trades image size
-against work at the first import in each container.
-
-pixi is feasible rather than hypothetical: an image built from a `pixi.lock` ran the pipeline end
-to end, with the same resolved versions. It produces one lock file covering `linux-64`,
-`linux-aarch64`, and `osx-arm64`, and it removes the apt layer and the AWS CLI install from the
-Dockerfile, because conda-forge carries every dependency this project uses, `obstore` included,
-along with `awscli` version 2 and `procps-ng`. The image is larger. pixi also needs every platform
-declared, and a package that exists for only some of them, such as `procps-ng`, has to move to
-`[target.linux-64.dependencies]` or the lock fails on `osx-arm64`.
-
-Strongly consider pixi when any of the following becomes true:
-
-- The project is mature enough for a lock file, meaning a store has to be reproducible from a
-  rebuilt image rather than from whatever the ranges resolved to on the day.
-- The dependencies are mainly on conda-forge, with PyPI needed only for what is not published
-  there. pixi handles that mixture in one manifest; pip handles only the PyPI half.
-- Dependencies outside Python matter. The image already installs the AWS CLI and `procps-ng`
-  outside pip, and a component that needs a particular HDF5, a BLAS, or a command-line tool would
-  add more.
-- More than one environment shares the set: an image, CI, and a workstation, or several components
-  with an environment each.
-- A contributor should get a working environment with one command, on both macOS arm64 and Linux
-  amd64.
-
-Two questions the evaluation left open: whether TLS to real S3 works with no apt
-`ca-certificates` layer, because the test only reached a local mock over HTTP, and whether the
-environment relocates, because it stayed at its build path.
+Strongly consider pixi once a lock file is appropriate, or when the dependencies are mainly on
+conda-forge with PyPI needed only for the rest, or when dependencies outside Python arrive. Left
+unproven: TLS to real S3 with no apt `ca-certificates`, and whether the environment relocates.
 
 ## Rakes: AWS HealthOmics and credentials
 
