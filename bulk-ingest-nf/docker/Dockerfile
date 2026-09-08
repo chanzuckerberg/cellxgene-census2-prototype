@@ -31,30 +31,28 @@ RUN set -eux; \
     aws --version
 
 # Dependencies first, in their own layer, resolved from the package's
-# pyproject.toml so that they are declared in exactly one place. uv installs the
-# dependencies of a project without installing the project itself, which pip
-# cannot do; it is a build tool, so it leaves in the same layer and never
-# reaches the image. The layer matters: these are ~400 MB, against ~1 MB for the
-# package, so a source edit must not invalidate them.
+# pyproject.toml so that they are declared in exactly one place. The layer
+# matters: these are ~400 MB against ~1 MB for the package, so editing the
+# package must not invalidate them.
+#
+# pip cannot install only a project's dependencies, so this stages the metadata
+# beside an empty module, installs that, and replaces it below. The alternative
+# is a second dependency list to keep in step, which is what this removes.
 #
 # The image therefore takes whatever satisfies the package's ranges at build
 # time. The range that matters is anndata <0.14, and every receipt records the
 # versions that wrote a store. Generate a lock file if a rebuild ever has to
 # resolve identically.
-#
-# uv does not precompile bytecode, which pip did. That is 87 MB off the image,
-# against a measured 0.74 s to import census2_store in a cold container, so at
-# most 0.74 s per task. Add --compile-bytecode to trade it back.
-COPY census2-store/pyproject.toml /tmp/census2-store/pyproject.toml
-RUN pip install --no-cache-dir uv \
- && uv pip install --system --no-cache -r /tmp/census2-store/pyproject.toml --extra s3 \
- && pip uninstall -y uv \
- && rm -rf /tmp/census2-store
+COPY census2-store/pyproject.toml census2-store/README.md /src/census2-store/
+RUN mkdir -p /src/census2-store/src/census2_store \
+ && touch /src/census2-store/src/census2_store/__init__.py \
+ && pip install --no-cache-dir '/src/census2-store[s3]'
 
-# The package last, and --no-deps: everything it needs is installed above, so
-# editing it rebuilds one small layer and downloads nothing.
+# The real source, replacing the empty module. --no-deps because everything it
+# needs is installed above, so editing the package rebuilds one small layer and
+# downloads nothing.
 COPY census2-store /src/census2-store
-RUN pip install --no-cache-dir --no-deps /src/census2-store
+RUN pip install --no-cache-dir --no-deps --force-reinstall /src/census2-store
 
 # Fail fast if the import surface the pipeline relies on is missing. Keep this
 # list matched to what census2_store and cxg-ingest.py import.
