@@ -3,22 +3,22 @@
 This module owns the data model, meaning what a store contains, and it can write
 the result. It is usable standalone:
 
-    import census2_store
+    import census2_writer
 
     # both steps; nothing is written if the dataset is not admitted
-    result = census2_store.create("dataset.h5ad", "store.zarr")
+    result = census2_writer.create("dataset.h5ad", "store.zarr")
     if not result["admitted"]:
         print("skipped:", result["reason"])
 
     # policy comes from configuration
-    cfg = census2_store.load_config("ingest.json") | {"all_slots": True}
-    census2_store.create("dataset.h5ad", "store.zarr", config=cfg)
+    cfg = census2_writer.load_config("ingest.json") | {"all_slots": True}
+    census2_writer.create("dataset.h5ad", "store.zarr", config=cfg)
 
     # or the processing alone, to inspect or alter before writing
     with h5py.File("dataset.h5ad") as f:
-        adata, result = census2_store.build(f)
+        adata, result = census2_writer.build(f)
         if adata is not None:
-            census2_store.write(adata, "store.zarr")
+            census2_writer.write(adata, "store.zarr")
 
 `dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
 `zarr.abc.store.Store` instance. zarr has no S3 client of its own, so a remote
@@ -225,7 +225,7 @@ class StoreProvenance(TypedDict):
     recipe: str
     slot_policy: Literal["all", "census"]
     zarr_format: int
-    census2_store_version: str
+    census2_writer_version: str
     anndata_version: str
     zarr_version: str
 
@@ -275,7 +275,7 @@ def provenance(config: Config | None = None) -> StoreProvenance:
         "recipe": RECIPE,
         "slot_policy": "all" if config.get("all_slots", False) else "census",
         "zarr_format": ZARR_FORMAT,
-        "census2_store_version": importlib.metadata.version("census2-store"),
+        "census2_writer_version": importlib.metadata.version("census2-writer"),
         "anndata_version": importlib.metadata.version("anndata"),
         "zarr_version": importlib.metadata.version("zarr"),
     }

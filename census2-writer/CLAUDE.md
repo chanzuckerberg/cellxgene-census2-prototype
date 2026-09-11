@@ -1,7 +1,7 @@
-# census2-store
+# census2-writer
 
 The data model: what a Census 2 store contains. `README.md` covers installing and using it, and
-the module docstring in `src/census2_store/__init__.py` is the design record: the three
+the module docstring in `src/census2_writer/__init__.py` is the design record: the three
 decisions, the memory contract, and the constraints on anything added to `harmonize`.
 
 This file records the rakes: what cost us effort to find, and what is easy to step on again. The
@@ -12,7 +12,7 @@ repository root `CLAUDE.md` gives the Census 2 tentpoles and the code and docume
 zarr has no S3 client of its own. It defines a store interface, and two adapters exist:
 `FsspecStore` over `s3fs`, and `ObjectStore` over `obstore`. This component uses `obstore` for its
 smaller dependency footprint and its object listing, which saves a second dependency for sizing a
-store. Every zarr call that takes a destination has to go through `census2_store.as_store`. A bare
+store. Every zarr call that takes a destination has to go through `census2_writer.as_store`. A bare
 `s3://` string makes zarr fall back to fsspec and fail with `Install s3fs to access S3`, and a
 local path hides the mistake because it works.
 

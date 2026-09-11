@@ -43,14 +43,14 @@ configuration file unnecessary today.
 `ruff format` also reformats the Python blocks inside the markdown files, so expect `README.md` to
 appear in the diff.
 
-**A standalone package also type-checks under `mypy --strict`.** `census2-store` is one; the
+**A standalone package also type-checks under `mypy --strict`.** `census2-writer` is one; the
 Nextflow scripts are not. The line is what a caller can depend on. A package publishes an API, so
 its types are part of the contract, and it ships a `py.typed` marker to say so. The scripts are
 glue around `argparse` and `subprocess`, read top to bottom, and imported by nothing, so
 annotating them would cost more than it catches.
 
 ```bash
-cd census2-store && pip install -e '.[dev]' && mypy
+cd census2-writer && pip install -e '.[dev]' && mypy
 ```
 
 The settings live in the package's own `pyproject.toml` rather than in a repository-wide file, so

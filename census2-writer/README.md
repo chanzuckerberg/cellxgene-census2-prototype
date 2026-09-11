@@ -1,4 +1,4 @@
-# census2-store
+# census2-writer
 
 Convert one CELLxGENE Discover dataset into one Census 2 store.
 
@@ -12,14 +12,14 @@ written to Zarr, and no more than that. Both stubs will change what a store cont
 
 It reads one dataset at a time and never the corpus. That is a constraint the data model lives
 with, not a feature it lacks. The module docstring in
-[`src/census2_store/__init__.py`](src/census2_store/__init__.py) is the design record: the
+[`src/census2_writer/__init__.py`](src/census2_writer/__init__.py) is the design record: the
 reasoning, the memory contract, and what a new harmonization step has to respect.
 
 ## Install
 
 ```bash
-pip install ./census2-store          # local h5ad to a local store
-pip install './census2-store[s3]'    # also write to object storage
+pip install ./census2-writer          # local h5ad to a local store
+pip install './census2-writer[s3]'    # also write to object storage
 ```
 
 zarr ships no S3 client, and `as_store` imports `obstore` only when the destination is remote, so
@@ -28,10 +28,10 @@ the `s3` extra is unnecessary for a local conversion.
 ## Use
 
 ```python
-import census2_store
+import census2_writer
 
 # build and write in one call; writes nothing if the dataset is not admitted
-result = census2_store.create("dataset.h5ad", "store.zarr")
+result = census2_writer.create("dataset.h5ad", "store.zarr")
 if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
@@ -43,9 +43,9 @@ stay open until the write, because the expression matrix is read lazily:
 import h5py
 
 with h5py.File("dataset.h5ad") as f:
-    adata, result = census2_store.build(f)
+    adata, result = census2_writer.build(f)
     if adata is not None:
-        census2_store.write(adata, "store.zarr")
+        census2_writer.write(adata, "store.zarr")
 ```
 
 `dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
@@ -75,15 +75,15 @@ and the versions that ran — read from the installed distributions, so a receip
 with the code that produced it. A pipeline adds where the dataset came from and what it did.
 
 ```python
-census2_store.provenance()
+census2_writer.provenance()
 # {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
-#  'census2_store_version': ..., 'anndata_version': ..., 'zarr_version': ...}
+#  'census2_writer_version': ..., 'anndata_version': ..., 'zarr_version': ...}
 ```
 
 ## Develop
 
 ```bash
-cd census2-store
+cd census2-writer
 pip install -e '.[dev,s3]'
 pytest
 mypy

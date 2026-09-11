@@ -10,7 +10,7 @@ Discover's asset bucket on S3, build the store, write the store and a receipt to
 final task reads the receipts and reports on the run.
 
 What a store contains is not decided here. That belongs to
-[`census2-store`](../census2-store/README.md), a package at the repository root which the runtime
+[`census2-writer`](../census2-writer/README.md), a package at the repository root which the runtime
 image installs as a dependency: it decides whether a dataset is admitted, what a store carries, and
 writes it out. This pipeline is the I/O around it; [`CLAUDE.md`](CLAUDE.md) records how it is put
 together.
@@ -39,7 +39,7 @@ Build the runtime image:
 
 ```bash
 docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile ..
-# ^ from the repository root: the image installs the census2-store package
+# ^ from the repository root: the image installs the census2-writer package
 ```
 
 Running the pipeline takes two steps. First prepare a manifest, then ingest it.
@@ -126,7 +126,7 @@ Use `--all_slots` when the consumer needs a complete CxG object.
 
 Each step is a plain script and runs without Nextflow. Nextflow puts the module binaries on
 `PATH` inside a task; from a shell, call them by path. `cxg-ingest.py` needs the image's Python
-dependencies, so run it in the image, or install the package: `pip install '../census2-store[s3]'`.
+dependencies, so run it in the image, or install the package: `pip install '../census2-writer[s3]'`.
 
 ```bash
 tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
@@ -144,11 +144,11 @@ The data model is an installable package, so a caller that wants the transformat
 pipeline copies nothing out of `modules/`:
 
 ```bash
-pip install './census2-store[s3]'      # the extra only if the destination is remote
+pip install './census2-writer[s3]'      # the extra only if the destination is remote
 ```
 
-`census2-store/README.md` has the API and the standalone example, and
-`census2-store/CLAUDE.md` has the anndata and zarr behaviour behind it. One habit carries over
+`census2-writer/README.md` has the API and the standalone example, and
+`census2-writer/CLAUDE.md` has the anndata and zarr behaviour behind it. One habit carries over
 from there: `obstore` reads credentials from the environment and does not resolve AWS profiles, so
 export them first, exactly as the pipeline requires.
 
@@ -170,7 +170,7 @@ package rather than as a staged file.
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.
 
-`<recipe>` is `census2_store.RECIPE`, `v1` today. It covers the anndata version, the Zarr format,
+`<recipe>` is `census2_writer.RECIPE`, `v1` today. It covers the anndata version, the Zarr format,
 the X encoding, the slot policy, and harmonization. Raise it there when any of those change. Outputs are keyed on
 `dataset_version_id`, which names an immutable snapshot, so a rerun can skip work by listing
 the prefix and subtracting it from the manifest.

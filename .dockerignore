@@ -1,5 +1,5 @@
 # The build context is the repository root, because the runtime image installs
-# the census2-store package. Everything a build does not read stays out of the
+# the census2-writer package. Everything a build does not read stays out of the
 # context, the Nextflow work and output directories included.
 .git
 .github

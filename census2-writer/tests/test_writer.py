@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import anndata
-import census2_store
+import census2_writer
 import h5py
 import numpy as np
 import pandas as pd
@@ -63,12 +63,12 @@ def dataset(
     return adata
 
 
-def written(tmp_path: Path, **kwargs: Any) -> tuple[Path, census2_store.Result]:
+def written(tmp_path: Path, **kwargs: Any) -> tuple[Path, census2_writer.Result]:
     """Write a dataset to h5ad, build a store from it, return both."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(**kwargs).write_h5ad(source)
-    result = census2_store.create(source, dest)
+    result = census2_writer.create(source, dest)
     return dest, result
 
 
@@ -142,8 +142,8 @@ def test_census_slot_policy_drops_extras(tmp_path: Path) -> None:
     store: Any = zarr.open_consolidated(dest, mode="r")
 
     assert result["slots"] == ["obs", "var", "X", "raw", "uns[2 keys]"]
-    assert set(store["uns"]) == set(census2_store.CENSUS_UNS_KEYS)
-    for slot in census2_store.OPTIONAL_SLOTS:
+    assert set(store["uns"]) == set(census2_writer.CENSUS_UNS_KEYS)
+    for slot in census2_writer.OPTIONAL_SLOTS:
         assert slot not in store or len(list(store[slot])) == 0
 
 
@@ -151,7 +151,7 @@ def test_all_slots_carries_everything(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(extras=True).write_h5ad(source)
-    result = census2_store.create(source, dest, config={"all_slots": True})
+    result = census2_writer.create(source, dest, config={"all_slots": True})
 
     store: Any = zarr.open_consolidated(dest, mode="r")
     assert "obsm/X_pca" in result["slots"]
@@ -169,13 +169,13 @@ def test_not_admitted_writes_nothing(
 ) -> None:
     """A rejection is a normal outcome: no store, a reason, and no exception."""
     monkeypatch.setattr(
-        census2_store, "admit", lambda adata, config=None, refdata=None: "no thanks"
+        census2_writer, "admit", lambda adata, config=None, refdata=None: "no thanks"
     )
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
 
-    result = census2_store.create(source, dest)
+    result = census2_writer.create(source, dest)
 
     assert result == {"admitted": False, "reason": "no thanks", "slots": []}
     assert not dest.exists()
@@ -192,7 +192,7 @@ def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
     dataset(400, 20).write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, _ = census2_store.build(f)
+        adata, _ = census2_writer.build(f)
         assert adata is not None
         assert isinstance(adata.X, da.Array), type(adata.X)
         # Blocked by rows, whole rows per block.
@@ -203,44 +203,44 @@ def test_row_chunk_is_bounded_by_the_row_count(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset(40, 12).write_h5ad(source)
     with h5py.File(source) as f:
-        assert census2_store.row_chunk(f["X"], 40) == 40
+        assert census2_writer.row_chunk(f["X"], 40) == 40
 
 
 # --- provenance -----------------------------------------------------------
 
 
 def test_provenance_reports_the_code_that_wrote_a_store() -> None:
-    p = census2_store.provenance()
-    assert p["recipe"] == census2_store.RECIPE
-    assert p["zarr_format"] == census2_store.ZARR_FORMAT
+    p = census2_writer.provenance()
+    assert p["recipe"] == census2_writer.RECIPE
+    assert p["zarr_format"] == census2_writer.ZARR_FORMAT
     # Reported from the installed distributions.
-    assert p["census2_store_version"] == version("census2-store")
+    assert p["census2_writer_version"] == version("census2-writer")
     assert p["anndata_version"] == version("anndata")
     assert p["zarr_version"] == version("zarr")
 
 
 def test_provenance_follows_the_slot_policy() -> None:
-    assert census2_store.provenance()["slot_policy"] == "census"
-    assert census2_store.provenance({"all_slots": True})["slot_policy"] == "all"
+    assert census2_writer.provenance()["slot_policy"] == "census"
+    assert census2_writer.provenance({"all_slots": True})["slot_policy"] == "all"
 
 
 # --- destinations ---------------------------------------------------------
 
 
 def test_is_remote_covers_every_scheme() -> None:
-    for scheme in census2_store.REMOTE_SCHEMES:
-        assert census2_store.is_remote(f"{scheme}bucket/key")
-    assert not census2_store.is_remote("/tmp/local.zarr")
-    assert not census2_store.is_remote(Path("/tmp/local.zarr"))
-    assert not census2_store.is_remote(None)
+    for scheme in census2_writer.REMOTE_SCHEMES:
+        assert census2_writer.is_remote(f"{scheme}bucket/key")
+    assert not census2_writer.is_remote("/tmp/local.zarr")
+    assert not census2_writer.is_remote(Path("/tmp/local.zarr"))
+    assert not census2_writer.is_remote(None)
 
 
 def test_as_store_passes_a_local_path_through(tmp_path: Path) -> None:
-    assert census2_store.as_store(tmp_path) is tmp_path
+    assert census2_writer.as_store(tmp_path) is tmp_path
 
 
 def test_as_store_adapts_a_remote_url() -> None:
     """A bare s3:// string would make zarr fall back to fsspec and fail."""
     pytest.importorskip("obstore")
-    store = census2_store.as_store("s3://bucket/prefix.zarr")
+    store = census2_writer.as_store("s3://bucket/prefix.zarr")
     assert isinstance(store, zarr.storage.ObjectStore)

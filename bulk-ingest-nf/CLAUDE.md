@@ -14,7 +14,7 @@ does not.
 
 ## Seams, and how provisional they are
 
-The `census2-store` package decides what a store contains. It holds three decisions, two of them
+The `census2-writer` package decides what a store contains. It holds three decisions, two of them
 placeholders waiting on the harmonization design:
 
 - `admit` decides whether a dataset belongs in Census 2. It currently admits everything. A
@@ -25,8 +25,8 @@ placeholders waiting on the harmonization design:
 - `harmonize` returns its input.
 
 `cxg-ingest.py` handles what running this as a pipeline needs: fetching the source, publishing, and
-the receipt. The receipt's shape is `census2_store.Receipt`, and its store-level facts come from
-`census2_store.provenance`, so the two scripts here and any later pipeline agree on it. Policy that a caller might choose lives in the configuration rather than in function
+the receipt. The receipt's shape is `census2_writer.Receipt`, and its store-level facts come from
+`census2_writer.provenance`, so the two scripts here and any later pipeline agree on it. Policy that a caller might choose lives in the configuration rather than in function
 arguments, so that there is one place to look.
 
 These arrangements suit a stub. Expect to revisit them once the harmonization steps are known,
@@ -50,7 +50,7 @@ full reconversion at each schema release.
 
 ## Rakes: anndata and zarr
 
-These moved to `census2-store/CLAUDE.md`, beside the code they describe. Read them before changing
+These moved to `census2-writer/CLAUDE.md`, beside the code they describe. Read them before changing
 how a store is written.
 
 
@@ -103,7 +103,7 @@ anything. Note that `nf-test list` takes `--tags` rather than `--tag`, and does 
 
 ## Rakes: dependency tooling
 
-The dependency set is declared once, in `census2-store/pyproject.toml`. pip cannot install only a
+The dependency set is declared once, in `census2-writer/pyproject.toml`. pip cannot install only a
 project's dependencies, so the image stages that file beside an empty module, installs it, and a
 later layer replaces the module with the real source. The trick earns its keep: the dependency
 layer is bulky and the package layer is tiny, so editing the package rebuilds only the small one.
