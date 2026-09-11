@@ -27,6 +27,6 @@ This policy applies to all project documentation: markdown files, docstrings, an
 - Disclose complex ideas and designs progressively. The first pass can be simplified, or imperfectly accurate, if it gives a *readable* big picture. Add the necessary details and nuance after it.
 - Keep the whole sentence/section/document readable and coherent when you edit it. The smallest correct edit is not always the best edit to make.
 - State the current truth as if you knew it from the start. Avoid verbosely documenting the journey there; git retains that history.
-- AVOID sentence structures and rhetorical flourishes that intend to elicit human emotional reactions. This isn't a dramatic novel—it's technical documentation.
+- AVOID sentence structures and rhetorical flourishes that intend to elicit human emotional reactions.
 
 Humility note: the scverse core team will review this project under a funded collaboration, and the project will eventually open for public consumption. What we write about the capabilities and the performance of scverse dependencies, TileDB-SOMA, and other related projects must be honest. It must also be sensitive to human social dynamics.
