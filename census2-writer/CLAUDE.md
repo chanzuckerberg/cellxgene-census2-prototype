@@ -4,10 +4,11 @@ The data model: what a Census 2 store contains. `README.md` covers installing an
 the module docstring in `src/census2_writer/__init__.py` is the design record: the three
 decisions, the memory contract, and the constraints on anything added to `harmonize`.
 
-This file records the rakes: what cost us effort to find, and what is easy to step on again. The
-repository root `CLAUDE.md` gives the Census 2 tentpoles and the code and documentation policy.
+This file records the sharp edges: what cost us effort to find, and what is easy to catch again.
+The repository root `CLAUDE.md` gives the Census 2 tentpoles and the code and documentation
+policy.
 
-## Rakes: anndata and zarr
+## Sharp edges: anndata and zarr
 
 zarr has no S3 client of its own. It defines a store interface, and two adapters exist:
 `FsspecStore` over `s3fs`, and `ObjectStore` over `obstore`. This component uses `obstore` for its
@@ -51,7 +52,7 @@ this is a property of that build rather than of TileDB-SOMA. It matters here onl
 gene-axis queries are unsolved on both sides, and neither corpus can be presented as the answer
 for them.
 
-## Rakes: types
+## Sharp edges: types
 
 `read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both hand
 back a wide union. The annotations here narrow at the boundary with `cast`, which records what we

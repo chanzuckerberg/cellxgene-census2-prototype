@@ -3,8 +3,8 @@
 Bulk ingestion of CELLxGENE Discover datasets into Census 2 stores, as a Nextflow pipeline.
 
 `README.md` covers what it does and how to run it. The repository root `CLAUDE.md` gives the
-Census 2 tentpoles and the documentation policy. This file records the rakes: the things that cost
-us effort to find, and that are easy to step on again.
+Census 2 tentpoles and the documentation policy. This file records the sharp edges: the things
+that cost us effort to find, and that are easy to catch again.
 
 ## Python style
 
@@ -26,13 +26,14 @@ placeholders waiting on the harmonization design:
 
 `cxg-ingest.py` handles what running this as a pipeline needs: fetching the source, publishing, and
 the receipt. The receipt's shape is `census2_writer.Receipt`, and its store-level facts come from
-`census2_writer.provenance`, so the two scripts here and any later pipeline agree on it. Policy that a caller might choose lives in the configuration rather than in function
-arguments, so that there is one place to look.
+`census2_writer.provenance`, so the two scripts here and any later pipeline agree on it. Policy
+that a caller might choose lives in the configuration rather than in function arguments, so that
+there is one place to look.
 
 These arrangements suit a stub. Expect to revisit them once the harmonization steps are known,
 particularly if a step needs data the current read order does not fetch.
 
-## Rakes: upstream data
+## Sharp edges: upstream data
 
 The source bucket is `s3://dataset-assets-public-prod/<dataset_version_id>.h5ad` in `us-west-2`.
 The public CloudFront URL uses the same key. The bucket refuses anonymous reads, and it belongs to
@@ -48,13 +49,13 @@ Each CxG schema version is a complete, separately versioned copy of the corpus. 
 every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for a
 full reconversion at each schema release.
 
-## Rakes: anndata and zarr
+## Sharp edges: anndata and zarr
 
 These moved to `census2-writer/CLAUDE.md`, beside the code they describe. Read them before changing
 how a store is written.
 
 
-## Rakes: Nextflow
+## Sharp edges: Nextflow
 
 `publishDir` with `mode: 'move'` removes the file from the work directory, so a downstream process
 that consumes the same output then fails. The store moves and the receipt is copied, because
@@ -81,9 +82,9 @@ Tests read a pinned manifest from `tests/fixtures`, so a failure means the code 
 the corpus, and they assert on the receipt, which has to stay correct anyway.
 
 Nextflow publishes nothing from a failed task. A task that has to report a failure downstream must
-therefore exit 0 and record the failure in its output. `cxg-ingest.py` exits 0 on a failed round-trip
-check for that reason, and `REPORT` fails the run. Exiting non-zero there hid the receipt that
-named the failure and stopped `REPORT` from running at all.
+therefore exit 0 and record the failure in its output. `cxg-ingest.py` exits 0 on a failed
+round-trip check for that reason, and `REPORT` fails the run. A non-zero exit there hides the
+receipt that names the failure, and stops `REPORT` from running at all.
 
 An empty manifest gives a successful run that writes nothing, because no task runs and
 `collect()` on an empty channel emits nothing, so `REPORT` is skipped as well. `main.nf` fails
@@ -101,7 +102,7 @@ escape test: that one writes to object storage, and against a mock it would pass
 anything. Note that `nf-test list` takes `--tags` rather than `--tag`, and does not filter the way
 `test` does.
 
-## Rakes: dependency tooling
+## Sharp edges: dependency tooling
 
 The dependency set is declared once, in `census2-writer/pyproject.toml`. pip cannot install only a
 project's dependencies, so the image stages that file beside an empty module, installs it, and a
@@ -122,7 +123,7 @@ Strongly consider pixi once a lock file is appropriate, or when the dependencies
 conda-forge with PyPI needed only for the rest, or when dependencies outside Python arrive. Left
 unproven: TLS to real S3 with no apt `ca-certificates`, and whether the environment relocates.
 
-## Rakes: AWS HealthOmics and credentials
+## Sharp edges: AWS HealthOmics and credentials
 
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
 object. An output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the

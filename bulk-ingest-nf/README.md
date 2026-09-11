@@ -109,7 +109,7 @@ returning part of one.
 | `--limit` | `0` | Take the first N after sorting. `0` means all. |
 | `--sort` | `size_asc` | `size_asc`, `size_desc`, or `random`. |
 | `--seed` | `0` | Seed for `--sort random`. |
-| `--schema-version` | none | Omit for the current corpus. See "Rakes: upstream data" in `CLAUDE.md`. |
+| `--schema-version` | none | Omit for the current corpus. See "Sharp edges: upstream data" in `CLAUDE.md`. |
 | `--source-bucket` | `dataset-assets-public-prod` | Bucket holding the source `.h5ad` files. |
 
 By default the pipeline writes the Census slot set: `obs`, `var`, `X`, `raw`, and two `uns` keys.
@@ -171,7 +171,8 @@ A rejection is not an error: the task succeeds, no store is written, and the rec
 `admitted: false` with a reason.
 
 `<recipe>` is `census2_writer.RECIPE`, `v1` today. It covers the anndata version, the Zarr format,
-the X encoding, the slot policy, and harmonization. Raise it there when any of those change. Outputs are keyed on
+the X encoding, the slot policy, and harmonization. Raise it there when any of those change.
+Outputs are keyed on
 `dataset_version_id`, which names an immutable snapshot, so a rerun can skip work by listing
 the prefix and subtracting it from the manifest.
 
