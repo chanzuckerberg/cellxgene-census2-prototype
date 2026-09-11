@@ -72,7 +72,8 @@ A receipt is the JSON a writer publishes beside a store, and `Receipt` types it 
 any one pipeline, so that a reader parses the same keys whichever pipeline wrote the store.
 `provenance()` supplies the part this package knows: the recipe, the slot policy, the Zarr
 format, and the versions that ran. It reads them from the installed distributions, so a receipt
-cannot disagree with the code that produced it. A pipeline adds where the dataset came from and what it did.
+cannot disagree with the code that produced it. A pipeline adds where the dataset came from and
+what it did.
 
 ```python
 census2_writer.provenance()
