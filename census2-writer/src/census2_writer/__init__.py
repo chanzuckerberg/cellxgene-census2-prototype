@@ -288,21 +288,24 @@ def admit(
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> str | None:
-    """Decide whether this dataset belongs in Census 2.
+    """Decide whether Census 2 admits this dataset.
 
-    Return `None` to admit it, or a short human-readable reason to reject it.
-    A rejection is a normal outcome that the caller records and succeeds on, so
-    do not raise here for an unsuitable dataset. Raise only for a genuinely
-    broken input.
+    Return `None` to admit the dataset. Return a short reason to reject it.
+    A rejection is a normal result. The caller records the reason and exits
+    with success. Do not raise an exception for a dataset that you reject.
+    Raise only for an input that this function cannot read.
 
-    `adata` is the core object with its **full** `uns`, before slot policy trims
-    it, so a criterion may read any `uns` key. `X` and `raw.X` are still lazy, so
-    reading either forces a compute.
+    `adata` holds `obs`, `var`, `X`, `raw`, and the full `uns`. The slot
+    policy runs after admission. All `uns` keys are present, and a criterion
+    can read any of them. `X` and `raw.X` are not loaded. A read of `X` or
+    `raw.X` loads the full matrix.
 
-    `refdata` is a directory that the caller staged; resolve reference file names
-    against it rather than taking paths from configuration.
+    `refdata` is the directory that the caller staged. The configuration
+    names a reference file. It does not give the path. Resolve each name
+    against `refdata`.
 
-    STUB: admits everything. Which datasets Census 2 admits is not decided yet.
+    This function is a stub that admits every dataset. The admission
+    criteria are open.
     """
     return None
 
