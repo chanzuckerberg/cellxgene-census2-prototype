@@ -66,7 +66,7 @@ thresholds, criteria, and the names of lists. It is small and lives in
 version control next to a release. `refdata` is the path of a directory
 that the caller staged before the run. It holds bulk reference data:
 ontology term lists, gene references, tissue roll-ups. The configuration
-names a reference file and does not give its path. `build` resolves each
+names a reference file and does not give its path. A step resolves each
 name against `refdata`, because the staged location is known only inside
 the task. This module does not fetch a file at run time. A HealthOmics task
 has no public internet access.
@@ -106,8 +106,8 @@ Two rules follow:
 A subset of the AnnData keeps `obs`, `var`, `X`, and the other slots
 aligned.
 
-The README in this directory covers installation, the pipeline, and the
-development workflow.
+The README in this directory covers installation, use, and the development
+workflow.
 """
 
 from __future__ import annotations
