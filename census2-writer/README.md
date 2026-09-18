@@ -36,23 +36,8 @@ if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
 
-`build` alone answers what a store would hold, without writing one: which slots it carries, and
-whether the dataset is admitted. It is cheap, because `obs`, `var`, and `uns` are the only slots it
-reads.
-
-```python
-import h5py
-
-with h5py.File("dataset.h5ad") as f:
-    adata, result = census2_writer.build(f)
-    print(result["admitted"], result["slots"])
-```
-
-Pairing `build` with `write` lets you change the object in between, which is how a harmonization
-step is prototyped before it lands in `harmonize`. Nothing records the change: a receipt reports
-the recipe and the versions that ran, not what a caller did. A store written that way is not one
-the Census would publish. Keep the file open until `write` returns, because the matrix is read
-lazily.
+(`build` and `write` can also be called separately, to see what a store would hold or to prototype
+a harmonization step. The module docstring covers that.)
 
 `dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
 `zarr.abc.store.Store`. A remote URL always goes through `as_store`: a bare `s3://` string makes
