@@ -170,14 +170,8 @@ package rather than as a staged file.
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.
 
-Outputs are keyed on `dataset_version_id` alone, which names an immutable snapshot, so a rerun can
-skip work by listing the prefix and subtracting it from the manifest. A rerun of the same dataset
-replaces its store: anndata opens the destination for writing, so nothing of the previous store
-survives.
-
-Nothing in the path records which code wrote a store. The receipt does, in `recipe` and the
-version fields. That is enough while we are prototyping and content to overwrite. Publishing more
-than one generation of a store at a time will need a real scheme, in the path or in the catalog.
+This flat layout is a prototype convenience: a rerun overwrites the store it wrote before.
+Production will need a considered key and folder schema.
 
 ## AWS HealthOmics
 
