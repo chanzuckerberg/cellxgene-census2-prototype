@@ -20,9 +20,12 @@ admit the dataset. It returns a `Result` with `admitted`, `reason`, and
         print("skipped:", result["reason"])
 
 `build(f, *, config=None, refdata=None)` returns the AnnData and the
-`Result` without a write. `write(adata, dest, *, consolidate=True)` writes
-an AnnData. Use the pair only to inspect or change the object before the
-write. The file must stay open until `write` returns (see Memory).
+`Result` without a write, which answers what a store would hold without
+writing one. `write(adata, dest, *, consolidate=True)` writes an AnnData.
+Pair them to change the object in between, which is how a harmonization step
+is prototyped. Nothing records such a change, so a store written that way is
+not one the Census would publish. The file must stay open until `write`
+returns (see Memory).
 
     with h5py.File("dataset.h5ad") as f:
         adata, result = census2_writer.build(f)
