@@ -36,8 +36,7 @@ if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
 
-(`build` and `write` can also be called separately, to see what a store would hold or to prototype
-a harmonization step. The module docstring covers that.)
+(`build` and `write` can also be called separately; the module docstring covers that.)
 
 `dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
 `zarr.abc.store.Store`. A remote URL always goes through `as_store`: a bare `s3://` string makes
