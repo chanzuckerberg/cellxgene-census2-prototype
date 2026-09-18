@@ -61,7 +61,7 @@ nextflow run . -profile docker \
     --outdir ./out
 ```
 
-Results land in `./out/v1/<dataset_version_id>.zarr`, with one receipt JSON beside each store.
+Results land in `./out/<dataset_version_id>.zarr`, with one receipt JSON beside each store.
 
 A local destination is published by Nextflow from the task's declared output, so any local path
 works. A remote destination is written straight to object storage by the task, and the directory
@@ -134,7 +134,7 @@ tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 modules/local/ingest/resources/usr/bin/cxg-ingest.py \
     --record "$(head -1 manifest.jsonl)" --outdir ./out --check
 
-modules/local/report/resources/usr/bin/ingestion-report.py ./out/v1/*.json \
+modules/local/report/resources/usr/bin/ingestion-report.py ./out/*.json \
     --out ingestion_report.json
 ```
 
@@ -163,18 +163,21 @@ package rather than as a staged file.
 ## Output layout
 
 ```
-<outdir>/<recipe>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
-<outdir>/<recipe>/<dataset_version_id>.json     the receipt, always
+<outdir>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
+<outdir>/<dataset_version_id>.json     the receipt, always
 ```
 
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.
 
-`<recipe>` is `census2_writer.RECIPE`, `v1` today. It covers the anndata version, the Zarr format,
-the X encoding, the slot policy, and harmonization. Raise it there when any of those change.
-Outputs are keyed on
-`dataset_version_id`, which names an immutable snapshot, so a rerun can skip work by listing
-the prefix and subtracting it from the manifest.
+Outputs are keyed on `dataset_version_id` alone, which names an immutable snapshot, so a rerun can
+skip work by listing the prefix and subtracting it from the manifest. A rerun of the same dataset
+replaces its store: anndata opens the destination for writing, so nothing of the previous store
+survives.
+
+Nothing in the path records which code wrote a store. The receipt does, in `recipe` and the
+version fields. That is enough while we are prototyping and content to overwrite. Publishing more
+than one generation of a store at a time will need a real scheme, in the path or in the catalog.
 
 ## AWS HealthOmics
 

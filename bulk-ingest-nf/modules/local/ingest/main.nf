@@ -13,10 +13,10 @@ process INGEST {
     // The store moves, because copying it would duplicate gigabytes. The receipt
     // is copied, because REPORT consumes it from the work directory and 'move'
     // would take it away.
-    publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}/v1",
+    publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
                mode: 'move', pattern: '*.zarr',
                enabled: !params.outdir.toString().matches('^s3(://|_//).*')
-    publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}/v1",
+    publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
                mode: 'copy', pattern: '*.json',
                enabled: !params.outdir.toString().matches('^s3(://|_//).*')
 

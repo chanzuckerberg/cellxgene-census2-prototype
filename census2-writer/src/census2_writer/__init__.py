@@ -168,7 +168,8 @@ BLOCK_BYTES = 64 * 1024**2
 
 # The recipe names the store format: the anndata version, the Zarr format, the X
 # encoding, the slot policy, and harmonization. Raise it when any of those
-# change, because outputs keyed on the old one are then no longer comparable.
+# change, so that a receipt says which format its store holds. Nothing is keyed
+# on it: a store's location is its dataset version alone.
 RECIPE = "v1"
 
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not

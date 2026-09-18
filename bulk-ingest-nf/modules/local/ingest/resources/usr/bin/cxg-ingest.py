@@ -43,7 +43,7 @@ def log(msg: str) -> None:
 
 def store_uri(outdir: str, name: str) -> str:
     """Final location of one artifact. Local path or s3:// URI."""
-    return f"{outdir.rstrip('/')}/{census2_writer.RECIPE}/{name}"
+    return f"{outdir.rstrip('/')}/{name}"
 
 
 def _sha256(path: str) -> str:

@@ -21,8 +21,8 @@ nextflow_pipeline {
             assert workflow.success
 
             // One store and one receipt per manifest line.
-            def receipts = path("$outputDir/v1").list().findAll { it.toString().endsWith(".json") }
-            def stores   = path("$outputDir/v1").list().findAll { it.toString().endsWith(".zarr") }
+            def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
+            def stores   = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
             assert receipts.size() == 2
             assert stores.size() == 2
 
@@ -55,7 +55,7 @@ nextflow_pipeline {
         then {
             assert workflow.success
 
-            def receipts = path("$outputDir/v1").list().findAll { it.toString().endsWith(".json") }
+            def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
             assert receipts.size() == 2
 
             def slotCounts = receipts.collect { r ->
@@ -82,7 +82,7 @@ nextflow_pipeline {
         then {
             assert workflow.success
 
-            def receipts = path("$outputDir/v1").list().findAll { it.toString().endsWith(".json") }
+            def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
             assert receipts.size() == 2
             receipts.each { r ->
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
@@ -100,7 +100,7 @@ nextflow_pipeline {
         }
         then {
             assert workflow.success
-            def stores = path("$outputDir/v1").list().findAll { it.toString().endsWith(".zarr") }
+            def stores = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
             assert stores.size() == 2
             stores.each { s ->
                 // The root group metadata. anndata writes the consolidated
