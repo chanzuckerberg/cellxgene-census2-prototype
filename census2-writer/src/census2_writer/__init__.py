@@ -79,12 +79,18 @@ it exists.
 
 Receipt
 -------
-A receipt is the JSON file that a pipeline publishes next to a store.
-`Receipt` declares its keys, so every pipeline writes the same keys and a
-reader parses one shape. `provenance` supplies the recipe (`RECIPE`), the
-slot policy, the Zarr format, and the versions of this package, anndata,
-and zarr. It reads the versions from the installed distributions. The
-pipeline adds the dataset source and the run facts.
+A receipt is the JSON file that a pipeline writes next to a store. Today it
+is a private log. `bulk-ingest-nf` writes one for each dataset, and its
+report step reads them to summarize the run. Nothing outside a run reads
+one. `Receipt` declares its keys, so the script that writes a receipt and
+the script that reads it agree on the shape; the two cannot import each
+other. `provenance` supplies the recipe (`RECIPE`), the slot policy, the
+Zarr format, and the versions of this package, anndata, and zarr. It reads
+the versions from the installed distributions. The pipeline adds the
+dataset source and the run facts.
+
+Registering a store, with metadata that a reader outside the run can rely
+on, is a separate job and is not implemented yet.
 
 Memory
 ------
@@ -234,10 +240,12 @@ class StoreProvenance(TypedDict):
 
 
 class Receipt(StoreProvenance, total=False):
-    """The JSON a writer publishes beside a store.
+    """The JSON a pipeline writes beside a store.
 
-    A receipt is part of the published artifact, not a private log. Its shape
-    therefore lives here and not in any one pipeline.
+    A private log today, read only by the pipeline's own report step. The shape
+    lives here because the script that writes one and the script that reads one
+    cannot import each other, and because `provenance` fills the part that only
+    this package knows.
 
     The `StoreProvenance` keys are always present. The rest is what a writer
     knows about where the dataset came from and what it did, so it is optional

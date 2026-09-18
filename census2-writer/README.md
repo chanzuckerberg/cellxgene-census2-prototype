@@ -68,12 +68,16 @@ to be redesigned or eliminated. That constraint is what lets many Census release
 
 ## Receipts
 
-A receipt is the JSON a writer publishes beside a store, and `Receipt` types it here rather than in
-any one pipeline, so that a reader parses the same keys whichever pipeline wrote the store.
-`provenance()` supplies the part this package knows: the recipe, the slot policy, the Zarr
-format, and the versions that ran. It reads them from the installed distributions, so a receipt
-cannot disagree with the code that produced it. A pipeline adds where the dataset came from and
-what it did.
+A receipt is the JSON a pipeline writes beside a store. Today it is a private log: the bulk
+ingestion pipeline writes one per dataset and its report step reads them to summarize the run.
+`Receipt` types it here so that the script writing one and the script reading one agree, since the
+two cannot import each other. `provenance()` supplies the part this package knows: the recipe, the
+slot policy, the Zarr format, and the versions that ran. It reads them from the installed
+distributions, so a receipt cannot disagree with the code that produced it. A pipeline adds where
+the dataset came from and what it did.
+
+Registering a store, with metadata a reader outside the run can rely on, is a separate job and is
+not implemented yet.
 
 ```python
 census2_writer.provenance()

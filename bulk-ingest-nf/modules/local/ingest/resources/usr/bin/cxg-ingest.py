@@ -291,10 +291,10 @@ def main() -> int:
     log(f"ingest -> {store} (slots={'all' if config['all_slots'] else 'census'})")
     result = ingest(src, dest, config=config, refdata=args.refdata)
 
-    # The shape of a receipt is census2_writer.Receipt: it is published beside
-    # the store, so a reader parses the same keys whichever pipeline wrote it.
-    # The store-level facts come from the package, so they cannot disagree with
-    # the code that ran.
+    # The shape of a receipt is census2_writer.Receipt, so this script and
+    # ingestion-report.py agree on it without importing each other. The
+    # store-level facts come from the package, so they cannot disagree with the
+    # code that ran.
     receipt: census2_writer.Receipt = {
         **census2_writer.provenance(config),
         "dataset_id": rec["dataset_id"],
