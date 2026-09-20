@@ -48,8 +48,10 @@ process INGEST {
 
     script:
     // The record travels as JSON so the script has the source URI and the
-    // expected file size without re-reading the manifest.
-    def record = groovy.json.JsonOutput.toJson(meta)
+    // expected file size without re-reading the manifest. A dataset title can
+    // contain an apostrophe, which would close the quoted argument below, so
+    // escape it the POSIX way: close the quote, emit an escaped quote, reopen.
+    def record = groovy.json.JsonOutput.toJson(meta).replace("'", "'\\''")
     // Same rule as publishDir above, applied to where the task writes.
     def outdir = params.outdir.toString().replaceFirst('^s3_//', 's3://')
     def stage  = outdir.startsWith('s3://') ? '' : '--stage-local'
