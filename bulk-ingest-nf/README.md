@@ -19,10 +19,9 @@ around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline is put together.
 - AWS credentials that can read the source bucket.
 - Internet access for `tools/cxg-manifest.py` only. The pipeline itself needs none.
 
-**Credentials in the container.** Tasks read credentials from the environment, and nothing is
-mounted. A profile that resolves credentials through a helper, such as SSO or an external
-`credential_process`, does not work inside the container, because the helper is absent. Resolve on
-the host and export the result:
+**Credentials in the container.** Tasks read credentials from the environment. A profile that
+resolves credentials through a helper, such as SSO or an external `credential_process`, does not
+work inside the container. Resolve on the host and export the result:
 
 ```bash
 eval "$(aws configure export-credentials --profile <your-profile> --format env)"
@@ -32,7 +31,7 @@ On HealthOmics the run role supplies credentials to each task.
 
 ## Quick start
 
-Build the runtime image from the repository root, because the image installs `census2-writer`:
+Build the runtime image from the repository root:
 
 ```bash
 docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile ..
@@ -101,8 +100,8 @@ A rejection is not an error: the task succeeds, no store is written, and the rec
 `admitted: false` with a reason.
 
 This flat layout is a prototype convenience: a rerun overwrites the store it wrote before. The
-run report describes a run rather than a store, so it publishes to `--report_dir`, not `--outdir`.
-A local run leaves the report in the task's working directory unless you set `--report_dir`.
+run report publishes to `--report_dir`, not `--outdir`; a local run leaves it in the task's
+working directory unless you set `--report_dir`.
 
 ## Running a component alone
 
@@ -136,15 +135,14 @@ aws omics create-workflow --engine NEXTFLOW --main main.nf \
     --storage-type DYNAMIC --name census2-bulk-ingest
 ```
 
-Pass the destination as `s3_//bucket/prefix`, not `s3://`. HealthOmics validates an `s3://`
-parameter value as an existing input object, and an output prefix is not one; the pipeline
-normalizes the escaped form. `--outdir` must be remote on HealthOmics, and the pipeline refuses a
-local path.
+Pass the destination as `s3_//bucket/prefix`, not `s3://`: HealthOmics validates an `s3://`
+parameter value as an existing input object, and an output prefix is not one. `--outdir` must be
+remote on HealthOmics, and the pipeline refuses a local path.
 
 ## Tests
 
-Tests use [nf-test](https://www.nf-test.com). They run against the pinned manifest in
-`tests/fixtures/manifest.jsonl`, so a failure means the code changed rather than the corpus.
+Tests use [nf-test](https://www.nf-test.com) and run against the pinned manifest in
+`tests/fixtures/manifest.jsonl`.
 
 ```bash
 nf-test test --tag validation         # fast; no network, no credentials

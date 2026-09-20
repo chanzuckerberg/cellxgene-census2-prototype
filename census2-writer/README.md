@@ -17,8 +17,7 @@ pip install ./census2-writer          # local h5ad to a local store
 pip install './census2-writer[s3]'    # also write to object storage
 ```
 
-zarr ships no S3 client. `as_store` imports `obstore` only when the destination is remote, so a
-local conversion does not need the `s3` extra.
+The `s3` extra is unnecessary for a local conversion.
 
 ## Use
 
@@ -34,9 +33,8 @@ if not result["admitted"]:
 `build` and `write` can also be called separately; the module docstring covers that.
 
 The destination is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
-`zarr.abc.store.Store`. A remote URL must go through `as_store`; `create` and `write` do this.
-Given a bare `s3://` string, zarr falls back to fsspec and fails. For a remote destination, export
-AWS credentials into the environment first; `obstore` does not resolve AWS profiles.
+`zarr.abc.store.Store`. For a remote destination, export AWS credentials into the environment
+first; `AWS_PROFILE` alone does not work.
 
 ## The three decisions
 
@@ -52,16 +50,15 @@ Zarr.
 A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.
 
-Ingestion reads one dataset at a time and never the corpus. A harmonization step that needs a
+Ingestion reads one dataset at a time and not the corpus. A harmonization step that needs a
 corpus-wide aggregate must be redesigned or eliminated. This constraint lets many Census releases
 reuse one store.
 
 ## Receipts
 
-A receipt is the JSON a pipeline writes beside a store. `Receipt` types it here so that the
-script that writes one and the script that reads one agree. `provenance()` supplies the part this
-package knows, read from the installed distributions, and the pipeline adds where the dataset came
-from and what it did.
+A receipt is the JSON a pipeline writes beside a store. `Receipt` types its shape, `provenance()`
+supplies the part this package knows, and the pipeline adds where the dataset came from and what
+it did.
 
 ```python
 census2_writer.provenance()
@@ -81,9 +78,9 @@ pytest
 mypy
 ```
 
-Run pytest and mypy from this directory: mypy reads its settings from `pyproject.toml` here and
-finds no configuration elsewhere. Install editable, or the tests import the copy in
-site-packages. The tests need no network, no credentials, and no container.
+Run pytest and mypy from this directory; mypy finds its configuration only here. Install
+editable, or the tests import the copy in site-packages. The tests need no network, no
+credentials, and no container.
 
 See the repository root [`CLAUDE.md`](../CLAUDE.md) for the lint, format, and type-check policy,
 and [`CLAUDE.md`](CLAUDE.md) here for the anndata and zarr behavior behind this code.
