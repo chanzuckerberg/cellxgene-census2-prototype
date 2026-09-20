@@ -32,7 +32,7 @@ The source bucket is `s3://dataset-assets-public-prod/<dataset_version_id>.h5ad`
 The public CloudFront URL uses the same key. The bucket refuses anonymous reads and belongs to
 another AWS account. Its policy grants at the account level rather than to named roles, so a
 HealthOmics run role reads it. Evidence for the name is `backend/scripts/mirror_s3_data.sh` in the
-`single-cell-data-portal` repository; elsewhere there it is a deployment secret.
+`single-cell-data-portal` repository; elsewhere in that repository it is a deployment secret.
 
 Nothing in the chain publishes a content hash. The Discover API gives `filesize`, and the S3 ETag
 is multipart for most objects. File size is the only integrity check, and the ingest step asserts
@@ -65,7 +65,7 @@ tested without the platform; inferring it from the profile name was untestable.
 Nextflow publishes nothing from a failed task. A task that must report a failure downstream
 therefore exits 0 and records the failure in its output: `cxg-ingest.py` exits 0 on a failed
 round-trip check, and `REPORT` fails the run. A non-zero exit would hide the receipt that names
-the failure and stop `REPORT` from running at all.
+the failure and stop `REPORT` from running.
 
 An empty manifest gives a successful run that writes nothing: no task runs, `collect()` on an
 empty channel emits nothing, and `REPORT` is skipped. `main.nf` fails early instead.
@@ -95,17 +95,18 @@ does not filter the way `test` does.
 
 The dependency set is declared once, in `census2-writer/pyproject.toml`. pip cannot install only a
 project's dependencies, so the image stages that file beside an empty module, installs it, and a
-later layer replaces the module with the real source. The bulky dependency layer then survives an
-edit to the package source. Nothing pins an exact version; the bound that matters is
+later layer replaces the module with the real source. Docker then reuses the large dependency
+layer when only the package source changes. Nothing pins an exact version; the bound that matters
+is
 `anndata<0.14`, and every receipt records what wrote a store.
 
-uv and pixi were evaluated, and the image stays on pip. uv reads better but is another build tool.
-pixi works: an image built from a `pixi.lock` ran the pipeline end to end, locks the Linux and
-macOS platforms in one file, and removes the apt layer and the AWS CLI install, because
-conda-forge carries everything here. Against that, its image is larger, it owns the local loop and
-CI as well as the image, and every platform must be declared. Reconsider pixi when a lock file is
-appropriate, or when dependencies outside Python arrive. Left unproven: TLS to real S3 with no apt
-`ca-certificates`, and whether the environment relocates.
+uv and pixi were evaluated, and the image stays on pip. uv makes the Dockerfile simpler but adds
+another build tool. pixi works: an image built from a `pixi.lock` ran the pipeline end to end,
+locks the Linux and macOS platforms in one file, and removes the apt layer and the AWS CLI
+install, because conda-forge carries every dependency here. But its image is larger, it manages
+the local environment and CI as well as the image, and every platform must be declared. Reconsider
+pixi when a lock file is appropriate, or when dependencies outside Python arrive. Two points are
+untested: TLS to real S3 with no apt `ca-certificates`, and whether the environment relocates.
 
 ## Sharp edges: AWS HealthOmics and credentials
 
@@ -115,8 +116,8 @@ pipeline normalizes.
 
 There is no way to pass `-profile`: neither `create-workflow` nor `start-run` accepts Nextflow
 arguments, so the platform settings must be the defaults inside the bundle.
-`tools/build-healthomics-bundle.sh` appends that include when it builds the zip, which keeps the
-repository free of a HealthOmics-only default that would surprise a local run.
+`tools/build-healthomics-bundle.sh` appends that include when it builds the zip, which keeps a
+HealthOmics-only default out of the configuration that a local run reads.
 
 HealthOmics has no boolean parameter type, so every parameter arrives as a string, and a non-empty
 string is true in Groovy: `check=false` would switch the check on. Read a boolean parameter
@@ -127,8 +128,8 @@ URIs in the same region, and ARM images are unsupported, so build `linux/amd64`.
 
 A profile that resolves credentials with a helper, such as SSO or an external
 `credential_process`, cannot work inside a container, because the helper is absent. Mounting the
-AWS configuration directory makes it worse: the CLI then finds the configuration and tries to run
-a binary that is not there. Resolve on the host and export with
+AWS configuration directory also fails: the CLI then finds the configuration and tries to run a
+binary that is not there. Resolve on the host and export with
 `aws configure export-credentials --format env`. On HealthOmics and Batch the task role supplies
 credentials through the environment, so this matches the deployment target.
 

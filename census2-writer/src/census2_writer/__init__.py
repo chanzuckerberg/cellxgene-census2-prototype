@@ -3,15 +3,15 @@
 The writer reads one published Discover `.h5ad` and writes one AnnData-Zarr
 store. The bulk ingestion pipeline (`bulk-ingest-nf`) calls this module once
 for each dataset, and a developer can call it from Python. The module reads
-one dataset and never the corpus, so a step that needs a corpus-wide
+one dataset and not the corpus, so a step that needs a corpus-wide
 aggregate cannot run here.
 
 Public calls
 ------------
 `create(source, dest, ...)` builds the store and writes it. It writes
-nothing when the dataset is not admitted, and returns a `Result` either way.
-`build` and `write` do the same work in two calls, for a caller that wants
-the AnnData in between:
+nothing when the dataset is not admitted, and returns a `Result` in both
+cases. `build` and `write` split the same work into two calls, so a caller
+can inspect the AnnData before the write:
 
     with h5py.File("dataset.h5ad") as f:
         adata, result = census2_writer.build(f)
@@ -55,7 +55,7 @@ lists. It lives in version control next to a release. `refdata` is a
 directory of bulk reference data that the caller staged before the run:
 ontology term lists, gene references, tissue roll-ups. The configuration
 names a reference file, and a step resolves the name against `refdata`.
-This module never fetches a file at run time, because a HealthOmics task
+This module does not fetch a file at run time, because a HealthOmics task
 has no public internet access.
 
 `load_config` is a stub: no file format is defined, and it returns

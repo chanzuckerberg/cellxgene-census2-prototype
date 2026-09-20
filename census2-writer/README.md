@@ -34,10 +34,9 @@ if not result["admitted"]:
 `build` and `write` can also be called separately; the module docstring covers that.
 
 The destination is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
-`zarr.abc.store.Store`. A remote URL must go through `as_store` (`create` and `write` do this): a
-bare `s3://` string given to zarr directly falls back to fsspec and fails. For a remote
-destination, export AWS credentials into the environment first; `obstore` does not resolve AWS
-profiles.
+`zarr.abc.store.Store`. A remote URL must go through `as_store`; `create` and `write` do this.
+Given a bare `s3://` string, zarr falls back to fsspec and fails. For a remote destination, export
+AWS credentials into the environment first; `obstore` does not resolve AWS profiles.
 
 ## The three decisions
 
@@ -48,7 +47,7 @@ profiles.
 | Harmonization — what makes stores queryable together | Stub: returns its input | `harmonize` |
 
 Because two of the three are stubs, a store today is the dataset's Census slot set written to
-Zarr, and no more than that.
+Zarr.
 
 A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.

@@ -11,8 +11,8 @@ This file records the sharp edges: what cost us effort to find, and what is easy
 
 zarr has no S3 client of its own. It defines a store interface, and two adapters exist:
 `FsspecStore` over `s3fs`, and `ObjectStore` over `obstore`. This component uses `obstore` for its
-smaller dependency footprint and its object listing, which sizes a store without a second
-dependency. Every zarr call that takes a destination must go through `census2_writer.as_store`. A
+smaller dependency footprint and its object listing, so sizing a store needs no second dependency.
+Every zarr call that takes a destination must go through `census2_writer.as_store`. A
 bare `s3://` string makes zarr fall back to fsspec and fail with `Install s3fs to access S3`, and
 a local path hides the mistake because it works.
 
@@ -28,11 +28,11 @@ declares `anndata>=0.13,<0.14`. The upper bound is the constraint that matters, 
 only place any component states it: the runtime image resolves its dependencies from this file.
 The same release moved `X` into `layers[None]` in memory; on disk `X` stays at `/X`.
 
-`anndata.experimental.read_lazy` looks like the natural way to get a lazy whole object, but as of
-0.13 it does not round-trip: anndata cannot write an AnnData whose `obs` is a `Dataset2D`, and
-`read_lazy` takes no `chunks` argument. Hence the hybrid of eager small slots and `read_elem_lazy`
-matrices. Because `X` is then an unevaluated dask graph, the `h5py` handle stays open until the
-store is written.
+`anndata.experimental.read_lazy` would give a lazy whole object, but as of 0.13 it does not
+round-trip: anndata cannot write an AnnData whose `obs` is a `Dataset2D`, and `read_lazy` takes no
+`chunks` argument. So `build` reads the small slots eagerly and the matrices through
+`read_elem_lazy`. Because `X` is then an unevaluated dask graph, the `h5py` handle stays open
+until the store is written.
 
 The round trip widens the sparse index arrays of `X` from int32 to int64; the values do not
 change. `--check` therefore compares integer arrays by value and not by stored bytes.
@@ -48,18 +48,18 @@ corpus can be presented as the answer for them.
 
 ## Sharp edges: types
 
-`read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both hand
-back a wide union. The annotations here narrow at the boundary with `cast`, which records what we
+`read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both return
+a wide union. The annotations here narrow at the boundary with `cast`, which records what we
 know that the checker cannot: for a matrix, `read_elem_lazy` returns a dask array, and the memory
 contract depends on that.
 
 h5py ships no type information, so `H5Matrix` and `Source` are `Any` with a comment naming what a
 caller must pass, and h5py is the only entry in the `ignore_missing_imports` override. Keep it the
-only entry: adding a package there throws away types we can have. Everything else is typed: dask,
+only entry: adding a package there discards types we can have. Everything else is typed: dask,
 obstore, anndata, and zarr ship `py.typed`, and `pandas-stubs` and `scipy-stubs` are dev
 dependencies.
 
 `Result` and `Receipt` are `TypedDict`s rather than named tuples, because both serialize into JSON
 and callers index them. A `TypedDict` is closed, which is why `Config` is not one: the config file
-format is undecided and has to carry keys we have not named. When that format is designed it needs
+format is undecided and must carry keys we have not named. When that format is designed it needs
 run-time validation, not annotations, because it is external input.

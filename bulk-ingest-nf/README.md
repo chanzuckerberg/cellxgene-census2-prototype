@@ -38,7 +38,7 @@ Build the runtime image from the repository root, because the image installs `ce
 docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile ..
 ```
 
-Prepare a manifest. This step queries the Discover API, so run it somewhere with internet access.
+Prepare a manifest. This step queries the Discover API, so run it on a host with internet access.
 It needs only the Python standard library.
 
 ```bash
@@ -57,7 +57,7 @@ nextflow run . -profile docker \
 
 The stores go to `./out/<dataset_version_id>.zarr`, with one receipt JSON beside each store.
 
-To write straight to S3, give `--outdir` an `s3://` prefix and read the manifest from S3 as well.
+To write directly to S3, give `--outdir` an `s3://` prefix and read the manifest from S3 as well.
 The task writes each store to its final location; there is no staging step.
 
 ```bash
