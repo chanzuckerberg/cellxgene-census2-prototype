@@ -3,32 +3,25 @@
 Bulk ingestion of CELLxGENE Discover datasets into Census 2 stores, as a Nextflow pipeline.
 
 `README.md` covers what it does and how to run it. The repository root `CLAUDE.md` gives the
-Census 2 tentpoles and the documentation policy. This file records the sharp edges: the things
-that cost us effort to find, and that are easy to catch again.
+Census 2 tentpoles and the documentation policy. This file records the sharp edges: what cost us
+effort to find, and what is easy to catch again.
 
 ## Python style
 
 See the repository root `CLAUDE.md`. Every script here is glue, so ruff applies and `mypy --strict`
 does not.
 
+## Seams
 
-## Seams, and how provisional they are
+The `census2-writer` package decides whether a dataset is admitted and what a store contains; its
+README and module docstring cover the three decisions and their stubs, and its `CLAUDE.md` has the
+anndata and zarr sharp edges. Read those before changing how a store is written.
 
-The `census2-writer` package decides what a store contains. It holds three decisions, two of them
-placeholders waiting on the harmonization design:
-
-- `admit` decides whether a dataset belongs in Census 2. It currently admits everything. A
-  rejection is a normal outcome rather than an error, so it returns a reason and the task
-  succeeds.
-- Slot policy decides which AnnData slots a store carries. It defaults to the set the Census 1
-  builder reads, which drops embeddings and most of `uns`. `all_slots` carries everything.
-- `harmonize` returns its input.
-
-`cxg-ingest.py` handles what running this as a pipeline needs: fetching the source, publishing, and
-the receipt. The receipt's shape is `census2_writer.Receipt`, and its store-level facts come from
-`census2_writer.provenance`, so the two scripts here and any later pipeline agree on it. Policy
-that a caller might choose lives in the configuration rather than in function arguments, so that
-there is one place to look.
+`cxg-ingest.py` handles what running that package as a pipeline needs: fetching the source,
+publishing, and the receipt. The receipt's shape is `census2_writer.Receipt`, and its store-level
+facts come from `census2_writer.provenance`, so the script that writes a receipt and the script
+that reads one agree on it. Policy that a caller might choose lives in the configuration rather
+than in function arguments, so there is one place to look.
 
 These arrangements suit a stub. Expect to revisit them once the harmonization steps are known,
 particularly if a step needs data the current read order does not fetch.
@@ -36,7 +29,7 @@ particularly if a step needs data the current read order does not fetch.
 ## Sharp edges: upstream data
 
 The source bucket is `s3://dataset-assets-public-prod/<dataset_version_id>.h5ad` in `us-west-2`.
-The public CloudFront URL uses the same key. The bucket refuses anonymous reads, and it belongs to
+The public CloudFront URL uses the same key. The bucket refuses anonymous reads and belongs to
 another AWS account. Its policy grants at the account level rather than to named roles, so a
 HealthOmics run role reads it. Evidence for the name is `backend/scripts/mirror_s3_data.sh` in the
 `single-cell-data-portal` repository; elsewhere there it is a deployment secret.
@@ -46,14 +39,8 @@ is multipart for most objects. File size is the only integrity check, and the in
 it.
 
 Each CxG schema version is a complete, separately versioned copy of the corpus. A migration gives
-every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for a
-full reconversion at each schema release.
-
-## Sharp edges: anndata and zarr
-
-These moved to `census2-writer/CLAUDE.md`, beside the code they describe. Read them before changing
-how a store is written.
-
+every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for
+a full reconversion at each schema release.
 
 ## Sharp edges: Nextflow
 
@@ -61,104 +48,89 @@ how a store is written.
 that consumes the same output then fails. The store moves and the receipt is copied, because
 `REPORT` reads the receipt.
 
-A `publishDir` `enabled:` value must be a static expression. Only `path:` accepts a closure.
+A `publishDir` `enabled:` value must be a static expression; only `path:` accepts a closure.
+`file()` is unavailable to the configuration parser. A top-level `def` in a module `.nf` parses as
+a process directive. Normalizing a parameter in `nextflow.config` does not work, because
+command-line and params-file overrides apply after the configuration is evaluated.
 
-`file()` is unavailable to the configuration parser, and a top-level `def` in a module `.nf` parses
-as a process directive. Normalizing a parameter in `nextflow.config` also does not work, because
-command-line and params-file overrides are applied after the configuration is evaluated.
-
-A task that writes outside its work directory is a side effect Nextflow does not track. An earlier
-version did that for every destination, which needed a bind mount whose path had to match the
-task's path exactly, symlinks included. A mismatch discarded every store while each task reported
-success. The store is now a declared optional directory output, published by Nextflow for a local
-destination and written by the task for a remote one. `verify_written` covers the remote case,
-where nothing tracks the write.
+A task that writes outside its work directory is a side effect Nextflow does not track, and a
+mistake there discards stores while every task reports success. The store is therefore a declared
+optional directory output: Nextflow publishes it for a local destination, and the task writes it
+for a remote one, where `verify_written` covers the untracked write.
 
 A constraint that only one execution profile has is better as a declared parameter than as
 something the workflow infers. `params.remote_outdir_required` travels with the profile and can be
-tested without the platform. Inferring it from the profile name was untestable.
+tested without the platform; inferring it from the profile name was untestable.
 
-Tests read a pinned manifest from `tests/fixtures`, so a failure means the code changed rather than
-the corpus, and they assert on the receipt, which has to stay correct anyway.
+Nextflow publishes nothing from a failed task. A task that must report a failure downstream
+therefore exits 0 and records the failure in its output: `cxg-ingest.py` exits 0 on a failed
+round-trip check, and `REPORT` fails the run. A non-zero exit would hide the receipt that names
+the failure and stop `REPORT` from running at all.
 
-Nextflow publishes nothing from a failed task. A task that has to report a failure downstream must
-therefore exit 0 and record the failure in its output. `cxg-ingest.py` exits 0 on a failed
-round-trip check for that reason, and `REPORT` fails the run. A non-zero exit there hides the
-receipt that names the failure, and stops `REPORT` from running at all.
-
-An empty manifest gives a successful run that writes nothing, because no task runs and
-`collect()` on an empty channel emits nothing, so `REPORT` is skipped as well. `main.nf` fails
-early instead.
+An empty manifest gives a successful run that writes nothing: no task runs, `collect()` on an
+empty channel emits nothing, and `REPORT` is skipped. `main.nf` fails early instead.
 
 Nextflow escapes a `path` value when it renders it into a task script, and renders every other
-value verbatim. So a `path` input goes in bare, and quoting one breaks it: the backslashes Nextflow
-added become literal inside the quotes. A string is the opposite. It has to be quoted here, with
-any quote inside it escaped, or the shell reads it as syntax. A dataset title with an apostrophe
-failed a task that way, on `Seattle Alzheimer's Disease Atlas (SEA-AD)`, after eleven test cases
-and two HealthOmics runs had passed. `--record` and `--outdir` are strings and are escaped;
-`--config` and `--refdata` are paths and are bare.
+value verbatim. A `path` input therefore goes in bare, and quoting one turns the backslashes
+Nextflow added into literal characters. A string is the opposite: quote it, and escape any quote
+inside it, or the shell reads it as syntax; a dataset title with an apostrophe fails the task.
+`--record` and `--outdir` are strings and are escaped; `--config` and `--refdata` are paths and
+are bare. A `script:` block cannot call a helper closure, so the escape is written out at each
+use.
 
-A helper closure in a `script:` block does not compile: the block cannot call one, so the escape is
-written out at each use.
+nf-test's `--tag` selects tests and cannot exclude them, so a bare `nf-test test` runs the tests
+that reach object storage too. Every test carries a tag, and the offline set is `--tag validation`.
+A test that checks a validation rule but still starts a task belongs with the integration set,
+because starting a task needs Docker. Assert that the tasks were created: asserting only that an
+error message is absent also passes when the run fails for another reason. Tests read the pinned
+manifest in `tests/fixtures`, so a failure means the code changed rather than the corpus, and they
+assert on the receipt, which has to stay correct anyway.
 
-`nf-test --tag` selects tests and cannot exclude them, so a bare `nf-test test` runs the
-integration tests too. Every test carries a tag, and the offline set is `--tag validation`. A test
-that checks a validation rule but still reaches a task belongs with the integration set, because
-starting a task needs Docker. Assert that the tasks were created: asserting only that an error
-message is absent also passes when the run fails for some other reason.
-
-A comma-separated `--tag validation,ingest` selects the union of the two, which is what CI runs.
-`ingest` is a second tag on the ingest suite, so CI can take those four tests without the `s3_//`
-escape test: that one writes to object storage, and against a mock it would pass without proving
-anything. Note that `nf-test list` takes `--tags` rather than `--tag`, and does not filter the way
-`test` does.
+CI runs `--tag validation,ingest`, the union of the two tags. `ingest` is a second tag on the
+ingest suite so that CI takes those tests without the `s3_//` escape test, which writes to object
+storage and proves nothing against a mock. `nf-test list` takes `--tags` rather than `--tag`, and
+does not filter the way `test` does.
 
 ## Sharp edges: dependency tooling
 
 The dependency set is declared once, in `census2-writer/pyproject.toml`. pip cannot install only a
 project's dependencies, so the image stages that file beside an empty module, installs it, and a
-later layer replaces the module with the real source. The trick earns its keep: the dependency
-layer is bulky and the package layer is tiny, so editing the package rebuilds only the small one.
-Nothing pins an exact version; the bound that matters is `anndata<0.14`, and every receipt records
-what wrote a store.
+later layer replaces the module with the real source. The bulky dependency layer then survives an
+edit to the package source. Nothing pins an exact version; the bound that matters is
+`anndata<0.14`, and every receipt records what wrote a store.
 
-uv and pixi were both evaluated, and the image stays on pip. uv reads better, with
-`-r pyproject.toml`, but is another build tool. pixi works: an image built from a `pixi.lock` ran
-the pipeline end to end. It locks `linux-64`, `linux-aarch64`, and `osx-arm64` in one file and
-removes the apt layer and the AWS CLI install, because conda-forge carries everything here,
-`obstore` and `awscli` version 2 included. Against that, its image is larger, it owns the local
-loop and CI as well as the image, and every platform has to be declared, with a Linux-only package
-such as `procps-ng` under `[target.linux-64.dependencies]`.
-
-Strongly consider pixi once a lock file is appropriate, or when the dependencies are mainly on
-conda-forge with PyPI needed only for the rest, or when dependencies outside Python arrive. Left
-unproven: TLS to real S3 with no apt `ca-certificates`, and whether the environment relocates.
+uv and pixi were evaluated, and the image stays on pip. uv reads better but is another build tool.
+pixi works: an image built from a `pixi.lock` ran the pipeline end to end, locks the Linux and
+macOS platforms in one file, and removes the apt layer and the AWS CLI install, because
+conda-forge carries everything here. Against that, its image is larger, it owns the local loop and
+CI as well as the image, and every platform must be declared. Reconsider pixi when a lock file is
+appropriate, or when dependencies outside Python arrive. Left unproven: TLS to real S3 with no apt
+`ca-certificates`, and whether the environment relocates.
 
 ## Sharp edges: AWS HealthOmics and credentials
 
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
-object. An output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
-pipeline normalizes. Creating a placeholder object at the output key also works, but leaves a stray
-object behind.
+object, and an output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
+pipeline normalizes.
 
-There is no way to pass `-profile`. Neither `create-workflow` nor `start-run` accepts Nextflow
-arguments, so the platform settings have to be the defaults inside the bundle.
+There is no way to pass `-profile`: neither `create-workflow` nor `start-run` accepts Nextflow
+arguments, so the platform settings must be the defaults inside the bundle.
 `tools/build-healthomics-bundle.sh` appends that include when it builds the zip, which keeps the
 repository free of a HealthOmics-only default that would surprise a local run.
 
-HealthOmics has no boolean parameter type, so every parameter arrives as a string. A non-empty
-string is true in Groovy, so `check=false` would switch the check on. Read a boolean parameter
+HealthOmics has no boolean parameter type, so every parameter arrives as a string, and a non-empty
+string is true in Groovy: `check=false` would switch the check on. Read a boolean parameter
 through `.toString().toBoolean()`.
 
-Tasks have no public internet access; `StartRun` reports `networkingMode: RESTRICTED`. Images must
-be private ECR URIs in the same region, and ARM images are unsupported, so build `linux/amd64`.
+Tasks have no public internet access (`networkingMode: RESTRICTED`). Images must be private ECR
+URIs in the same region, and ARM images are unsupported, so build `linux/amd64`.
 
-A profile that resolves credentials with a helper, such as SSO or an external `credential_process`,
-cannot work inside a container, because the helper is absent. Mounting the AWS configuration
-directory makes it worse: the CLI then finds the configuration and tries to run a binary that is
-not there. Resolve on the host and export with `aws configure export-credentials --format env`. On
-HealthOmics and Batch the task role supplies credentials through the environment, so this matches
-the deployment target.
+A profile that resolves credentials with a helper, such as SSO or an external
+`credential_process`, cannot work inside a container, because the helper is absent. Mounting the
+AWS configuration directory makes it worse: the CLI then finds the configuration and tries to run
+a binary that is not there. Resolve on the host and export with
+`aws configure export-credentials --format env`. On HealthOmics and Batch the task role supplies
+credentials through the environment, so this matches the deployment target.
 
 Naming a credential variable in the Nextflow `env` scope exports an empty value when the launcher
 does not have it, and Nextflow warns once for each empty variable. `-e NAME` in

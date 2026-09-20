@@ -1,122 +1,88 @@
 """Write one Census 2 store from one Discover dataset.
 
-The census writer reads one published Discover `.h5ad` and writes one
-AnnData-Zarr store. The bulk ingestion pipeline (`bulk-ingest-nf`) calls
-this module once for each dataset. A developer can call it from Python.
-The module reads one dataset. It does not read the corpus, so a step that
-needs a corpus-wide aggregate cannot run here.
+The writer reads one published Discover `.h5ad` and writes one AnnData-Zarr
+store. The bulk ingestion pipeline (`bulk-ingest-nf`) calls this module once
+for each dataset, and a developer can call it from Python. The module reads
+one dataset and never the corpus, so a step that needs a corpus-wide
+aggregate cannot run here.
 
 Public calls
 ------------
-`create(source, dest, *, config=None, refdata=None, consolidate=True)`
-builds the store and writes it. It writes nothing when the writer does not
-admit the dataset. It returns a `Result` with `admitted`, `reason`, and
-`slots`.
-
-    import census2_writer
-
-    result = census2_writer.create("dataset.h5ad", "store.zarr")
-    if not result["admitted"]:
-        print("skipped:", result["reason"])
-
-`build(f, *, config=None, refdata=None)` returns the AnnData and the
-`Result`. It writes nothing. `write(adata, dest, *, consolidate=True)` writes
-what `build` returned. Keep `f` open until `write` returns, because `X` is a
-dask graph until then (see Memory).
+`create(source, dest, ...)` builds the store and writes it. It writes
+nothing when the dataset is not admitted, and returns a `Result` either way.
+`build` and `write` do the same work in two calls, for a caller that wants
+the AnnData in between:
 
     with h5py.File("dataset.h5ad") as f:
         adata, result = census2_writer.build(f)
         if adata is not None:
             census2_writer.write(adata, "store.zarr")
 
+Keep `f` open until `write` returns, because `X` is a dask graph until then
+(see Memory). `create` does this itself when it receives a path.
+
 `slots_of(adata)` lists what a store written from an AnnData will hold.
 `load_config(path)` returns the configuration mapping. `provenance(config)`
-returns the part of the receipt that this module knows.
-
-`dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
-`zarr.abc.store.Store`. zarr has no S3 client, so `as_store` adapts a remote
-URL to `zarr.storage.ObjectStore` over `obstore`. Credentials come from the
-standard AWS chain.
+returns the part of a receipt that this module knows. `as_store(dest)`
+adapts a remote URL for zarr, which ships no S3 client.
 
 Decisions
 ---------
-`build` runs four steps in this order: assemble the core slots (`obs`,
-`var`, `X`, `raw`, full `uns`), admit, apply the slot policy, harmonize.
+`build` runs four steps in order: assemble the core slots (`obs`, `var`,
+`X`, `raw`, full `uns`), admit, apply the slot policy, harmonize.
 
-1. Admission decides whether the dataset belongs in Census 2. A rejection
-   is a normal result. `build` returns no AnnData and a reason, and the
-   caller records the reason and exits with success. This decision is open.
-   `admit` is a stub that admits every dataset.
+1. Admission (`admit`) decides whether the dataset belongs in Census 2. A
+   rejection is a normal result: `build` returns no AnnData and a reason,
+   and the caller records the reason and succeeds. This decision is open;
+   the stub admits every dataset.
 2. The slot policy decides which AnnData slots the store carries. This
-   decision is made. The default set is the set that the Census 1 builder
-   reads: `obs`, `var`, `X`, `raw`, and the `uns` keys that the `uns_keys`
-   configuration key lists. The `all_slots` configuration key carries every
-   slot instead, and then `uns_keys` does not apply.
-3. Harmonization changes values and annotations so that a query can combine
-   stores. This decision is open. `harmonize` is a stub that returns its
+   decision is made: the set that the Census 1 builder reads (`obs`, `var`,
+   `X`, `raw`, and the `uns` keys that the `uns_keys` configuration lists),
+   or every slot when `all_slots` is set.
+3. Harmonization (`harmonize`) changes values and annotations so that a
+   query can combine stores. This decision is open; the stub returns its
    input.
 
-Admission runs before the slot policy so that a criterion can read any
-`uns` key. It runs before the optional slots are read so that a rejected
-dataset does not read `obsm` or `obsp`. `admit` and `harmonize` both
-receive an AnnData, so a step author works with one kind of object.
+Admission runs before the slot policy, so a criterion can read any `uns`
+key. It runs before the optional slots are read, so a rejected dataset does
+not read them. `admit` and `harmonize` both receive an AnnData, so a step
+author works with one kind of object.
 
 Configuration and reference data
 --------------------------------
-`config` is a mapping that the caller loads and passes in. It holds policy:
-thresholds, criteria, and the names of lists. It is small and lives in
-version control next to a release. `refdata` is the path of a directory
-that the caller staged before the run. It holds bulk reference data:
+`config` is a small mapping of policy: thresholds, criteria, the names of
+lists. It lives in version control next to a release. `refdata` is a
+directory of bulk reference data that the caller staged before the run:
 ontology term lists, gene references, tissue roll-ups. The configuration
-names a reference file and does not give its path. A step resolves each
-name against `refdata`, because the staged location is known only inside
-the task. This module does not fetch a file at run time. A HealthOmics task
+names a reference file, and a step resolves the name against `refdata`.
+This module never fetches a file at run time, because a HealthOmics task
 has no public internet access.
 
-Today `load_config` ignores `path` and returns `DEFAULTS`. No file format is
-defined. `all_slots` and `uns_keys` are the keys that `build` reads, and
-`all_slots` is the one that `provenance` reads.
-`admit` and `harmonize` receive `config` and `refdata` so that a step can
-use them. Do not define a configuration schema before the step that needs
+`load_config` is a stub: no file format is defined, and it returns
+`DEFAULTS`. Do not define a configuration schema before the step that needs
 it exists.
 
 Receipt
 -------
-A receipt is the JSON file that a pipeline writes next to a store. Today it
-is a private log. `bulk-ingest-nf` writes one for each dataset, and its
-report step reads them to summarize the run. Nothing outside a run reads
-one. `Receipt` declares its keys, so the script that writes a receipt and
-the script that reads it agree on the shape; the two cannot import each
-other. `provenance` supplies the recipe (`RECIPE`), the slot policy, the
-Zarr format, and the versions of this package, anndata, and zarr. It reads
-the versions from the installed distributions. The pipeline adds the
-dataset source and the run facts.
-
-Registering a store, with metadata that a reader outside the run can rely
-on, is a separate job and is not implemented yet.
+A receipt is the JSON a pipeline writes beside a store. `Receipt` declares
+its shape, and `provenance` fills the part this package knows; see their
+docstrings.
 
 Memory
 ------
 `build` returns a complete AnnData but reads only `obs`, `var`, and `uns`
 into memory. `X` and `raw.X` are dask arrays of row blocks of about
-`BLOCK_BYTES`: sparse blocks for a sparse dataset, dense blocks for a dense
-dataset. Memory use follows the block size and not the file size. The
-corpus p99 is about 26 GiB and the maximum is 50 GiB.
+`BLOCK_BYTES`, sparse when the source is sparse. Memory use follows the
+block size and not the file size; the corpus p99 is about 26 GiB and the
+maximum is 50 GiB. Two rules follow:
 
-Two rules follow:
-
-- An `h5py.File` given to `build` must stay open until `write` returns,
-  because `X` is an unevaluated dask graph. `create` keeps the file open
-  when it receives a path.
-- A step that needs the complete matrix at one time forces a compute. So
+- An `h5py.File` given to `build` must stay open until `write` returns.
+- A step that needs the whole matrix at one time forces a compute, and so
   does a mask computed from `X`. That compute can fail on a large dataset.
-  Row-wise work maps over blocks.
+  Row-wise work maps over blocks, and a subset of the AnnData keeps `obs`,
+  `var`, `X`, and the other slots aligned.
 
-A subset of the AnnData keeps `obs`, `var`, `X`, and the other slots
-aligned.
-
-The README in this directory covers installation, use, and the development
-workflow.
+`README.md` in this directory covers installation, use, and development.
 """
 
 from __future__ import annotations
