@@ -90,6 +90,17 @@ An empty manifest gives a successful run that writes nothing, because no task ru
 `collect()` on an empty channel emits nothing, so `REPORT` is skipped as well. `main.nf` fails
 early instead.
 
+Nextflow escapes a `path` value when it renders it into a task script, and renders every other
+value verbatim. So a `path` input goes in bare, and quoting one breaks it: the backslashes Nextflow
+added become literal inside the quotes. A string is the opposite. It has to be quoted here, with
+any quote inside it escaped, or the shell reads it as syntax. A dataset title with an apostrophe
+failed a task that way, on `Seattle Alzheimer's Disease Atlas (SEA-AD)`, after eleven test cases
+and two HealthOmics runs had passed. `--record` and `--outdir` are strings and are escaped;
+`--config` and `--refdata` are paths and are bare.
+
+A helper closure in a `script:` block does not compile: the block cannot call one, so the escape is
+written out at each use.
+
 `nf-test --tag` selects tests and cannot exclude them, so a bare `nf-test test` runs the
 integration tests too. Every test carries a tag, and the offline set is `--tag validation`. A test
 that checks a validation rule but still reaches a task belongs with the integration set, because

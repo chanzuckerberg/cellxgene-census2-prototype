@@ -47,13 +47,20 @@ process INGEST {
     path "${meta.dataset_version_id}.zarr", type: 'dir', optional: true, emit: store
 
     script:
+    // Nextflow escapes a `path` value for the shell, which is why `config` and
+    // `refdata` below are bare. It renders every other value verbatim, so a
+    // string has to be quoted here and any quote inside it escaped the POSIX
+    // way: close the quote, emit an escaped quote, reopen. A dataset title
+    // carries an apostrophe often enough to matter, and so can an `--outdir`.
+    // (A helper closure here does not compile: the script block cannot call
+    // one, so the escape is written out at each use.)
+
     // The record travels as JSON so the script has the source URI and the
-    // expected file size without re-reading the manifest. A dataset title can
-    // contain an apostrophe, which would close the quoted argument below, so
-    // escape it the POSIX way: close the quote, emit an escaped quote, reopen.
+    // expected file size without re-reading the manifest.
     def record = groovy.json.JsonOutput.toJson(meta).replace("'", "'\\''")
     // Same rule as publishDir above, applied to where the task writes.
     def outdir = params.outdir.toString().replaceFirst('^s3_//', 's3://')
+    def outarg = outdir.replace("'", "'\\''")
     def stage  = outdir.startsWith('s3://') ? '' : '--stage-local'
     // A HealthOmics parameter always arrives as a string, and a non-empty string
     // is true in Groovy, so a plain truth test would read "false" as true.
@@ -64,7 +71,7 @@ process INGEST {
     """
     cxg-ingest.py \\
         --record '${record}' \\
-        --outdir '${outdir}' ${stage} \\
+        --outdir '${outarg}' ${stage} \\
         ${cfg} ${ref} ${all} ${chk}
     """
 }

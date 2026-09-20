@@ -94,6 +94,21 @@ nextflow_pipeline {
         }
     }
 
+    test("an outdir containing a quote is handled") {
+        // Nextflow renders a string value verbatim, so --outdir is quoted and
+        // escaped in the process, exactly as the manifest record is.
+        when {
+            params { outdir = "$outputDir/mike's out" }
+        }
+        then {
+            assert workflow.success
+            def receipts = path("$outputDir/mike's out").list().findAll {
+                it.toString().endsWith(".json")
+            }
+            assert receipts.size() == 2
+        }
+    }
+
     test("the store is a readable AnnData-Zarr, not just a directory of files") {
         when {
             params { outdir = "$outputDir" }
