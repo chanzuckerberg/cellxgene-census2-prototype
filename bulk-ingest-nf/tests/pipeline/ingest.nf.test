@@ -105,7 +105,13 @@ nextflow_pipeline {
         }
         then {
             assert workflow.success
-            assert path("$outputDir/reports/ingestion_report.json").exists()
+            def report = path("$outputDir/reports/ingestion_report.json")
+            assert report.exists()
+            // Every receipt records all three; the run report rolls up all three.
+            def summary = new groovy.json.JsonSlurper().parse(report.toFile())
+            assert summary.census2_writer_version.size() == 1
+            assert summary.anndata_version.size() == 1
+            assert summary.zarr_version.size() == 1
             assert path("$outputDir/stores").list().every {
                 !it.toString().endsWith("ingestion_report.json")
             }

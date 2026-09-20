@@ -24,6 +24,12 @@ process INGEST {
     // ~0.23 GiB and the largest is ~50 GiB. A fixed request is therefore too
     // large for most tasks and too small for the largest. Each retry raises the
     // request.
+    //
+    // The 2.5x multiple is headroom for harmonize(), which may need to load
+    // more of the dataset eagerly. With the current stub, dask lazy loading
+    // keeps peak use under ~10 GiB even for the largest h5ad. Revisit the
+    // request once harmonize() is implemented, against the task metrics that
+    // Nextflow and HealthOmics record.
     memory { def gib = (meta.filesize as long) / (1024L ** 3)
              def want = (Math.max(4.0d, gib * 2.5d) * task.attempt as int).GB
              def cap  = params.max_memory as nextflow.util.MemoryUnit

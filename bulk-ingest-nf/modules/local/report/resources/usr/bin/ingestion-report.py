@@ -59,6 +59,7 @@ def main() -> int:
             {r["census2_writer_version"] for r in receipts}
         ),
         "anndata_version": sorted({r["anndata_version"] for r in receipts}),
+        "zarr_version": sorted({r["zarr_version"] for r in receipts}),
         "checked": len(checked),
         "check_failures": [r["dataset_version_id"] for r in failed],
         "receipts": receipts,
