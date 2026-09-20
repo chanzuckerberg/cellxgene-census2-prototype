@@ -47,7 +47,7 @@ zarr fall back to fsspec and fail, while a local path hides the mistake because 
 | Decision | State | Where |
 |---|---|---|
 | Admission — whether a dataset belongs in Census 2 | Stub, admits everything | `admit` |
-| Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots` | `build` |
+| Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys are the `uns_keys` config | `build` |
 | Harmonization — what makes stores queryable together | Stub, returns its input | `harmonize` |
 
 A rejection is a normal outcome and not an error: `build` returns no AnnData and a reason, and the

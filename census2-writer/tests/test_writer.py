@@ -142,9 +142,22 @@ def test_census_slot_policy_drops_extras(tmp_path: Path) -> None:
     store: Any = zarr.open_consolidated(dest, mode="r")
 
     assert result["slots"] == ["obs", "var", "X", "raw", "uns[2 keys]"]
-    assert set(store["uns"]) == set(census2_writer.CENSUS_UNS_KEYS)
+    assert set(store["uns"]) == set(census2_writer.DEFAULTS["uns_keys"])
     for slot in census2_writer.OPTIONAL_SLOTS:
         assert slot not in store or len(list(store[slot])) == 0
+
+
+def test_uns_keys_is_configurable(tmp_path: Path) -> None:
+    """The carried uns keys are policy, not a fixed set in the code."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    dataset().write_h5ad(source)
+    census2_writer.create(
+        source, dest, config={"all_slots": False, "uns_keys": ["title"]}
+    )
+
+    store: Any = zarr.open_consolidated(dest, mode="r")
+    assert set(store["uns"]) == {"title"}
 
 
 def test_all_slots_carries_everything(tmp_path: Path) -> None:

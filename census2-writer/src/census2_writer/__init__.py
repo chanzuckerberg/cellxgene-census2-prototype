@@ -48,8 +48,9 @@ Decisions
    `admit` is a stub that admits every dataset.
 2. The slot policy decides which AnnData slots the store carries. This
    decision is made. The default set is the set that the Census 1 builder
-   reads: `obs`, `var`, `X`, `raw`, and the two `uns` keys in
-   `CENSUS_UNS_KEYS`. The `all_slots` configuration key carries every slot.
+   reads: `obs`, `var`, `X`, `raw`, and the `uns` keys that the `uns_keys`
+   configuration key lists. The `all_slots` configuration key carries every
+   slot instead, and then `uns_keys` does not apply.
 3. Harmonization changes values and annotations so that a query can combine
    stores. This decision is open. `harmonize` is a stub that returns its
    input.
@@ -72,7 +73,8 @@ the task. This module does not fetch a file at run time. A HealthOmics task
 has no public internet access.
 
 Today `load_config` ignores `path` and returns `DEFAULTS`. No file format is
-defined. `all_slots` is the only key that `build` and `provenance` read.
+defined. `all_slots` and `uns_keys` are the keys that `build` reads, and
+`all_slots` is the one that `provenance` reads.
 `admit` and `harmonize` receive `config` and `refdata` so that a step can
 use them. Do not define a configuration schema before the step that needs
 it exists.
@@ -162,10 +164,6 @@ class Result(TypedDict):
     slots: list[str]
 
 
-# uns keys the CELLxGENE Census builder reads. See AnnDataProxy in the
-# chanzuckerberg/cellxgene-census repository, at
-# tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/anndata.py
-CENSUS_UNS_KEYS = ("schema_version", "organism_ontology_term_id")
 # Slots that only `all_slots` carries. The Census builder reads none of them.
 OPTIONAL_SLOTS = ("obsm", "varm", "obsp", "varp", "layers")
 
@@ -211,6 +209,11 @@ def lazy_matrix(h5_obj: H5Matrix, n_rows: int) -> da.Array:
 DEFAULTS: Config = {
     # Carry every AnnData slot instead of the Census set. See build().
     "all_slots": False,
+    # The uns keys a store carries, when `all_slots` is false. The default is
+    # the set the CELLxGENE Census builder reads: see AnnDataProxy in the
+    # chanzuckerberg/cellxgene-census repository, at
+    # tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/anndata.py
+    "uns_keys": ["schema_version", "organism_ontology_term_id"],
 }
 
 
@@ -347,6 +350,8 @@ def build(
     """
     config = dict(DEFAULTS) if config is None else config
     all_slots = bool(config.get("all_slots", False))
+    # A config value is Any by design, so name its shape where it is read.
+    uns_keys = set(cast("list[str]", config.get("uns_keys", DEFAULTS["uns_keys"])))
 
     # Assemble the core object first: obs, var, uns are small and X is lazy, so
     # this is cheap even for a dataset that turns out not to be admitted.
@@ -375,7 +380,7 @@ def build(
         carried.append("raw")
 
     if not all_slots:
-        adata.uns = {k: v for k, v in adata.uns.items() if k in CENSUS_UNS_KEYS}
+        adata.uns = {k: v for k, v in adata.uns.items() if k in uns_keys}
     carried.append(f"uns[{len(adata.uns)} keys]")
 
     if all_slots:

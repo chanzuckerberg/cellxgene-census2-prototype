@@ -112,7 +112,8 @@ returning part of one.
 | `--schema-version` | none | Omit for the current corpus. See "Sharp edges: upstream data" in `CLAUDE.md`. |
 | `--source-bucket` | `dataset-assets-public-prod` | Bucket holding the source `.h5ad` files. |
 
-By default the pipeline writes the Census slot set: `obs`, `var`, `X`, `raw`, and two `uns` keys.
+By default the pipeline writes the Census slot set: `obs`, `var`, `X`, `raw`, and the `uns` keys
+that the writer's `uns_keys` configuration lists.
 Use `--all_slots` when the consumer needs a complete CxG object.
 
 ## Profiles
