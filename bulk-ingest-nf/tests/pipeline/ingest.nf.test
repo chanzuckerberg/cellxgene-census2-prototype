@@ -94,6 +94,24 @@ nextflow_pipeline {
         }
     }
 
+    test("the run report publishes to report_dir, not to outdir") {
+        // On HealthOmics report_dir is /mnt/workflow/pubdir, the only directory
+        // the platform exports. The report is about a run, not about a store.
+        when {
+            params {
+                outdir     = "$outputDir/stores"
+                report_dir = "$outputDir/reports"
+            }
+        }
+        then {
+            assert workflow.success
+            assert path("$outputDir/reports/ingestion_report.json").exists()
+            assert path("$outputDir/stores").list().every {
+                !it.toString().endsWith("ingestion_report.json")
+            }
+        }
+    }
+
     test("an outdir containing a quote is handled") {
         // Nextflow renders a string value verbatim, so --outdir is quoted and
         // escaped in the process, exactly as the manifest record is.

@@ -94,6 +94,7 @@ returning part of one.
 |---|---|---|
 | `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
+| `--report_dir` | none | Where the run report publishes. Set by the `healthomics` profile. |
 | `--all_slots` | `false` | Override the config's `all_slots`: carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`. |
 | `--check` | `false` | Verify each output against its source. A failure lands in the receipt and `REPORT` fails the run. Meaningful only while harmonization is a stub. |
 | `--config` | none | Ingestion configuration file, staged into every task. Holds policy such as `all_slots`; the file format is not defined yet. |
@@ -173,6 +174,11 @@ A rejection is not an error: the task succeeds, no store is written, and the rec
 
 This flat layout is a prototype convenience: a rerun overwrites the store it wrote before.
 Production will need a considered key and folder schema.
+
+The run report is not here. It describes a run rather than a store, so it publishes to
+`--report_dir`, which a profile sets. On HealthOmics that is `/mnt/workflow/pubdir`, the only
+directory the platform exports to the run output location. A local run leaves the report in the
+task's working directory unless you pass `--report_dir`.
 
 ## AWS HealthOmics
 
