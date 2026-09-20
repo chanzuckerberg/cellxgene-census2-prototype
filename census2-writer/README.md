@@ -2,18 +2,13 @@
 
 Convert one CELLxGENE Discover dataset into one Census 2 store.
 
-A Census 2 store is an AnnData-Zarr store holding a single dataset, written independently and
-composed at query time through a catalog. This package is the data model: what a store contains,
-and the [three decisions](#the-three-decisions) behind it. The bulk ingestion pipeline runs this
-same code, so what you build here is what that pipeline writes.
-
-Two of those three decisions are stubs today, so a store is currently the dataset's Census slot set
-written to Zarr, and no more than that. Both stubs will change what a store contains.
-
-It reads one dataset at a time and never the corpus. That is a constraint the data model lives
-with, not a feature it lacks. The module docstring in
+A Census 2 store is an AnnData-Zarr store that holds a single dataset. Stores are written
+independently and composed at query time through a catalog. This package is the data model: it
+decides what a store contains. The bulk ingestion pipeline
+([`bulk-ingest-nf`](../bulk-ingest-nf/README.md)) runs this same code, so a store built here
+matches a store that pipeline writes. The module docstring in
 [`src/census2_writer/__init__.py`](src/census2_writer/__init__.py) is the design record: the
-reasoning, the memory contract, and what a new harmonization step has to respect.
+reasoning, the memory contract, and the constraints on new harmonization steps.
 
 ## Install
 
@@ -22,8 +17,8 @@ pip install ./census2-writer          # local h5ad to a local store
 pip install './census2-writer[s3]'    # also write to object storage
 ```
 
-zarr ships no S3 client, and `as_store` imports `obstore` only when the destination is remote, so
-the `s3` extra is unnecessary for a local conversion.
+zarr ships no S3 client. `as_store` imports `obstore` only when the destination is remote, so a
+local conversion does not need the `s3` extra.
 
 ## Use
 
@@ -36,44 +31,47 @@ if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
 
-(`build` and `write` can also be called separately; the module docstring covers that.)
+`build` and `write` can also be called separately; the module docstring covers that.
 
-`dest` is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
-`zarr.abc.store.Store`. A remote URL always goes through `as_store`: a bare `s3://` string makes
-zarr fall back to fsspec and fail, while a local path hides the mistake because it works.
+The destination is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
+`zarr.abc.store.Store`. A remote URL must go through `as_store` (`create` and `write` do this): a
+bare `s3://` string given to zarr directly falls back to fsspec and fails. For a remote
+destination, export AWS credentials into the environment first; `obstore` does not resolve AWS
+profiles.
 
 ## The three decisions
 
 | Decision | State | Where |
 |---|---|---|
-| Admission — whether a dataset belongs in Census 2 | Stub, admits everything | `admit` |
-| Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys are the `uns_keys` config | `build` |
-| Harmonization — what makes stores queryable together | Stub, returns its input | `harmonize` |
+| Admission — does the dataset belong in Census 2 | Stub: admits everything | `admit` |
+| Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
+| Harmonization — what makes stores queryable together | Stub: returns its input | `harmonize` |
 
-A rejection is a normal outcome and not an error: `build` returns no AnnData and a reason, and the
+Because two of the three are stubs, a store today is the dataset's Census slot set written to
+Zarr, and no more than that.
+
+A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.
 
-Ingestion reads exactly one dataset, so a harmonization step that needs a corpus-wide aggregate has
-to be redesigned or eliminated. That constraint is what lets many Census releases reuse one store.
+Ingestion reads one dataset at a time and never the corpus. A harmonization step that needs a
+corpus-wide aggregate must be redesigned or eliminated. This constraint lets many Census releases
+reuse one store.
 
 ## Receipts
 
-A receipt is the JSON a pipeline writes beside a store. Today it is a private log: the bulk
-ingestion pipeline writes one per dataset and its report step reads them to summarize the run.
-`Receipt` types it here so that the script writing one and the script reading one agree, since the
-two cannot import each other. `provenance()` supplies the part this package knows: the recipe, the
-slot policy, the Zarr format, and the versions that ran. It reads them from the installed
-distributions, so a receipt cannot disagree with the code that produced it. A pipeline adds where
-the dataset came from and what it did.
-
-Registering a store, with metadata a reader outside the run can rely on, is a separate job and is
-not implemented yet.
+A receipt is the JSON a pipeline writes beside a store. `Receipt` types it here so that the
+script that writes one and the script that reads one agree. `provenance()` supplies the part this
+package knows, read from the installed distributions, and the pipeline adds where the dataset came
+from and what it did.
 
 ```python
 census2_writer.provenance()
 # {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
 #  'census2_writer_version': ..., 'anndata_version': ..., 'zarr_version': ...}
 ```
+
+Registering a store in a catalog, with metadata a reader outside the run can rely on, is a
+separate job and is not implemented yet.
 
 ## Develop
 
@@ -84,12 +82,9 @@ pytest
 mypy
 ```
 
-Run both from this directory. `mypy` reads its settings from `pyproject.toml` here, so invoking it
-from the repository root silently drops `strict` and reports an `h5py` error it should ignore.
-Install editable, or the tests import the copy in site-packages and keep passing against code you
-have already changed. CI installs non-editable on purpose, because there it should test what the
-image ships.
+Run pytest and mypy from this directory: mypy reads its settings from `pyproject.toml` here and
+finds no configuration elsewhere. Install editable, or the tests import the copy in
+site-packages. The tests need no network, no credentials, and no container.
 
-The tests need no network, no credentials, and no container. See the repository root
-[`CLAUDE.md`](../CLAUDE.md) for the lint, format, and type-check policy, and
-[`CLAUDE.md`](CLAUDE.md) here for the anndata and zarr behaviour that shaped this code.
+See the repository root [`CLAUDE.md`](../CLAUDE.md) for the lint, format, and type-check policy,
+and [`CLAUDE.md`](CLAUDE.md) here for the anndata and zarr behavior behind this code.
