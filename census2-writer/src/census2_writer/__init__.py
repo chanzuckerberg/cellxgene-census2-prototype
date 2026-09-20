@@ -29,6 +29,7 @@ dask graph until then (see Memory).
         if adata is not None:
             census2_writer.write(adata, "store.zarr")
 
+`slots_of(adata)` lists what a store written from an AnnData will hold.
 `load_config(path)` returns the configuration mapping. `provenance(config)`
 returns the part of the receipt that this module knows.
 
@@ -335,6 +336,26 @@ def harmonize(
     return adata
 
 
+def slots_of(adata: anndata.AnnData) -> list[str]:
+    """What a store written from this AnnData will hold.
+
+    Read from the object, so it reports what is there rather than what a caller
+    meant to put there.
+    """
+    slots = ["obs", "var"]
+    if adata.X is not None:
+        slots.append("X")
+    if adata.raw is not None:
+        slots.append("raw")
+    slots.append(f"uns[{len(adata.uns)} keys]")
+    for name in OPTIONAL_SLOTS:
+        # anndata 0.13 keeps `X` in `layers[None]` in memory. It is reported
+        # above, and a None key does not sort against the rest.
+        keys = [k for k in getattr(adata, name) if k is not None]
+        slots += [f"{name}/{key}" for key in sorted(keys)]
+    return slots
+
+
 def build(
     f: h5py.File,
     *,
@@ -344,7 +365,9 @@ def build(
     """Read one Discover dataset and return (AnnData to store, result).
 
     The AnnData is `None` when the dataset is not admitted, which is a normal
-    outcome. `result` always carries `admitted`, `reason`, and `slots`.
+    outcome. `result` always carries `admitted`, `reason`, and `slots`. `slots`
+    describes the object after `harmonize`, so it reports what a store will
+    hold.
 
     `f` must stay open until the returned object is written.
     """
@@ -375,13 +398,8 @@ def build(
     if reason is not None:
         return None, {"admitted": False, "reason": reason, "slots": []}
 
-    carried: list[str] = ["obs", "var", "X"]
-    if adata.raw is not None:
-        carried.append("raw")
-
     if not all_slots:
         adata.uns = {k: v for k, v in adata.uns.items() if k in uns_keys}
-    carried.append(f"uns[{len(adata.uns)} keys]")
 
     if all_slots:
         for key in OPTIONAL_SLOTS:
@@ -390,13 +408,11 @@ def build(
             slot = getattr(adata, key)
             for sub in f[key]:
                 slot[sub] = read_elem(f[key][sub])
-                carried.append(f"{key}/{sub}")
 
-    return harmonize(adata, config, refdata), {
-        "admitted": True,
-        "reason": None,
-        "slots": carried,
-    }
+    # Report the object that harmonize returns, not the one assembled above, so
+    # that a step which renames, adds, or drops a slot is reflected.
+    adata = harmonize(adata, config, refdata)
+    return adata, {"admitted": True, "reason": None, "slots": slots_of(adata)}
 
 
 REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")

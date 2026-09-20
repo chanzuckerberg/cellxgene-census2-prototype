@@ -174,6 +174,32 @@ def test_all_slots_carries_everything(tmp_path: Path) -> None:
     assert "title" in set(store["uns"])
 
 
+def test_slots_report_what_harmonize_left(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The list describes the written object, not the one build assembled."""
+
+    def rename_and_drop(
+        adata: anndata.AnnData, config: Any = None, refdata: Any = None
+    ) -> anndata.AnnData:
+        assert adata.X is not None
+        x: Any = adata.X  # the getter's union is wider than layers accepts
+        adata.layers["harmonized"] = x
+        del adata.raw
+        return adata
+
+    monkeypatch.setattr(census2_writer, "harmonize", rename_and_drop)
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+
+    with h5py.File(source) as f:
+        adata, result = census2_writer.build(f)
+
+    assert adata is not None
+    assert "layers/harmonized" in result["slots"]
+    assert "raw" not in result["slots"]
+
+
 # --- admission ------------------------------------------------------------
 
 
