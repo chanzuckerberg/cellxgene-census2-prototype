@@ -42,13 +42,25 @@ Each CxG schema version is a complete, separately versioned copy of the corpus. 
 every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for
 a full reconversion at each schema release.
 
-Some datasets name an `obs` or `var` column with a `/` in it. Zarr gives `/` its path meaning, so
-the write fails on that column and leaves a partial store. The names seen are clinical units
-(`SCr_(mg/dl)`), compound cell types (`T/NK_cycling`), and deconvolution factors
-(`q05_spot_factorsStem-like/TA`). 6 of 100 randomly sampled human datasets hold one. anndata 0.12
-added a `disallow_forward_slash_in_h5ad` setting, which lets an h5ad keep such a name; zarr has no
-equivalent, because the restriction belongs to the format. Nothing handles this yet, and renaming
-a column changes what a query sees, so the fix is a harmonization decision rather than a write.
+Some datasets name an `obs` column with a `/` in it. Zarr gives `/` its path meaning, so the
+write fails on that column. The names seen are clinical units (`SCr_(mg/dl)`,
+`eGFR_(ml/min/1.73m2)`), compound cell types (`T/NK_cycling`), and deconvolution factors
+(`q05_spot_factorsStem-like/TA`); the last two are cell2location output on Visium datasets, one
+column per cell type. 6 of 100 randomly sampled human datasets hold one, 1 or 2 columns out of 60
+to 102.
+
+`census2_writer.project_obs` now removes those columns, and `harmonize` calls it. The receipt
+records the names in `dropped_obs_columns`, and the run report totals them, because a store that
+holds less than its dataset should not be invisible. The round-trip check compares `obs` against
+the source minus exactly those names, so an unreported drop still fails.
+
+`var` is not projected: the slashes measured were all in `obs`. A `/` in a `var` column would
+still fail the write.
+
+anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by default, so anndata now
+refuses to *write* such a name to an h5ad as well. The corpus datasets that carry one predate it.
+A test fixture that needs one must turn the setting off; zarr has no equivalent opt-out, because
+there the restriction belongs to the format.
 
 Peak memory follows the matrix encoding, not the file size. A sparse dataset stays far below the
 `size * 2.5` request: one task asked for 38 GiB and peaked at 3.3 GiB. A dense one does not. The

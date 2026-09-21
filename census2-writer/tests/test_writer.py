@@ -245,7 +245,12 @@ def test_not_admitted_writes_nothing(
 
     result = census2_writer.create(source, dest)
 
-    assert result == {"admitted": False, "reason": "no thanks", "slots": []}
+    assert result == {
+        "admitted": False,
+        "reason": "no thanks",
+        "slots": [],
+        "dropped_obs_columns": [],
+    }
     assert not dest.exists()
 
 
@@ -309,6 +314,86 @@ def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
     config["assay_allowlist"] = []
 
     assert census2_writer.create(source, dest, config=config)["admitted"] is True
+
+
+# --- the obs projection ---------------------------------------------------
+
+# Both names are taken from the corpus: a cell2location factor on a Visium
+# dataset, and a clinical unit on a 10x one. The second holds three slashes.
+SLASH_COLS = ["T/NK_cycling", "eGFR_(ml/min/1.73m2)"]
+
+
+def with_obs_columns(adata: anndata.AnnData, *names: str) -> anndata.AnnData:
+    for i, name in enumerate(names):
+        adata.obs[name] = np.full(adata.n_obs, float(i), dtype="float32")
+    return adata
+
+
+def write_source(adata: anndata.AnnData, path: Path) -> None:
+    """Write a fixture h5ad that holds a slash in an obs column name.
+
+    anndata 0.12 added `disallow_forward_slash_in_h5ad`, on by default, so
+    anndata now refuses to write such a name even though HDF5 permits it. The
+    corpus datasets that carry one predate the setting. Turn it off to build
+    the fixture; the reader never needs it.
+    """
+    with anndata.settings.override(disallow_forward_slash_in_h5ad=False):
+        adata.write_h5ad(path)
+
+
+def test_project_obs_removes_only_the_slash_columns() -> None:
+    adata = with_obs_columns(dataset(), *SLASH_COLS)
+    kept = list(census2_writer.project_obs(adata).obs.columns)
+    assert kept == ["cell_type"]
+
+
+def test_project_obs_keeps_a_clean_frame_untouched() -> None:
+    adata = dataset()
+    before = list(adata.obs.columns)
+    assert list(census2_writer.project_obs(adata).obs.columns) == before
+
+
+def test_harmonize_projects_obs() -> None:
+    """harmonize is the seam; project_obs is what it currently does."""
+    adata = with_obs_columns(dataset(), *SLASH_COLS)
+    assert list(census2_writer.harmonize(adata).obs.columns) == ["cell_type"]
+
+
+def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
+    """Zarr gives `/` its path meaning, so this write used to fail outright."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    write_source(with_obs_columns(dataset(), *SLASH_COLS), source)
+
+    result = census2_writer.create(source, dest)
+
+    assert result["admitted"] is True
+    assert result["dropped_obs_columns"] == SLASH_COLS  # source order
+    store = zarr.open_consolidated(str(dest))
+    obs: Any = read_elem(store["obs"])
+    assert list(obs.columns) == ["cell_type"]
+
+
+def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    with h5py.File(source) as f:
+        _, result = census2_writer.build(f)
+    assert result["dropped_obs_columns"] == []
+
+
+def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
+    """A rejection short-circuits before harmonize, so there is nothing to drop."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    write_source(with_assay(with_obs_columns(dataset(), *SLASH_COLS), OFF_LIST), source)
+
+    result = census2_writer.create(source, dest)
+
+    assert result["admitted"] is False
+    assert result["dropped_obs_columns"] == []
 
 
 def test_default_allowlist_holds_rna_and_spatial() -> None:

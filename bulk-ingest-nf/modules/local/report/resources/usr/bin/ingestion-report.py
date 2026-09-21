@@ -38,6 +38,7 @@ def main() -> int:
     rejected = [r for r in receipts if not r.get("admitted", True)]
     checked = [r for r in admitted if "check" in r]
     failed = [r for r in checked if not r["check"].get("passed")]
+    dropped = [r for r in admitted if r.get("dropped_obs_columns")]
 
     report = {
         "recipe": receipts[0]["recipe"] if receipts else None,
@@ -62,6 +63,13 @@ def main() -> int:
         "zarr_version": sorted({r["zarr_version"] for r in receipts}),
         "checked": len(checked),
         "check_failures": [r["dataset_version_id"] for r in failed],
+        # Harmonization drops an obs column that Zarr cannot name. Reported,
+        # because a store that quietly holds less than its dataset should not
+        # be invisible in the run summary.
+        "datasets_with_dropped_obs_columns": len(dropped),
+        "dropped_obs_columns": sorted(
+            {c for r in dropped for c in r["dropped_obs_columns"]}
+        ),
         "receipts": receipts,
     }
 
@@ -87,6 +95,12 @@ def main() -> int:
     if checked:
         print(
             f"report: round-trip checked {len(checked)}, failed {len(failed)}",
+            file=sys.stderr,
+        )
+    if dropped:
+        print(
+            f"report: {len(dropped)} datasets had obs columns dropped: "
+            f"{', '.join(report['dropped_obs_columns'])}",
             file=sys.stderr,
         )
     for vid in report["check_failures"]:

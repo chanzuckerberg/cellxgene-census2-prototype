@@ -67,11 +67,15 @@ def ingest(src: str, dest: str, *, config=None, refdata=None, threads=None) -> d
     )
 
 
-def check(src: str, dst: str) -> dict:
+def check(src: str, dst: str, dropped_obs_columns=()) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
     `compared` lists what the comparison covered, so a check that silently
     covered nothing is visible in the receipt instead of reading as a pass.
+
+    `dropped_obs_columns` is what harmonization removed, from the result. The
+    obs columns are compared against the source minus exactly those names, so
+    a deliberate projection passes and an unreported drop still fails.
     """
     import hashlib
 
@@ -118,14 +122,24 @@ def check(src: str, dst: str) -> dict:
         zroot = zarr.open_consolidated(census2_writer.as_store(dst), mode="r")
         result["consolidated"] = True
 
+        dropped = set(dropped_obs_columns)
         for key in ("obs", "var"):
             a, b = read_elem(f[key]), read_elem(zroot[key])
             result["compared"].append(key)
             if not a.index.equals(b.index):
                 fail(key, "index differs")
-            if list(a.columns) != list(b.columns):
-                fail(key, "columns differ")
-            for col in a.columns:
+            # Only `obs` is projected, and only by the names the writer
+            # reported. Everything else has to match exactly.
+            expected = [c for c in a.columns if key != "obs" or c not in dropped]
+            if list(b.columns) != expected:
+                fail(
+                    key,
+                    f"columns differ: expected {len(expected)}, got {len(b.columns)}",
+                )
+                # The loop below indexes the store by a source column name, so
+                # it cannot run against a frame that does not have them all.
+                continue
+            for col in expected:
                 if str(a[col].dtype) != str(b[col].dtype):
                     fail(f"{key}.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
                 elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
@@ -323,9 +337,13 @@ def main() -> int:
     if result["admitted"]:
         for slot in result["slots"]:
             log(f"  wrote {slot}")
+        if result["dropped_obs_columns"]:
+            dropped = result["dropped_obs_columns"]
+            log(f"  dropped {len(dropped)} obs columns: {', '.join(dropped)}")
         receipt.update(
             {
                 "slots_written": result["slots"],
+                "dropped_obs_columns": result["dropped_obs_columns"],
                 "store": store,
                 "output_bytes": store_bytes(dest),
                 "published_by": "workflow" if args.stage_local else "task",
@@ -335,7 +353,7 @@ def main() -> int:
             verify_written(dest)
         if args.check:
             log("check round trip")
-            receipt["check"] = check(src, dest)
+            receipt["check"] = check(src, dest, result["dropped_obs_columns"])
             if not receipt["check"]["passed"]:
                 for fmsg in receipt["check"].get("failures", []):
                     log(f"  FAIL {fmsg}")

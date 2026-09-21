@@ -41,8 +41,9 @@ Decisions
    `X`, `raw`, and the `uns` keys that the `uns_keys` configuration lists),
    or every slot when `all_slots` is set.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. This decision is open; the stub returns its
-   input.
+   query can combine stores. This decision is largely open. The stub calls
+   `project_obs`, which decides which `obs` columns a store carries, and
+   today removes only the columns that Zarr cannot name.
 
 Admission runs before the optional slots are read, so a rejected dataset
 does not read them. The `uns` policy is the exception: it applies at the read,
@@ -134,6 +135,9 @@ class Result(TypedDict):
     admitted: bool
     reason: str | None
     slots: list[str]
+    # The `obs` columns that harmonization removed, in source order. Empty for
+    # a rejected dataset, which is never harmonized.
+    dropped_obs_columns: list[str]
 
 
 # Slots that only `all_slots` carries. The Census builder reads none of them.
@@ -244,6 +248,7 @@ class Receipt(StoreProvenance, total=False):
     admitted: bool
     reason: str | None
     slots_written: list[str]
+    dropped_obs_columns: list[str]
     store: str
     output_bytes: int
     published_by: str
@@ -320,17 +325,50 @@ def admit(
     return f"no cells on the assay allowlist: {', '.join(present[:3])}"
 
 
+def project_obs(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Project `obs` onto the columns a store carries.
+
+    THIS IS A MINIMAL STUB. It removes the `obs` columns whose names hold a
+    `/`, and keeps every other column. It is not production-ready projection
+    logic. Zarr gives `/` its path meaning, so a column named that way fails
+    the write. Removing it is what lets the dataset be stored at all.
+
+    Census 1 projects `obs` onto a closed schema: about 20 named CxG fields,
+    plus columns it computes. It carries no author-chosen column, because its
+    `obs` is one dataframe joined across every dataset and so must have one
+    column set. Census 2 writes one store per dataset and has no such
+    constraint, so what a store carries is open. Until that is decided, this
+    keeps every column that Zarr can hold.
+
+    `var` is not projected. The names seen with a `/` were all in `obs`.
+    """
+    # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
+    # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
+    # narrow to the pandas frame here rather than widen the signature.
+    obs = cast("pd.DataFrame", adata.obs)
+    dropped = [c for c in obs.columns if "/" in str(c)]
+    if dropped:
+        adata.obs = obs.drop(columns=dropped)
+    return adata
+
+
 def harmonize(
     adata: anndata.AnnData,
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Apply harmonization. STUB: returns its input unchanged.
+    """Apply harmonization.
 
-    Nothing is specified yet. See the module docstring for the constraints on
-    whatever lands here.
+    THIS IS A MINIMAL STUB. It calls `project_obs` and does nothing else. Real
+    harmonization changes values and annotations so that a query can combine
+    stores from different datasets. None of that is specified yet. See the
+    module docstring for the constraints on whatever lands here.
     """
-    return adata
+    return project_obs(adata, config, refdata)
 
 
 def read_uns(f: h5py.File, keys: Iterable[str] | None = None) -> Config:
@@ -407,7 +445,12 @@ def build(
     # Admission runs before the optional slots are read.
     reason = admit(adata, config, refdata)
     if reason is not None:
-        return None, {"admitted": False, "reason": reason, "slots": []}
+        return None, {
+            "admitted": False,
+            "reason": reason,
+            "slots": [],
+            "dropped_obs_columns": [],
+        }
 
     if all_slots:
         for key in OPTIONAL_SLOTS:
@@ -418,9 +461,18 @@ def build(
                 slot[sub] = read_elem(f[key][sub])
 
     # Report the object that harmonize returns, not the one assembled above, so
-    # that a step which renames, adds, or drops a slot is reflected.
+    # that a step which renames, adds, or drops a slot is reflected. The same
+    # rule gives the dropped columns: diff `obs` across the call rather than
+    # have harmonize report them, so a drop is reported whatever its reason.
+    before = list(adata.obs.columns)
     adata = harmonize(adata, config, refdata)
-    return adata, {"admitted": True, "reason": None, "slots": slots_of(adata)}
+    kept = set(adata.obs.columns)
+    return adata, {
+        "admitted": True,
+        "reason": None,
+        "slots": slots_of(adata),
+        "dropped_obs_columns": [c for c in before if c not in kept],
+    }
 
 
 REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")
