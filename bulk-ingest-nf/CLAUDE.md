@@ -42,6 +42,19 @@ Each CxG schema version is a complete, separately versioned copy of the corpus. 
 every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for
 a full reconversion at each schema release.
 
+Some datasets name an `obs` or `var` column with a `/` in it. Zarr gives `/` its path meaning, so
+the write fails on that column and leaves a partial store. The names seen are clinical units
+(`SCr_(mg/dl)`), compound cell types (`T/NK_cycling`), and deconvolution factors
+(`q05_spot_factorsStem-like/TA`). 6 of 100 randomly sampled human datasets hold one. anndata 0.12
+added a `disallow_forward_slash_in_h5ad` setting, which lets an h5ad keep such a name; zarr has no
+equivalent, because the restriction belongs to the format. Nothing handles this yet, and renaming
+a column changes what a query sees, so the fix is a harmonization decision rather than a write.
+
+Peak memory follows the matrix encoding, not the file size. A sparse dataset stays far below the
+`size * 2.5` request: one task asked for 38 GiB and peaked at 3.3 GiB. A dense one does not. The
+DNA methylation datasets (snmC-seq) hold dense matrices, and every task that ran out of memory
+held one. Keep the dense case in view before making the model less conservative.
+
 ## Sharp edges: Nextflow
 
 `publishDir` with `mode: 'move'` removes the file from the work directory, so a downstream process
@@ -67,6 +80,15 @@ therefore exits 0 and records the failure in its output: `cxg-ingest.py` exits 0
 round-trip check, and `REPORT` fails the run. A non-zero exit would hide the receipt that names
 the failure and stop `REPORT` from running.
 
+That covers a failed check. It does not cover a task that raises: `errorStrategy = 'finish'` lets
+the running tasks end but starts no new one, so `REPORT` never runs and the run publishes no
+after-action report. A 100 dataset run lost its report to 10 such tasks. The report is most wanted
+when tasks fail, so this needs a design that collects the receipts that do exist.
+
+A task that raises part way through a write leaves a partial store. anndata writes consolidated
+metadata last, so the absence of `consolidated_metadata` in the root `zarr.json` identifies one.
+The same run left 8 partial stores, and one complete store whose task then failed its check.
+
 An empty manifest gives a successful run that writes nothing: no task runs, `collect()` on an
 empty channel emits nothing, and `REPORT` is skipped. `main.nf` fails early instead.
 
@@ -90,6 +112,11 @@ CI runs `--tag validation,ingest`, the union of the two tags. `ingest` is a seco
 ingest suite so that CI takes those tests without the `s3_//` escape test, which writes to object
 storage and proves nothing against a mock. `nf-test list` takes `--tags` rather than `--tag`, and
 does not filter the way `test` does.
+
+nf-test keeps a work directory per test, and reuses it across invocations. A partial store left by
+an earlier failure stays there, and zarr refuses to clear it: `Cannot call rmtree on a symbolic
+link`. The test then fails for a reason that has nothing to do with the change under test. Remove
+`.nf-test` before trusting a failure that does not reproduce on its own.
 
 ## Sharp edges: dependency tooling
 
