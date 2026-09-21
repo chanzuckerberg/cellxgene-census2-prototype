@@ -40,12 +40,15 @@ first; `AWS_PROFILE` alone does not work.
 
 | Decision | State | Where |
 |---|---|---|
-| Admission — does the dataset belong in Census 2 | Stub: admits everything | `admit` |
+| Admission — does the dataset belong in Census 2 | Minimal stub: one criterion, the `assay_allowlist` | `admit` |
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
 | Harmonization — what makes stores queryable together | Stub: returns its input | `harmonize` |
 
 Because two of the three are stubs, a store today is the dataset's Census slot set written to
-Zarr.
+Zarr. The one admission criterion rejects a dataset with no cell on the assay allowlist, which
+defaults to the Census 1 assay list; see `census2_writer.assays`. It is there to keep the bulk
+ingestion workflow away from modalities a Census is unlikely to carry, not to settle what Census 2
+admits.
 
 A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.

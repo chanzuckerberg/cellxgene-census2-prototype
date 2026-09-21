@@ -56,13 +56,15 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def ingest(src: str, dest: str, *, config=None, refdata=None) -> dict:
+def ingest(src: str, dest: str, *, config=None, refdata=None, threads=None) -> dict:
     """Ingest one h5ad into a Zarr store at `dest`, which may be remote.
 
     Returns the result from `census2_writer.create`, which reports whether the
     dataset was admitted. A rejection writes no store and is not an error.
     """
-    return census2_writer.create(src, dest, config=config, refdata=refdata)
+    return census2_writer.create(
+        src, dest, config=config, refdata=refdata, threads=threads
+    )
 
 
 def check(src: str, dst: str) -> dict:
@@ -247,6 +249,13 @@ def main() -> int:
     p.add_argument(
         "--keep-source", action="store_true", help="do not delete the staged h5ad"
     )
+    p.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="CPUs this task was allocated. Bounds the dask thread pool that "
+        "writes the store. Without it dask counts the host's CPUs.",
+    )
     args = p.parse_args()
 
     rec = json.loads(args.record)
@@ -289,7 +298,9 @@ def main() -> int:
     dest = f"{version_id}.zarr" if args.stage_local else store
 
     log(f"ingest -> {store} (slots={'all' if config['all_slots'] else 'census'})")
-    result = ingest(src, dest, config=config, refdata=args.refdata)
+    result = ingest(
+        src, dest, config=config, refdata=args.refdata, threads=args.threads
+    )
 
     # The shape of a receipt is census2_writer.Receipt, so this script and
     # ingestion-report.py agree on it without importing each other. The

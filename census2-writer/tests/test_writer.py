@@ -249,6 +249,94 @@ def test_not_admitted_writes_nothing(
     assert not dest.exists()
 
 
+# --- the assay allowlist --------------------------------------------------
+
+ON_LIST = "EFO:0009922"  # 10x 3' v3
+OFF_LIST = "EFO:0030027"  # snmC-Seq2, a DNA methylation assay
+
+
+def with_assay(adata: anndata.AnnData, *terms: str) -> anndata.AnnData:
+    """Give each cell an assay term, cycling through `terms`."""
+    n = adata.n_obs
+    adata.obs["assay_ontology_term_id"] = pd.Categorical(
+        [terms[i % len(terms)] for i in range(n)]
+    )
+    return adata
+
+
+def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
+    """The criterion that keeps dense methylation matrices out of the workflow."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), OFF_LIST).write_h5ad(source)
+
+    result = census2_writer.create(source, dest)
+
+    assert result["admitted"] is False
+    assert OFF_LIST in str(result["reason"])
+    assert not dest.exists()
+
+
+def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
+    """Census 1 masks the off-list cells. This does not; it takes them all."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
+
+    result = census2_writer.create(source, dest)
+
+    assert result["admitted"] is True
+    assert zarr.open_consolidated(str(dest))["obs"] is not None
+
+
+def test_missing_assay_column_is_admitted(tmp_path: Path) -> None:
+    """An AnnData without the column is not a Discover dataset, so the
+    criterion does not apply. Every other test here relies on this."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    dataset().write_h5ad(source)
+    assert "assay_ontology_term_id" not in dataset().obs
+
+    assert census2_writer.create(source, dest)["admitted"] is True
+
+
+def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), OFF_LIST).write_h5ad(source)
+
+    config = census2_writer.load_config()
+    config["assay_allowlist"] = []
+
+    assert census2_writer.create(source, dest, config=config)["admitted"] is True
+
+
+def test_default_allowlist_holds_rna_and_spatial() -> None:
+    """The default is Census 1's two lists, merged."""
+    allowlist = set(census2_writer.DEFAULTS["assay_allowlist"])
+    assert ON_LIST in allowlist
+    assert OFF_LIST not in allowlist
+    assert "EFO:0022857" in allowlist  # Visium, from ALLOWED_SPATIAL_ASSAYS
+    assert allowlist == set(census2_writer.assays.DEFAULT_ALLOWLIST)
+
+
+# --- the write thread bound -----------------------------------------------
+
+
+def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> None:
+    """dask counts the host's CPUs unless told otherwise, and a container with
+    a CPU share sets no cgroup quota for it to read."""
+    import dask
+
+    before = dask.config.get("num_workers", None)
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    dataset().write_h5ad(source)
+
+    assert census2_writer.create(source, dest, threads=2)["admitted"] is True
+    assert dask.config.get("num_workers", None) == before
+
+
 # --- the memory contract --------------------------------------------------
 
 

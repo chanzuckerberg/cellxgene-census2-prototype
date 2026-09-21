@@ -53,7 +53,14 @@ a column changes what a query sees, so the fix is a harmonization decision rathe
 Peak memory follows the matrix encoding, not the file size. A sparse dataset stays far below the
 `size * 2.5` request: one task asked for 38 GiB and peaked at 3.3 GiB. A dense one does not. The
 DNA methylation datasets (snmC-seq) hold dense matrices, and every task that ran out of memory
-held one. Keep the dense case in view before making the model less conservative.
+held one. Such a dataset carries no sparse alternative: `X` is dense, and there is no `raw` and
+no `layers`.
+
+Admission now rejects them, so the pipeline no longer reads a dense matrix: `census2_writer.admit`
+requires one cell on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53
+have no allowed assay, and all 18 dense datasets are among the 53. The memory request is still
+`size * 2.5` for every dataset, which over-provisions a sparse one by 6 to 10 times. Keep the
+measured fit in view if that is ever tuned: sparse peak is about `0.90 GiB + 0.16 * filesize`.
 
 ## Sharp edges: Nextflow
 
@@ -113,10 +120,13 @@ ingest suite so that CI takes those tests without the `s3_//` escape test, which
 storage and proves nothing against a mock. `nf-test list` takes `--tags` rather than `--tag`, and
 does not filter the way `test` does.
 
-nf-test keeps a work directory per test, and reuses it across invocations. A partial store left by
-an earlier failure stays there, and zarr refuses to clear it: `Cannot call rmtree on a symbolic
-link`. The test then fails for a reason that has nothing to do with the change under test. Remove
-`.nf-test` before trusting a failure that does not reproduce on its own.
+An ingest test fails intermittently on macOS with `OSError: Cannot call rmtree on a symbolic
+link`, raised from `zarr.storage.LocalStore.clear()` when anndata starts a write. Nothing is a
+symbolic link. The message comes from `shutil._rmtree_safe_fd`, which raises it when
+`os.path.samestat(orig_st, os.fstat(topfd))` is false: a guard against a directory being swapped
+between the stat and the open. A Docker Desktop bind mount trips that guard on its own, so the
+failure follows no particular test and does not reproduce. It has never appeared in CI, which
+runs on Linux. Re-run before investigating.
 
 ## Sharp edges: dependency tooling
 

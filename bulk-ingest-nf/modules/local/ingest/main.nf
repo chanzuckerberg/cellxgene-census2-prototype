@@ -74,10 +74,14 @@ process INGEST {
     def chk    = params.check.toString().toBoolean()     ? '--check'     : ''
     def cfg    = config  ? "--config ${config}"   : ''
     def ref    = refdata ? "--refdata ${refdata}" : ''
+    // `task.cpus` is an integer, so it renders verbatim and needs no quoting,
+    // unlike the strings above. dask otherwise sizes its thread pool from the
+    // host's CPUs, because a CPU share sets no cgroup quota to read.
     """
     cxg-ingest.py \\
         --record '${record}' \\
         --outdir '${outarg}' ${stage} \\
+        --threads ${task.cpus} \\
         ${cfg} ${ref} ${all} ${chk}
     """
 }

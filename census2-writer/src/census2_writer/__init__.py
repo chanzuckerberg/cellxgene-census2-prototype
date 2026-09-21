@@ -29,12 +29,13 @@ adapts a remote URL for zarr, which ships no S3 client.
 Decisions
 ---------
 `build` runs four steps in order: assemble the core slots (`obs`, `var`,
-`X`, `raw`, full `uns`), admit, apply the slot policy, harmonize.
+`X`, `raw`, the carried `uns` keys), admit, apply the slot policy, harmonize.
 
 1. Admission (`admit`) decides whether the dataset belongs in Census 2. A
    rejection is a normal result: `build` returns no AnnData and a reason,
-   and the caller records the reason and succeeds. This decision is open;
-   the stub admits every dataset.
+   and the caller records the reason and succeeds. This decision is largely
+   open. The stub applies one criterion, the assay allowlist, which keeps
+   the workflow away from modalities a Census is unlikely to carry.
 2. The slot policy decides which AnnData slots the store carries. This
    decision is made: the set that the Census 1 builder reads (`obs`, `var`,
    `X`, `raw`, and the `uns` keys that the `uns_keys` configuration lists),
@@ -95,12 +96,15 @@ from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
 
 import anndata
+import dask
 import h5py
 import numpy as np
 import zarr
 from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
 from zarr.abc.store import Store
+
+from . import assays
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
@@ -182,6 +186,11 @@ DEFAULTS: Config = {
     # chanzuckerberg/cellxgene-census repository, at
     # tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/anndata.py
     "uns_keys": ["schema_version", "organism_ontology_term_id"],
+    # The assay ontology terms that admission accepts. A dataset needs at least
+    # one cell on one of them. An empty list turns the criterion off. A sorted
+    # list rather than the frozenset, because a config file is JSON.
+    # See census2_writer.assays for where the terms come from.
+    "assay_allowlist": sorted(assays.DEFAULT_ALLOWLIST),
 }
 
 
@@ -270,24 +279,45 @@ def admit(
 ) -> str | None:
     """Decide whether Census 2 admits this dataset.
 
+    THIS IS A MINIMAL STUB. It applies one criterion: the dataset must hold at
+    least one cell on the assay allowlist. It is not production-ready admission
+    logic. Its purpose is to keep the bulk ingestion workflow away from data
+    shapes that a Census is unlikely to carry, such as the dense matrices of a
+    DNA methylation dataset, so that the workflow is not contorted to hold
+    them. Real admission criteria are open.
+
     Return `None` to admit the dataset. Return a short reason to reject it.
     A rejection is a normal result. The caller records the reason and exits
     with success. Do not raise an exception for a dataset that you reject.
     Raise only for an input that this function cannot read.
 
-    `adata` holds `obs`, `var`, `X`, `raw`, and the full `uns`. The slot
-    policy runs after admission. All `uns` keys are present, and a criterion
-    can read any of them. `X` and `raw.X` are not loaded. A read of `X` or
-    `raw.X` loads the full matrix.
+    `adata` holds `obs`, `var`, `X`, `raw`, and the `uns` keys that the slot
+    policy carries. A criterion that needs another key adds it to `uns_keys`.
+    `X` and `raw.X` are not loaded. A read of `X` or `raw.X` loads the full
+    matrix.
 
     `refdata` is the directory that the caller staged. The configuration
     names a reference file. It does not give the path. Resolve each name
     against `refdata`.
 
-    This function is a stub that admits every dataset. The admission
-    criteria are open.
+    Two limits of the assay criterion, both deliberate:
+
+    - One cell on the allowlist admits every cell. Census 1 masks the cells
+      that do not match. This does not, so a mixed-assay dataset carries its
+      off-list cells as well.
+    - An `obs` without `assay_ontology_term_id` is admitted. Such an object is
+      not a Discover dataset, so a Discover criterion does not apply to it.
     """
-    return None
+    config = DEFAULTS if config is None else config
+    # A config value is Any by design, so name its shape where it is read.
+    allowlist = set(cast("list[str]", config.get("assay_allowlist") or []))
+    terms = adata.obs.get("assay_ontology_term_id")
+    if not allowlist or terms is None:
+        return None
+    if bool(terms.isin(allowlist).any()):
+        return None
+    present = sorted({str(t) for t in terms.unique()})
+    return f"no cells on the assay allowlist: {', '.join(present[:3])}"
 
 
 def harmonize(
@@ -414,7 +444,13 @@ def as_store(dest: StoreLike) -> StoreLike:
     return dest
 
 
-def write(adata: anndata.AnnData, dest: StoreLike, *, consolidate: bool = True) -> None:
+def write(
+    adata: anndata.AnnData,
+    dest: StoreLike,
+    *,
+    consolidate: bool = True,
+    threads: int | None = None,
+) -> None:
     """Write an AnnData to a Zarr store at `dest`.
 
     anndata consolidates the metadata itself, so this passes the choice through.
@@ -423,8 +459,19 @@ def write(adata: anndata.AnnData, dest: StoreLike, *, consolidate: bool = True) 
     still need it for tolerable remote latency. anndata also writes it last, so a
     reader that opens with `zarr.open_consolidated` fails on a partially written
     store rather than reading part of one.
+
+    Writing computes the lazy matrix, which anndata does with the dask threaded
+    scheduler. `threads` is how many threads it may use. Give it the CPU count
+    the caller was allocated. The default asks dask, and dask counts the CPUs of
+    the host unless a cgroup sets a quota. A container with a CPU *share* sets
+    no quota, so the default over-counts: a HealthOmics task allocated 2 vCPU
+    was measured using 4.67.
     """
-    adata.write_zarr(as_store(dest), consolidate_metadata=consolidate)
+    limit = (
+        dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
+    )
+    with limit:
+        adata.write_zarr(as_store(dest), consolidate_metadata=consolidate)
 
 
 @contextlib.contextmanager
@@ -444,6 +491,7 @@ def create(
     consolidate: bool = True,
     config: Config | None = None,
     refdata: PathLike | None = None,
+    threads: int | None = None,
 ) -> Result:
     """Build a store from `source` and write it to `dest`. Return the result.
 
@@ -452,11 +500,12 @@ def create(
 
     `source` is a path to an h5ad or an open `h5py.File`. `dest` is a path, a
     remote URL, or a zarr Store. The source stays open across the write, because
-    the expression matrix is read lazily.
+    the expression matrix is read lazily. `threads` bounds the write; see
+    `write`.
     """
     with _opened(source) as f:
         adata, result = build(f, config=config, refdata=refdata)
         if adata is None:
             return result
-        write(adata, dest, consolidate=consolidate)
+        write(adata, dest, consolidate=consolidate, threads=threads)
     return result

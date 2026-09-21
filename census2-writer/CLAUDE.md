@@ -37,6 +37,19 @@ until the store is written.
 The round trip widens the sparse index arrays of `X` from int32 to int64; the values do not
 change. `--check` therefore compares integer arrays by value and not by stored bytes.
 
+Writing computes the lazy matrix through the dask threaded scheduler, which sizes its pool from
+`dask.system.CPU_COUNT`. That function honours CPU affinity and a cgroup CPU *quota*, but a
+container given a CPU *share* sets no quota, so the pool follows the host. A HealthOmics task
+allocated 2 vCPU was recorded using 4.67. `write` therefore takes a `threads` argument, and the
+pipeline passes `task.cpus`. Do not rely on the default inside a container.
+
+anndata auto-shards a Zarr v3 array at a 1 GB uncompressed target, and its own comment says a
+shard is held in memory before it is written. zarr's `async.concurrency` defaults to 10, so the
+write can hold about 10 GB of shard buffers. That product is close to the peaks measured on dense
+datasets, though it is not yet measured directly. anndata sets its 1 GB default only when the
+caller has not set `array.target_shard_size_bytes`, so a caller can bound this. Lowering
+`async.concurrency` also lowers S3 write throughput, so it is not free.
+
 A gene-axis query against a CSR matrix costs close to a full scan: selecting any set of genes
 reads the whole `indices` array, and no chunk size, shard size, or codec changes that. Serving
 those queries efficiently needs a second orientation or a dense two-dimensional chunk grid, which
