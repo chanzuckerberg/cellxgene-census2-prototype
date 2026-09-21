@@ -160,6 +160,35 @@ def test_uns_keys_is_configurable(tmp_path: Path) -> None:
     assert set(store["uns"]) == {"title"}
 
 
+def test_unwanted_uns_keys_are_never_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A spatial dataset holds a large image under uns; the policy drops it, so
+    reading it would be paid for and thrown away."""
+    source = tmp_path / "source.h5ad"
+    adata = dataset()
+    adata.uns["spatial"] = {"image": np.zeros((64, 64, 3), dtype="uint8")}
+    adata.write_h5ad(source)
+
+    seen: list[str] = []
+
+    def spy(elem: Any, *args: Any, **kwargs: Any) -> Any:
+        seen.append(getattr(elem, "name", "?"))
+        return read_elem(elem, *args, **kwargs)
+
+    # By name: read_elem is imported by the module, not exported from it.
+    monkeypatch.setattr("census2_writer.read_elem", spy)
+    with h5py.File(source) as f:
+        built, _ = census2_writer.build(f)
+
+    assert built is not None
+    assert "spatial" not in built.uns
+    # Reading the group reads everything under it, so the group itself must
+    # never be read: only the keys the policy keeps.
+    assert "/uns" not in seen, seen
+    assert "/uns/schema_version" in seen, seen
+
+
 def test_all_slots_carries_everything(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"

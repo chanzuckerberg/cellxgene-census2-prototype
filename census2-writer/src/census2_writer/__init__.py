@@ -43,10 +43,11 @@ Decisions
    query can combine stores. This decision is open; the stub returns its
    input.
 
-Admission runs before the slot policy, so a criterion can read any `uns`
-key. It runs before the optional slots are read, so a rejected dataset does
-not read them. `admit` and `harmonize` both receive an AnnData, so a step
-author works with one kind of object.
+Admission runs before the optional slots are read, so a rejected dataset
+does not read them. The `uns` policy is the exception: it applies at the read,
+so `admit` sees the carried keys and not the whole group. A criterion that
+needs another key adds it to `uns_keys`. `admit` and `harmonize` both receive
+an AnnData, so a step author works with one kind of object.
 
 Configuration and reference data
 --------------------------------
@@ -90,7 +91,7 @@ from __future__ import annotations
 import contextlib
 import importlib.metadata
 import os
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
 
 import anndata
@@ -302,6 +303,20 @@ def harmonize(
     return adata
 
 
+def read_uns(f: h5py.File, keys: Iterable[str] | None = None) -> Config:
+    """The `uns` mapping, restricted to `keys` unless `keys` is None.
+
+    Reading the whole group is not safe on every dataset. A spatial dataset can
+    hold a multi-GB image under `uns/spatial`, and the slot policy discards it
+    a moment later. Read what the policy keeps, and nothing else.
+    """
+    if "uns" not in f:
+        return {}
+    if keys is None:
+        return cast("Config", read_elem(f["uns"]))
+    return {k: cast("Any", read_elem(f["uns"][k])) for k in keys if k in f["uns"]}
+
+
 def slots_of(adata: anndata.AnnData) -> list[str]:
     """What a store written from this AnnData will hold.
 
@@ -350,7 +365,7 @@ def build(
     n_rows = int(obs.shape[0])
 
     adata = anndata.AnnData(X=lazy_matrix(f["X"], n_rows), obs=obs, var=var)
-    adata.uns = cast("Config", read_elem(f["uns"])) if "uns" in f else {}
+    adata.uns = read_uns(f, None if all_slots else uns_keys)
     if "raw" in f and "X" in f["raw"]:
         raw_var = (
             cast("pd.DataFrame", read_elem(f["raw/var"])) if "var" in f["raw"] else var
@@ -359,13 +374,10 @@ def build(
             X=lazy_matrix(f["raw/X"], n_rows), obs=obs[[]], var=raw_var
         )
 
-    # Admission runs before slot policy, and before the optional slots are read.
+    # Admission runs before the optional slots are read.
     reason = admit(adata, config, refdata)
     if reason is not None:
         return None, {"admitted": False, "reason": reason, "slots": []}
-
-    if not all_slots:
-        adata.uns = {k: v for k, v in adata.uns.items() if k in uns_keys}
 
     if all_slots:
         for key in OPTIONAL_SLOTS:
