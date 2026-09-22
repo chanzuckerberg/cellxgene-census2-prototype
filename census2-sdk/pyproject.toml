@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "census2-sdk"
+version = "0.1.0"
+description = "Query Census 2 stores through a catalog and return one AnnData"
+readme = "README.md"
+# anndata 0.13 requires 3.12, so nothing lower is installable anyway.
+requires-python = ">=3.12"
+license = "MIT"
+
+# Ranges, not pins. A library states what it works with. The upper bound on
+# anndata is the real constraint: the stores are written by 0.13, and 0.14 can
+# change the on-disk form that this package reads.
+dependencies = [
+    "anndata>=0.13,<0.14",
+    "zarr>=3.1,<4",
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pandas>=2.1",
+    # The catalog is Parquet. pandas reads and writes it through pyarrow.
+    "pyarrow>=15",
+]
+
+[project.optional-dependencies]
+# zarr ships no S3 client. A local catalog over local stores needs none, and
+# `open_store` imports obstore only for a remote URI.
+s3 = ["obstore>=0.11"]
+# obstore is here as well, because mypy --strict checks the remote code paths.
+dev = ["pytest>=8", "mypy>=1.11", "pandas-stubs", "scipy-stubs", "obstore>=0.11"]
+
+[project.scripts]
+census2-catalog = "census2_sdk.catalog:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/census2_sdk"]
+
+[tool.mypy]
+# Strict, because this package is a published API and its types are part of the
+# contract. Run mypy from this directory; see the root CLAUDE.md.
+strict = true
+files = ["src", "tests"]
