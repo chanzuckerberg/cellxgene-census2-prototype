@@ -38,6 +38,11 @@ census2-catalog = "census2_sdk.catalog:cli"
 [tool.hatch.build.targets.wheel]
 packages = ["src/census2_sdk"]
 
+[tool.ruff]
+# Name the source root, so that ruff sorts `census2_sdk` as first-party from any
+# working directory. CI runs ruff from the repository root.
+src = ["src"]
+
 [tool.mypy]
 # Strict, because this package is a published API and its types are part of the
 # contract. Run mypy from this directory; see the root CLAUDE.md.
