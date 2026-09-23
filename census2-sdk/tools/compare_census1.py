@@ -17,19 +17,18 @@ Needs AWS credentials in the environment for the stores (obstore reads no profil
     eval "$(aws configure export-credentials --profile single-cell-dev --format env)"
 """
 
-from __future__ import annotations
-
 import argparse
 import sys
 import time
 
 import anndata
 import cellxgene_census
-import census2_sdk
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import tiledbsoma
+
+import census2_sdk
 
 CENSUS_VERSION = "2025-11-08"
 

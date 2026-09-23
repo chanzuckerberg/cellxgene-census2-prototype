@@ -23,8 +23,6 @@ Iteration 1 scaffolding, marked `ponytail:` in the code: the SDK projects each s
 `dataset_id` from the catalog because the stores do not hold the column.
 """
 
-from __future__ import annotations
-
 import os
 from collections.abc import Sequence
 from typing import Any, cast
@@ -36,9 +34,9 @@ import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem, sparse_dataset
 
-from . import catalog as _catalog
-from .catalog import Filter, Normalized, members, open_store
-from .gene_reference import (
+from census2_sdk import catalog as _catalog
+from census2_sdk.catalog import Filter, Normalized, members, open_store
+from census2_sdk.gene_reference import (
     ReferencePinMismatch,
     load_reference,
     project,

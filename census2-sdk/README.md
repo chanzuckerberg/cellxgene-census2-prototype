@@ -14,7 +14,7 @@ pip install ./census2-sdk          # local catalog over local stores
 pip install './census2-sdk[s3]'    # also read stores and catalogs on S3
 ```
 
-zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK imports it only for a remote URI.
+zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only for a remote URI.
 
 ## Build the catalog
 

@@ -10,8 +10,6 @@ Command line, for the Iteration 1 store set:
     census2-catalog s3://bucket/prefix/ catalog.parquet
 """
 
-from __future__ import annotations
-
 import io
 import json
 import os
@@ -24,7 +22,22 @@ import pandas as pd
 import zarr
 from anndata.io import read_elem
 
-from .gene_reference import TAXON_TO_ORGANISM
+from census2_sdk.gene_reference import TAXON_TO_ORGANISM
+
+# obstore is the optional `s3` extra. It is imported here, at module level, when it
+# is installed, so that a local catalog over local stores installs and runs
+# without it. Each remote path calls `_require_obstore` first.
+try:
+    import obstore
+    import obstore.store
+except ImportError:  # pragma: no cover
+    obstore = None  # type: ignore[assignment]
+
+
+def _require_obstore() -> None:
+    if obstore is None:
+        raise ImportError("a remote URI needs obstore: pip install 'census2-sdk[s3]'")
+
 
 Filter = Mapping[str, str | Iterable[str]]
 # A filter after `normalize`: one set of accepted values for each column.
@@ -61,8 +74,7 @@ def is_remote(uri: str | os.PathLike[str]) -> bool:
 def open_store(uri: str | os.PathLike[str]) -> zarr.Group:
     """Open a store for reading. A remote URI goes through obstore."""
     if is_remote(uri):
-        import obstore.store
-
+        _require_obstore()
         store = zarr.storage.ObjectStore(
             obstore.store.from_url(str(uri)), read_only=True
         )
@@ -73,9 +85,7 @@ def open_store(uri: str | os.PathLike[str]) -> zarr.Group:
 def _list(prefix: str) -> list[str]:
     """Names of the objects directly under `prefix`."""
     if is_remote(prefix):
-        import obstore
-        import obstore.store
-
+        _require_obstore()
         store = obstore.store.from_url(prefix)
         listing = obstore.list_with_delimiter(store, "")
         return [str(o["path"]) for o in listing["objects"]]
@@ -84,9 +94,7 @@ def _list(prefix: str) -> list[str]:
 
 def _read_json(uri: str) -> dict[str, Any]:
     if is_remote(uri):
-        import obstore
-        import obstore.store
-
+        _require_obstore()
         base, _, name = uri.rpartition("/")
         store = obstore.store.from_url(base)
         data = bytes(obstore.get(store, name).bytes())
@@ -189,9 +197,7 @@ def summarize(group: zarr.Group) -> dict[str, Any]:
 
 def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
     if is_remote(uri):
-        import obstore
-        import obstore.store
-
+        _require_obstore()
         base, _, name = str(uri).rpartition("/")
         data = bytes(obstore.get(obstore.store.from_url(base), name).bytes())
         return pd.read_parquet(io.BytesIO(data))

@@ -9,8 +9,6 @@ writer projects `var` at ingestion, `project` reduces to a check that the store'
 `feature_id` order equals the reference.
 """
 
-from __future__ import annotations
-
 import gzip
 import hashlib
 import io

@@ -6,19 +6,18 @@ subset of a 20-gene reference in a store-specific order, `observation_joinid` in
 20-row file in a `refdata` directory, so nothing is downloaded.
 """
 
-from __future__ import annotations
-
 import gzip
 import json
 from pathlib import Path
 from typing import Any, cast
 
 import anndata
-import census2_sdk
 import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
+
+import census2_sdk
 from census2_sdk import catalog
 from census2_sdk.gene_reference import ReferencePinMismatch
 

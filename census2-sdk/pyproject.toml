@@ -26,7 +26,8 @@ dependencies = [
 
 [project.optional-dependencies]
 # zarr ships no S3 client. A local catalog over local stores needs none, and
-# `open_store` imports obstore only for a remote URI.
+# catalog.py imports obstore at module level when it is installed and uses it
+# only for a remote URI.
 s3 = ["obstore>=0.11"]
 # obstore is here as well, because mypy --strict checks the remote code paths.
 dev = ["pytest>=8", "mypy>=1.11", "pandas-stubs", "scipy-stubs", "obstore>=0.11"]
