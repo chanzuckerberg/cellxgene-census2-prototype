@@ -18,12 +18,13 @@ zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only
 
 ## Build the catalog
 
-The catalog is a Parquet table with one row for each store. The builder reads a prefix that holds
-`<dataset_version_id>.zarr` stores and the receipts next to them.
+The catalog is a Parquet table with one row for each store. The Census 2 team publishes it, and the
+SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder. It
+reads a prefix that holds `<dataset_version_id>.zarr` stores and the receipts next to them.
 
 ```bash
 eval "$(aws configure export-credentials --profile <profile> --format env)"
-census2-catalog s3://bucket/prefix/ catalog.parquet
+python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 ```
 
 Each row holds the identity of the dataset, the organism, the spatial flag, and `n_obs`. It also

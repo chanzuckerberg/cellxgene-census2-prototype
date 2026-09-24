@@ -1,28 +1,19 @@
-"""The prototype catalog: one row for each store, as Parquet (design section 2).
+"""The SDK's side of the catalog: load it, and exclude the datasets that cannot match.
 
-`build` reads a prefix that holds `<dataset_version_id>.zarr` stores and the receipts
-next to them. `exclude` applies the one correctness rule of design 2.2: a query
+The catalog is a Parquet table with one row for each store (design section 2). The
+Census 2 team publishes it; `tools/build_catalog.py` is the Iteration 1 stand-in for
+that builder. `exclude` applies the one correctness rule of design 2.2. A query
 excludes a dataset only when the catalog proves that no cell of the dataset can match.
 An absent column or an unknown value keeps the dataset.
-
-Command line, for the Iteration 1 store set:
-
-    census2-catalog s3://bucket/prefix/ catalog.parquet
 """
 
 import io
-import json
 import os
-import pathlib
-import sys
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 import pandas as pd
 import zarr
-from anndata.io import read_elem
-
-from census2_sdk.gene_reference import TAXON_TO_ORGANISM
 
 # obstore is the optional `s3` extra. It is imported here, at module level, when it
 # is installed, so that a local catalog over local stores installs and runs
@@ -61,8 +52,6 @@ INDEXED = tuple(c for p in PAIRS for c in (p, f"{p}_ontology_term_id")) + (
 # Schema 2.4.0 made these two columns multi-valued. Equality is membership.
 MULTIVALUED = frozenset({"disease", "disease_ontology_term_id"})
 MULTIVALUE_SEP = " || "
-# Assays that the curation schema lists as spatial.
-SPATIAL_ASSAYS = frozenset({"EFO:0010961", "EFO:0030062"})
 
 REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")
 
@@ -80,27 +69,6 @@ def open_store(uri: str | os.PathLike[str]) -> zarr.Group:
         )
         return zarr.open_group(store, mode="r")
     return zarr.open_group(str(uri), mode="r")
-
-
-def _list(prefix: str) -> list[str]:
-    """Names of the objects directly under `prefix`."""
-    if is_remote(prefix):
-        _require_obstore()
-        store = obstore.store.from_url(prefix)
-        listing = obstore.list_with_delimiter(store, "")
-        return [str(o["path"]) for o in listing["objects"]]
-    return [p.name for p in pathlib.Path(prefix).iterdir()]
-
-
-def _read_json(uri: str) -> dict[str, Any]:
-    if is_remote(uri):
-        _require_obstore()
-        base, _, name = uri.rpartition("/")
-        store = obstore.store.from_url(base)
-        data = bytes(obstore.get(store, name).bytes())
-    else:
-        data = pathlib.Path(uri).read_bytes()
-    return cast("dict[str, Any]", json.loads(data))
 
 
 def members(value: str, column: str) -> list[str]:
@@ -121,78 +89,6 @@ def normalize(obs_filter: Filter | None) -> Normalized:
         wanted = {value} if isinstance(value, str) else {str(v) for v in value}
         normalized[column] = frozenset(wanted)
     return normalized
-
-
-def build(prefix: str, out: str | os.PathLike[str] | None = None) -> pd.DataFrame:
-    """One catalog row for each admitted receipt under `prefix`.
-
-    The receipt supplies `dataset_id`; the store supplies everything else.
-    """
-    # ponytail: dataset_id comes from the receipt until the writer stamps it into obs
-    # (disposition row 13).
-    prefix = prefix.rstrip("/")
-    rows: list[dict[str, Any]] = []
-    for name in sorted(n for n in _list(prefix) if n.endswith(".json")):
-        receipt = _read_json(f"{prefix}/{name}")
-        if not receipt.get("admitted"):
-            continue
-        version_id = str(receipt["dataset_version_id"])
-        store_uri = f"{prefix}/{version_id}.zarr"
-        rows.append(
-            {
-                "dataset_id": str(receipt["dataset_id"]),
-                "dataset_version_id": version_id,
-                "store_uri": store_uri,
-                "curation_schema_version": receipt.get("schema_version"),
-                # The Iteration 1 stores carry the source var and record no version.
-                "gene_reference_version": None,
-                **summarize(open_store(store_uri)),
-            }
-        )
-    frame = pd.DataFrame(rows)
-    if out is not None:
-        frame.to_parquet(out, index=False)
-    return frame
-
-
-def summarize(group: zarr.Group) -> dict[str, Any]:
-    """The catalog fields that one store supplies."""
-    obs = group["obs"]
-    assert isinstance(obs, zarr.Group)
-    row: dict[str, Any] = {}
-    n_obs: int | None = None
-    # ponytail: list<string> columns; bitmaps over a dictionary (design 2.2) when the
-    # catalog size matters.
-    for column in INDEXED:
-        if column not in obs:
-            row[column] = None
-            continue
-        values = pd.Series(read_elem(obs[column]))
-        n_obs = len(values)
-        row[column] = sorted(values.astype(str).unique())
-    if "is_primary_data" in obs:
-        primary = pd.Series(read_elem(obs["is_primary_data"])).astype(bool)
-        n_obs = len(primary)
-        row["is_primary_data"] = (
-            "all_true"
-            if primary.all()
-            else "all_false"
-            if not primary.any()
-            else "mixed"
-        )
-    else:
-        row["is_primary_data"] = "mixed"
-    if n_obs is None:
-        n_obs = len(pd.Series(read_elem(obs[str(obs.attrs["_index"])])))
-    row["n_obs"] = n_obs
-
-    uns = group["uns"]
-    assert isinstance(uns, zarr.Group)
-    taxon = str(read_elem(uns["organism_ontology_term_id"]))
-    row["organism"] = TAXON_TO_ORGANISM.get(taxon, taxon)
-    assays = row.get("assay_ontology_term_id") or []
-    row["spatial"] = bool(SPATIAL_ASSAYS & set(assays))
-    return row
 
 
 def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
@@ -231,21 +127,3 @@ def exclude(
     records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
     keep = [not excludes(row, normalized) for row in records]
     return scoped[keep]
-
-
-def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__, file=sys.stderr)
-        return 2
-    frame = build(argv[0], argv[1])
-    print(f"{len(frame)} rows -> {argv[1]}")
-    return 0
-
-
-def cli() -> None:
-    """The `census2-catalog` console script."""
-    sys.exit(main(sys.argv[1:]))
-
-
-if __name__ == "__main__":
-    cli()

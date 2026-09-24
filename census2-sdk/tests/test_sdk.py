@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import anndata
+import build_catalog
 import numpy as np
 import pandas as pd
 import pytest
@@ -108,7 +109,7 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
             )
         )
     (prefix / "v-rejected.json").write_text(json.dumps({"admitted": False}))
-    frame = catalog.build(str(prefix), root / "catalog.parquet")
+    frame = build_catalog.build(str(prefix), root / "catalog.parquet")
     assert len(frame) == 3
     return {"root": root, "prefix": prefix, "catalog": root / "catalog.parquet"}
 
@@ -284,7 +285,7 @@ def test_gene_outside_reference_refused(
             {"admitted": True, "dataset_id": "ds-x", "dataset_version_id": "v-x"}
         )
     )
-    catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
     census = census2_sdk.open_census(
         [tmp_path / "catalog.parquet"], refdata=corpus["root"] / "refdata"
     )
@@ -324,7 +325,7 @@ def test_duplicate_cell_key_refused(corpus: dict[str, Path], tmp_path: Path) -> 
             {"admitted": True, "dataset_id": "ds-d", "dataset_version_id": "v-d"}
         )
     )
-    catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
     census = census2_sdk.open_census(
         [tmp_path / "catalog.parquet"], refdata=corpus["root"] / "refdata"
     )
