@@ -1,0 +1,394 @@
+#!/usr/bin/env python3
+"""Ingest one CELLxGENE dataset into an AnnData-Zarr store.
+
+This is the ingestion step of a per-dataset store model: one store per dataset,
+written independently, composed at query time through a catalog. Harmonization
+belongs here, during ingestion, because a store is meant to be queryable
+alongside other stores and not merely the Discover h5ad in another container.
+
+This script owns the I/O: fetch the source, write the store, publish it, and
+record a receipt. The data model lives in the `census2_writer` package, which
+decides which slots a store carries and applies harmonization. Harmonization is
+a stub today, so a store holds the source values in whichever slots the slot
+policy keeps.
+
+Memory discipline: this script never calls `read_h5ad`. It hands the source path
+to `census2_writer.create`, which keeps the small slots in memory and leaves `X`
+and `raw.X` as dask arrays of row blocks. Peak memory therefore tracks the block
+size and not the file size. `create` holds the `h5py` handle open until the write
+finishes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+
+# The data model, installed in the runtime image from census2-writer/ at the
+# repository root.
+import census2_writer
+import h5py
+import numpy as np
+import zarr
+from anndata.io import read_elem
+
+
+def log(msg: str) -> None:
+    print(f"ingest: {msg}", file=sys.stderr, flush=True)
+
+
+def store_uri(outdir: str, name: str) -> str:
+    """Final location of one artifact. Local path or s3:// URI."""
+    return f"{outdir.rstrip('/')}/{name}"
+
+
+def _sha256(path: str) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def ingest(src: str, dest: str, *, config=None, refdata=None, threads=None) -> dict:
+    """Ingest one h5ad into a Zarr store at `dest`, which may be remote.
+
+    Returns the result from `census2_writer.create`, which reports whether the
+    dataset was admitted. A rejection writes no store and is not an error.
+    """
+    return census2_writer.create(
+        src, dest, config=config, refdata=refdata, threads=threads
+    )
+
+
+def check(src: str, dst: str, dropped_obs_columns=()) -> dict:
+    """Compare the Zarr output against the h5ad source, field by field.
+
+    `compared` lists what the comparison covered, so a check that silently
+    covered nothing is visible in the receipt instead of reading as a pass.
+
+    `dropped_obs_columns` is what harmonization removed, from the result. The
+    obs columns are compared against the source minus exactly those names, so
+    a deliberate projection passes and an unreported drop still fails.
+    """
+    import hashlib
+
+    import pandas as pd
+
+    result: dict = {"passed": True, "compared": []}
+
+    def fail(name, detail):
+        result["passed"] = False
+        result.setdefault("failures", []).append(f"{name}: {detail}")
+
+    # Walk one segment at a time. h5py and zarr both support that, while support
+    # for a nested "raw/X" lookup differs between them.
+    def has(node, path):
+        for part in path.split("/"):
+            if part not in node:
+                return False
+            node = node[part]
+        return True
+
+    def get(node, path):
+        for part in path.split("/"):
+            node = node[part]
+        return node
+
+    def digest(arr):
+        h = hashlib.sha256()
+        n = arr.shape[0]
+        step = max(1, census2_writer.BLOCK_BYTES // max(arr.dtype.itemsize, 1))
+        for i in range(0, n, step):
+            block = np.ascontiguousarray(arr[i : min(i + step, n)])
+            # The round trip widens sparse index arrays from int32 to int64, so
+            # a hash of the raw bytes reports a false difference. Integers
+            # therefore compare by value. Floats stay strict, because a change of
+            # precision in the data is worth reporting.
+            if block.dtype.kind in "iu":
+                block = block.astype(np.int64, copy=False)
+            h.update(block.tobytes())
+        return h.hexdigest()[:16]
+
+    with h5py.File(src, "r") as f:
+        # Route through as_store: a bare s3:// string makes zarr fall back to
+        # fsspec, which needs s3fs.
+        zroot = zarr.open_consolidated(census2_writer.as_store(dst), mode="r")
+        result["consolidated"] = True
+
+        dropped = set(dropped_obs_columns)
+        for key in ("obs", "var"):
+            a, b = read_elem(f[key]), read_elem(zroot[key])
+            result["compared"].append(key)
+            if not a.index.equals(b.index):
+                fail(key, "index differs")
+            # Only `obs` is projected, and only by the names the writer
+            # reported. Everything else has to match exactly.
+            expected = [c for c in a.columns if key != "obs" or c not in dropped]
+            if list(b.columns) != expected:
+                fail(
+                    key,
+                    f"columns differ: expected {len(expected)}, got {len(b.columns)}",
+                )
+                # The loop below indexes the store by a source column name, so
+                # it cannot run against a frame that does not have them all.
+                continue
+            for col in expected:
+                if str(a[col].dtype) != str(b[col].dtype):
+                    fail(f"{key}.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
+                elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
+                    list(a[col].cat.categories) != list(b[col].cat.categories)
+                ):
+                    fail(f"{key}.{col}", "categories differ")
+
+        # An absent matrix is only acceptable when neither side has it. Skipping
+        # a present one would let the check pass having compared nothing.
+        for path in ("X", "raw/X"):
+            in_src, in_out = has(f, path), has(zroot, path)
+            if not in_src and not in_out:
+                continue
+            if not in_out:
+                fail(path, "missing from the store")
+                continue
+            if not in_src:
+                fail(path, "in the store but not in the source")
+                continue
+
+            h5o, zo = get(f, path), get(zroot, path)
+            if isinstance(h5o, h5py.Group):  # sparse
+                if h5o["data"].shape != zo["data"].shape:
+                    fail(path, f"nnz {h5o['data'].shape} != {zo['data'].shape}")
+                    continue
+                for part in ("data", "indices", "indptr"):
+                    if digest(h5o[part]) != digest(zo[part]):
+                        fail(
+                            f"{path}/{part}",
+                            f"values differ (h5ad {h5o[part].dtype}, zarr {zo[part].dtype})",
+                        )
+                result[f"{path}.nnz"] = int(h5o["data"].shape[0])
+            else:  # dense
+                if tuple(h5o.shape) != tuple(zo.shape):
+                    fail(path, f"shape {h5o.shape} != {zo.shape}")
+                    continue
+                if digest(h5o) != digest(zo):
+                    fail(path, "checksum differs")
+                result[f"{path}.shape"] = list(h5o.shape)
+            result["compared"].append(path)
+
+    return result
+
+
+def s3_cp(uri: str, dest: str) -> None:
+    """Fetch the source h5ad. The CLI does parallel multipart with retries."""
+    subprocess.run(["aws", "s3", "cp", "--only-show-errors", uri, dest], check=True)
+
+
+def _obstore_url(path_or_uri: str) -> str:
+    """obstore addresses everything by URL, so make a local path into one."""
+    if census2_writer.is_remote(path_or_uri):
+        return path_or_uri
+    return "file://" + os.path.abspath(path_or_uri)
+
+
+def verify_written(uri: str) -> None:
+    """Confirm a directly written store arrived and is readable.
+
+    A local destination is a declared Nextflow output, so the workflow fails if
+    it is missing. A direct write to object storage has no such check, so verify
+    it here.
+    """
+    if store_bytes(uri) == 0:
+        raise SystemExit(f"store is empty after writing: {uri}")
+    zarr.open_consolidated(census2_writer.as_store(uri), mode="r")
+
+
+def store_bytes(uri: str) -> int:
+    """Total bytes of a written store, local or remote."""
+    import obstore
+    import obstore.store
+
+    store = obstore.store.from_url(_obstore_url(uri))
+    return sum(int(item["size"]) for page in obstore.list(store) for item in page)
+
+
+def write_text(uri: str, text: str) -> str:
+    """Write a small file beside the store, local or remote."""
+    import obstore
+    import obstore.store
+
+    parent, name = uri.rsplit("/", 1)
+    if not census2_writer.is_remote(uri):
+        os.makedirs(parent, exist_ok=True)
+    obstore.put(obstore.store.from_url(_obstore_url(parent)), name, text.encode())
+    return uri
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--record", required=True, help="one manifest line, as JSON")
+    p.add_argument("--outdir", required=True, help="local path or s3:// prefix")
+    p.add_argument(
+        "--all-slots",
+        action="store_true",
+        help="override config: carry every slot, not just the Census set",
+    )
+    p.add_argument(
+        "--config",
+        default=None,
+        help="ingestion configuration file, staged by the workflow (optional)",
+    )
+    p.add_argument(
+        "--refdata",
+        default=None,
+        help="directory of reference data, staged by the workflow (optional)",
+    )
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the output against the source; a failure lands in the receipt "
+        "and REPORT fails the run",
+    )
+    p.add_argument(
+        "--stage-local",
+        action="store_true",
+        help="write the store and receipt into the working directory for the "
+        "workflow to publish, instead of writing them to --outdir directly",
+    )
+    p.add_argument(
+        "--keep-source", action="store_true", help="do not delete the staged h5ad"
+    )
+    p.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="CPUs this task was allocated. Bounds the dask thread pool that "
+        "writes the store. Without it dask counts the host's CPUs.",
+    )
+    args = p.parse_args()
+
+    rec = json.loads(args.record)
+    version_id = rec["dataset_version_id"]
+    started = time.time()
+
+    src = f"{version_id}.h5ad"
+    log(f"fetch {rec['uri']} ({rec['filesize'] / 1024**2:.1f} MiB)")
+    s3_cp(rec["uri"], src)
+
+    actual = os.path.getsize(src)
+    if actual != rec["filesize"]:
+        raise SystemExit(
+            f"size mismatch for {version_id}: got {actual}, manifest says {rec['filesize']}"
+        )
+
+    # Policy lives in the configuration. The CLI flag is an override for one key.
+    config = census2_writer.load_config(args.config)
+    if args.all_slots:
+        config["all_slots"] = True
+
+    # A store must be traceable to the configuration that produced it, so record
+    # the effective config and not just the file it came from.
+    config_provenance = {
+        "config_file": os.path.basename(args.config) if args.config else None,
+        "config_sha256": _sha256(args.config) if args.config else None,
+        "config_effective": config,
+        "refdata": os.path.basename(args.refdata.rstrip("/")) if args.refdata else None,
+    }
+    if args.config or args.refdata:
+        log(
+            f"config={config_provenance['config_file']} "
+            f"refdata={config_provenance['refdata']}"
+        )
+
+    # Where the store ends up, recorded in the receipt either way.
+    store = store_uri(args.outdir, f"{version_id}.zarr")
+    # Where this task writes it. When staging locally the workflow publishes it,
+    # so the task must not reach outside its working directory.
+    dest = f"{version_id}.zarr" if args.stage_local else store
+
+    log(f"ingest -> {store} (slots={'all' if config['all_slots'] else 'census'})")
+    result = ingest(
+        src, dest, config=config, refdata=args.refdata, threads=args.threads
+    )
+
+    # The shape of a receipt is census2_writer.Receipt, so this script and
+    # ingestion-report.py agree on it without importing each other. The
+    # store-level facts come from the package, so they cannot disagree with the
+    # code that ran.
+    receipt: census2_writer.Receipt = {
+        **census2_writer.provenance(config),
+        "dataset_id": rec["dataset_id"],
+        "dataset_version_id": version_id,
+        "source_uri": rec["uri"],
+        "source_url": rec.get("url"),
+        "source_filesize": actual,
+        "cell_count": rec.get("cell_count"),
+        "schema_version": rec.get("schema_version"),
+        "admitted": result["admitted"],
+        "reason": result["reason"],
+        **config_provenance,
+    }
+
+    if result["admitted"]:
+        for slot in result["slots"]:
+            log(f"  wrote {slot}")
+        if result["dropped_obs_columns"]:
+            dropped = result["dropped_obs_columns"]
+            log(f"  dropped {len(dropped)} obs columns: {', '.join(dropped)}")
+        receipt.update(
+            {
+                "slots_written": result["slots"],
+                "dropped_obs_columns": result["dropped_obs_columns"],
+                "store": store,
+                "output_bytes": store_bytes(dest),
+                "published_by": "workflow" if args.stage_local else "task",
+            }
+        )
+        if not args.stage_local:
+            verify_written(dest)
+        if args.check:
+            log("check round trip")
+            receipt["check"] = check(src, dest, result["dropped_obs_columns"])
+            if not receipt["check"]["passed"]:
+                for fmsg in receipt["check"].get("failures", []):
+                    log(f"  FAIL {fmsg}")
+    else:
+        # Not admitted is a normal outcome. No store is written and we succeed.
+        log(f"not admitted: {result['reason']}")
+
+    if not args.keep_source:
+        os.remove(src)
+
+    receipt["elapsed_sec"] = round(time.time() - started, 1)
+
+    # Always written: this is the declared Nextflow output. When staging locally
+    # the workflow publishes it beside the store; otherwise write it to --outdir.
+    local_receipt = f"{version_id}.json"
+    text = json.dumps(receipt, indent=1)
+    with open(local_receipt, "w") as fh:
+        fh.write(text)
+    if not args.stage_local:
+        write_text(store_uri(args.outdir, local_receipt), text)
+
+    if result["admitted"]:
+        log(
+            f"done {version_id} in {receipt['elapsed_sec']}s, "
+            f"{receipt['output_bytes'] / 1024**2:.1f} MiB out"
+        )
+    else:
+        log(f"done {version_id} in {receipt['elapsed_sec']}s, no store written")
+
+    # A failed check is recorded, not raised. Nextflow publishes nothing from a
+    # failed task. A non-zero exit here would therefore hide the receipt that
+    # names the failure, and it would stop REPORT. REPORT fails the run instead,
+    # and it reports every failure together rather than only the first.
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

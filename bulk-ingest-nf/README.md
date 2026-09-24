@@ -1,0 +1,179 @@
+# census2-bulk-ingest
+
+A Nextflow pipeline that converts CELLxGENE Discover datasets into Census 2 stores in bulk: one
+AnnData-Zarr store per dataset. It runs locally under Docker, and on AWS HealthOmics.
+
+A run starts from a manifest that `tools/cxg-manifest.py` prepares from the Discover API, one
+record per dataset. The pipeline runs one task per dataset: fetch the source h5ad from Discover's
+asset bucket on S3, build the store, and write the store and a receipt to `--outdir`. A final task
+reads the receipts and reports on the run.
+
+The [`census2-writer`](../census2-writer/README.md) package decides whether a dataset is admitted
+and what a store contains; the runtime image installs it as a dependency. This pipeline is the I/O
+around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline is put together.
+
+## Requirements
+
+- Nextflow 24.04 or later.
+- Docker.
+- AWS credentials that can read the source bucket.
+- Internet access for `tools/cxg-manifest.py` only. The pipeline itself needs none.
+
+**Credentials in the container.** Tasks read credentials from the environment. A profile that
+resolves credentials through a helper, such as SSO or an external `credential_process`, does not
+work inside the container. Resolve on the host and export the result:
+
+```bash
+eval "$(aws configure export-credentials --profile <your-profile> --format env)"
+```
+
+On HealthOmics the run role supplies credentials to each task.
+
+## Quick start
+
+Build the runtime image from the repository root:
+
+```bash
+docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile ..
+```
+
+Prepare a manifest. This step queries the Discover API, so run it on a host with internet access.
+It needs only the Python standard library.
+
+```bash
+tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
+```
+
+Ingest it:
+
+```bash
+eval "$(aws configure export-credentials --profile <your-profile> --format env)"
+
+nextflow run . -profile docker \
+    --manifest manifest.jsonl --check \
+    --outdir ./out
+```
+
+The stores go to `./out/<dataset_version_id>.zarr`, with one receipt JSON beside each store.
+
+To write directly to S3, give `--outdir` an `s3://` prefix and read the manifest from S3 as well.
+The task writes each store to its final location; there is no staging step.
+
+```bash
+aws s3 cp manifest.jsonl s3://my-bucket/census2-ingest/manifest.jsonl
+
+nextflow run . -profile docker \
+    --manifest s3://my-bucket/census2-ingest/manifest.jsonl \
+    --outdir s3://my-bucket/census2-ingest
+```
+
+## Parameters
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
+| `--outdir` | `./out` | Local path or `s3://` prefix. |
+| `--all_slots` | `false` | Carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`, instead of the default Census slot set. |
+| `--check` | `false` | Verify each output against its source. A failure goes into the receipt, and `REPORT` fails the run. |
+| `--config` | none | Ingestion configuration file, staged into every task. The file format is not defined yet. |
+| `--refdata` | none | Directory of reference data, staged into every task. Nothing reads it yet. |
+| `--report_dir` | none | Where the run report publishes, and the execution reports on HealthOmics. The `healthomics` profile sets it. |
+
+`tools/cxg-manifest.py` selects which datasets to ingest, by organism, size, and count. Run it
+with `--help` for the options.
+
+## Profiles
+
+| Profile | Use |
+|---|---|
+| `docker` | Run tasks locally in the runtime image. Credentials come from the environment. |
+| `healthomics` | Run on AWS HealthOmics. `--container` is required and must be a private ECR URI. |
+
+## Output layout
+
+```
+<outdir>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
+<outdir>/<dataset_version_id>.json     the receipt, always
+```
+
+A rejection is not an error: the task succeeds, no store is written, and the receipt records
+`admitted: false` with a reason.
+
+This flat layout is a prototype convenience: a rerun overwrites the store it wrote before. The
+run report publishes to `--report_dir`, not `--outdir`; a local run leaves it in the task's
+working directory unless you set `--report_dir`. On HealthOmics, Nextflow's own `report.html`,
+`timeline.html`, and `trace.txt` go there too; `trace.txt` records what each task reserved and
+what it used.
+
+## Running a component alone
+
+Each step is a plain script and runs without Nextflow. `tools/cxg-manifest.py` and
+`tools/seed-mock-s3.py` need only the Python standard library, so they run anywhere.
+`cxg-ingest.py` needs the image's Python dependencies, so run it in the image, or install the
+package: `pip install '../census2-writer[s3]'`.
+
+```bash
+modules/local/ingest/resources/usr/bin/cxg-ingest.py \
+    --record "$(head -1 manifest.jsonl)" --outdir ./out --check
+
+modules/local/report/resources/usr/bin/ingestion-report.py ./out/*.json \
+    --out ingestion_report.json
+```
+
+## AWS HealthOmics
+
+Build the bundle, push an `amd64` image to private ECR, then create a workflow and start a run:
+
+```bash
+tools/build-healthomics-bundle.sh healthomics-bundle.zip
+
+docker buildx build --platform linux/amd64 \
+    -t <account>.dkr.ecr.<region>.amazonaws.com/<repo>:census2-bulk-ingest-0.1.0 \
+    -f bulk-ingest-nf/docker/Dockerfile --push ..
+
+aws omics create-workflow --engine NEXTFLOW --main main.nf \
+    --definition-zip fileb://healthomics-bundle.zip \
+    --parameter-template file://tools/healthomics-parameters.json \
+    --storage-type DYNAMIC --name census2-bulk-ingest
+```
+
+Pass the destination as `s3_//bucket/prefix`, not `s3://`: HealthOmics validates an `s3://`
+parameter value as an existing input object, and an output prefix is not one. `--outdir` must be
+remote on HealthOmics, and the pipeline refuses a local path.
+
+## Tests
+
+Tests use [nf-test](https://www.nf-test.com) and run against the pinned manifest in
+`tests/fixtures/manifest.jsonl`.
+
+```bash
+nf-test test --tag validation         # fast; no network, no credentials
+nf-test test --tag validation,ingest  # plus the pinned ingests; what CI runs
+nf-test test                          # everything, including the test that writes to S3
+```
+
+Install nf-test with `curl -fsSL https://get.nf-test.com | bash`. It needs a JRE on `PATH`, which
+Nextflow does not provide.
+
+The ingest tests need either AWS credentials in the environment or a mock endpoint. To run them
+with no credentials, serve the fixture datasets from a mock S3, under the bucket and key the
+manifest already names:
+
+```bash
+pipx install 'moto[server]'
+moto_server -H 0.0.0.0 -p 9000 &
+
+export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test
+AWS_ENDPOINT_URL=http://127.0.0.1:9000 tools/seed-mock-s3.py
+
+# A task runs in a container, so it needs an address that reaches the host. On
+# Linux use the docker bridge gateway instead of this name.
+export AWS_ENDPOINT_URL=http://host.docker.internal:9000
+nf-test test --tag validation,ingest
+```
+
+Regenerate the pinned manifest to change the fixtures:
+
+```bash
+tools/cxg-manifest.py --limit 2 --sort size_asc --out tests/fixtures/manifest.jsonl
+```

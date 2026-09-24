@@ -18,6 +18,46 @@ Beneath those tentpoles, our design and roadmap are subject to iterative refinem
 
 When we change an interface, do not add backward-compatibility shims (unless the operator so directs). Instead, update callers and other dependents to the revised interface.
 
+## Python style
+
+Lint and format the Python code with `pipx run ruff` before you commit a change to it. Run it in
+this order, and let ruff fix as much as it can before you touch anything yourself:
+
+```bash
+pipx run ruff check --fix .     # ruff fixes what it can
+pipx run ruff format .
+pipx run ruff check .           # then work through what is left, by hand
+```
+
+`pipx run` takes the current ruff release, and we take its default rules and its default width.
+There is no ruff configuration file, and nothing pins a version. This suits a small codebase at the
+start of a project: the defaults cost us no decisions, and a release that moves them costs little
+to absorb. CI runs these same unpinned commands, so a runner and a workstation cannot disagree. The
+cost is that a ruff release can fail a commit that changed nothing, and the fix is to run the
+commands again and commit the result.
+
+Every Python file carries a `.py` extension, the Nextflow module binaries included. Ruff finds
+files by extension, so a script without one is skipped without a word. That is also what keeps a
+configuration file unnecessary today.
+
+`ruff format` also reformats the Python blocks inside the markdown files, so expect `README.md` to
+appear in the diff.
+
+**A standalone package also type-checks under `mypy --strict`.** `census2-writer` is one; the
+Nextflow scripts are not. The line is what a caller can depend on. A package publishes an API, so
+its types are part of the contract, and it ships a `py.typed` marker to say so. The scripts are
+glue around `argparse` and `subprocess`, read top to bottom, and imported by nothing, so
+annotating them would cost more than it catches.
+
+```bash
+cd census2-writer && pip install -e '.[dev]' && mypy
+```
+
+The settings live in the package's own `pyproject.toml` rather than in a repository-wide file, so
+run mypy from the package directory: from anywhere else it finds no configuration and silently
+drops `strict`. It also needs an environment where the package's dependencies are installed, so it
+cannot run isolated the way `pipx run ruff` does.
+
 ## Documentation policy
 
 This policy applies to all project documentation: markdown files, docstrings, and code comments.

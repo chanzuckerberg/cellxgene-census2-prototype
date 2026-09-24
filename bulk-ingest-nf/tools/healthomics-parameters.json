@@ -1,0 +1,22 @@
+{
+  "manifest": {
+    "description": "S3 URI of the JSONL manifest from tools/cxg-manifest.py",
+    "optional": false
+  },
+  "outdir": {
+    "description": "Destination prefix for stores and receipts. Write it as s3_//bucket/prefix: HealthOmics validates an s3:// value as an existing input object, and an output prefix is not one. The pipeline normalizes s3_// to s3://",
+    "optional": false
+  },
+  "container": {
+    "description": "Private ECR URI of the runtime image",
+    "optional": false
+  },
+  "check": {
+    "description": "Verify each store against its source h5ad",
+    "optional": true
+  },
+  "all_slots": {
+    "description": "Carry every AnnData slot, not just the Census set",
+    "optional": true
+  }
+}

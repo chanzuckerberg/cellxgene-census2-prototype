@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Select CELLxGENE Discover datasets and write an ingestion manifest.
+
+This script uses only the Python standard library, so it also runs outside the
+runtime container.
+
+It follows the CELLxGENE Census builder's manifest logic: take the single H5AD
+asset from each dataset record, and fail if a dataset has none or more than one.
+See `load_manifest_from_CxG` in the `chanzuckerberg/cellxgene-census` repository,
+at tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/manifest.py.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import sys
+import urllib.request
+
+API_BASE = "https://api.cellxgene.cziscience.com"
+SOURCE_BUCKET = "dataset-assets-public-prod"
+HUMAN = "NCBITaxon:9606"
+USER_AGENT = "census2-bulk-ingest-manifest/0.1"
+
+
+def fetch_datasets(api_base: str, schema_version: str | None) -> list[dict]:
+    """Get the dataset index from the Discover curation API."""
+    url = f"{api_base}/curation/v1/datasets"
+    if schema_version:
+        url += f"?schema_version={schema_version}"
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=600) as resp:
+        payload = json.load(resp)
+    if not isinstance(payload, list):
+        raise TypeError(f"unexpected response shape from {url}: expected a list")
+    return payload
+
+
+def h5ad_asset(dataset: dict) -> dict:
+    """Return the one H5AD asset. Fail if there is not exactly one."""
+    assets = [a for a in (dataset.get("assets") or []) if a.get("filetype") == "H5AD"]
+    dataset_id = dataset.get("dataset_id")
+    if not assets:
+        raise RuntimeError(f"dataset {dataset_id} has no H5AD asset")
+    if len(assets) > 1:
+        raise RuntimeError(f"dataset {dataset_id} has {len(assets)} H5AD assets")
+    return assets[0]
+
+
+def matches_organism(dataset: dict, organism: str) -> bool:
+    """Include a dataset if any of its organisms matches. Multi-organism datasets pass."""
+    organisms = dataset.get("organism") or []
+    return any(
+        isinstance(o, dict) and o.get("ontology_term_id") == organism for o in organisms
+    )
+
+
+def to_record(dataset: dict, bucket: str) -> dict:
+    asset = h5ad_asset(dataset)
+    version_id = dataset["dataset_version_id"]
+    return {
+        "dataset_id": dataset["dataset_id"],
+        "dataset_version_id": version_id,
+        "collection_id": dataset.get("collection_id"),
+        # The ingest step reads this. Same key as the CloudFront path segment.
+        "uri": f"s3://{bucket}/{version_id}.h5ad",
+        # The receipt records this. tools/seed-mock-s3.py also fetches it.
+        "url": asset["url"],
+        "filesize": asset["filesize"],
+        "cell_count": dataset.get("cell_count"),
+        "schema_version": dataset.get("schema_version"),
+        "title": dataset.get("title") or "",
+    }
+
+
+def order(records: list[dict], sort: str, seed: int) -> list[dict]:
+    if sort == "size_asc":
+        return sorted(records, key=lambda r: r["filesize"])
+    if sort == "size_desc":
+        return sorted(records, key=lambda r: -r["filesize"])
+    if sort == "random":
+        shuffled = list(records)
+        random.Random(seed).shuffle(shuffled)
+        return shuffled
+    raise ValueError(f"unknown sort: {sort}")
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--organism", default=HUMAN, help=f"ontology term ID (default {HUMAN})"
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="take the first N after sorting; 0 means all",
+    )
+    p.add_argument(
+        "--sort",
+        default="size_asc",
+        choices=["size_asc", "size_desc", "random"],
+    )
+    p.add_argument("--seed", type=int, default=0, help="seed for --sort random")
+    p.add_argument(
+        "--schema-version",
+        default=None,
+        help=(
+            "Omit this for the current corpus. Each CxG schema version is a full, "
+            "separately versioned copy. An older value therefore returns that "
+            "generation's dataset_version_ids, not a subset of today's."
+        ),
+    )
+    p.add_argument("--api-base", default=API_BASE)
+    p.add_argument("--source-bucket", default=SOURCE_BUCKET)
+    p.add_argument("--out", default="manifest.jsonl")
+    args = p.parse_args()
+
+    datasets = fetch_datasets(args.api_base, args.schema_version)
+    print(f"manifest: Discover API returned {len(datasets)} datasets", file=sys.stderr)
+
+    records = [
+        to_record(d, args.source_bucket)
+        for d in datasets
+        if matches_organism(d, args.organism)
+    ]
+    print(f"manifest: {len(records)} match organism {args.organism}", file=sys.stderr)
+
+    records = order(records, args.sort, args.seed)
+    if args.limit:
+        records = records[: args.limit]
+
+    with open(args.out, "w") as fh:
+        fh.writelines(json.dumps(r) + "\n" for r in records)
+
+    total = sum(r["filesize"] for r in records)
+    print(
+        f"manifest: wrote {len(records)} records to {args.out} "
+        f"({total / 1024**3:.2f} GiB, sort={args.sort})",
+        file=sys.stderr,
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

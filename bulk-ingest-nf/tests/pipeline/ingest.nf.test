@@ -1,0 +1,155 @@
+nextflow_pipeline {
+
+    name "ingestion"
+    script "../../main.nf"
+
+    // These fetch the pinned datasets from object storage, so they need either
+    // AWS credentials or a mock S3 endpoint, and they take a minute.
+    //   nf-test test --tag integration   a workstation, real credentials
+    //   nf-test test --tag ingest        what CI runs, against a mock
+    tag "integration"
+    tag "ingest"
+
+    test("ingests the pinned datasets and verifies each round trip") {
+        when {
+            params {
+                outdir = "$outputDir"
+                check  = true
+            }
+        }
+        then {
+            assert workflow.success
+
+            // One store and one receipt per manifest line.
+            def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
+            def stores   = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
+            assert receipts.size() == 2
+            assert stores.size() == 2
+
+            receipts.each { r ->
+                def rec = new groovy.json.JsonSlurper().parse(r.toFile())
+                assert rec.admitted
+                assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
+                // A pass means nothing unless the check compared the matrices.
+                assert rec.check.compared.contains("X")
+                assert rec.check.compared.contains("raw/X")
+                assert rec.output_bytes > 0
+                assert rec.published_by == "workflow"
+                assert rec.recipe == "v1"
+                // The default slot policy is the Census set, not every slot.
+                assert rec.slot_policy == "census"
+                assert rec.slots_written.contains("X")
+                assert rec.slots_written.contains("raw")
+            }
+        }
+    }
+
+    test("all_slots carries the optional slots and the full uns") {
+        when {
+            params {
+                outdir    = "$outputDir"
+                all_slots = true
+                check     = true
+            }
+        }
+        then {
+            assert workflow.success
+
+            def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
+            assert receipts.size() == 2
+
+            def slotCounts = receipts.collect { r ->
+                def rec = new groovy.json.JsonSlurper().parse(r.toFile())
+                assert rec.slot_policy == "all"
+                assert rec.config_effective.all_slots == true
+                assert rec.check.passed
+                rec.slots_written.size()
+            }
+            // Every pinned dataset carries more than the Census set.
+            assert slotCounts.every { it > 5 }
+        }
+    }
+
+    test("string \"false\" disables a flag, as HealthOmics passes it") {
+        // HealthOmics has no boolean type, so these arrive as strings.
+        when {
+            params {
+                outdir    = "$outputDir"
+                all_slots = "false"
+                check     = "false"
+            }
+        }
+        then {
+            assert workflow.success
+
+            def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
+            assert receipts.size() == 2
+            receipts.each { r ->
+                def rec = new groovy.json.JsonSlurper().parse(r.toFile())
+                assert rec.slot_policy == "census"
+                assert rec.config_effective.all_slots == false
+                // No check ran, so the receipt carries no check block.
+                assert rec.check == null
+            }
+        }
+    }
+
+    test("the run report publishes to report_dir, not to outdir") {
+        // On HealthOmics report_dir is /mnt/workflow/pubdir, the only directory
+        // the platform exports. The report is about a run, not about a store.
+        when {
+            params {
+                outdir     = "$outputDir/stores"
+                report_dir = "$outputDir/reports"
+            }
+        }
+        then {
+            assert workflow.success
+            def report = path("$outputDir/reports/ingestion_report.json")
+            assert report.exists()
+            // Every receipt records all three; the run report rolls up all three.
+            def summary = new groovy.json.JsonSlurper().parse(report.toFile())
+            assert summary.census2_writer_version.size() == 1
+            assert summary.anndata_version.size() == 1
+            assert summary.zarr_version.size() == 1
+            assert path("$outputDir/stores").list().every {
+                !it.toString().endsWith("ingestion_report.json")
+            }
+        }
+    }
+
+    test("an outdir containing a quote is handled") {
+        // Nextflow renders a string value verbatim, so --outdir is quoted and
+        // escaped in the process, exactly as the manifest record is.
+        when {
+            params { outdir = "$outputDir/mike's out" }
+        }
+        then {
+            assert workflow.success
+            def receipts = path("$outputDir/mike's out").list().findAll {
+                it.toString().endsWith(".json")
+            }
+            assert receipts.size() == 2
+        }
+    }
+
+    test("the store is a readable AnnData-Zarr, not just a directory of files") {
+        when {
+            params { outdir = "$outputDir" }
+        }
+        then {
+            assert workflow.success
+            def stores = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
+            assert stores.size() == 2
+            stores.each { s ->
+                // The root group metadata. anndata writes the consolidated
+                // metadata into it last.
+                assert path("${s}/zarr.json").exists()
+                assert path("${s}/obs").exists()
+                assert path("${s}/var").exists()
+                assert path("${s}/X").exists()
+                assert path("${s}/raw").exists()
+            }
+        }
+    }
+}
