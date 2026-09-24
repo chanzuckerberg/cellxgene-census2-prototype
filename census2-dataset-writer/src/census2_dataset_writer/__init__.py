@@ -14,9 +14,9 @@ cases. `build` and `write` split the same work into two calls, so a caller
 can inspect the AnnData before the write:
 
     with h5py.File("dataset.h5ad") as f:
-        adata, result = census2_writer.build(f)
+        adata, result = census2_dataset_writer.build(f)
         if adata is not None:
-            census2_writer.write(adata, "store.zarr")
+            census2_dataset_writer.write(adata, "store.zarr")
 
 Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
@@ -193,7 +193,7 @@ DEFAULTS: Config = {
     # The assay ontology terms that admission accepts. A dataset needs at least
     # one cell on one of them. An empty list turns the criterion off. A sorted
     # list rather than the frozenset, because a config file is JSON.
-    # See census2_writer.assays for where the terms come from.
+    # See census2_dataset_writer.assays for where the terms come from.
     "assay_allowlist": sorted(assays.DEFAULT_ALLOWLIST),
 }
 
@@ -218,7 +218,7 @@ class StoreProvenance(TypedDict):
     recipe: str
     slot_policy: Literal["all", "census"]
     zarr_format: int
-    census2_writer_version: str
+    census2_dataset_writer_version: str
     anndata_version: str
     zarr_version: str
 
@@ -271,7 +271,9 @@ def provenance(config: Config | None = None) -> StoreProvenance:
         "recipe": RECIPE,
         "slot_policy": "all" if config.get("all_slots", False) else "census",
         "zarr_format": ZARR_FORMAT,
-        "census2_writer_version": importlib.metadata.version("census2-writer"),
+        "census2_dataset_writer_version": importlib.metadata.version(
+            "census2-dataset-writer"
+        ),
         "anndata_version": importlib.metadata.version("anndata"),
         "zarr_version": importlib.metadata.version("zarr"),
     }

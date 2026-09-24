@@ -109,7 +109,7 @@ nextflow_pipeline {
             assert report.exists()
             // Every receipt records all three; the run report rolls up all three.
             def summary = new groovy.json.JsonSlurper().parse(report.toFile())
-            assert summary.census2_writer_version.size() == 1
+            assert summary.census2_dataset_writer_version.size() == 1
             assert summary.anndata_version.size() == 1
             assert summary.zarr_version.size() == 1
             assert path("$outputDir/stores").list().every {

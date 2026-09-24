@@ -1,4 +1,4 @@
-# census2-writer
+# census2-dataset-writer
 
 Convert one CELLxGENE Discover dataset into one Census 2 store.
 
@@ -7,14 +7,14 @@ independently and composed at query time through a catalog. This package is the 
 decides what a store contains. The bulk ingestion pipeline
 ([`bulk-ingest-nf`](../bulk-ingest-nf/README.md)) runs this same code, so a store built here
 matches a store that pipeline writes. The module docstring in
-[`src/census2_writer/__init__.py`](src/census2_writer/__init__.py) is the design record: the
-reasoning, the memory contract, and the constraints on new harmonization steps.
+[`src/census2_dataset_writer/__init__.py`](src/census2_dataset_writer/__init__.py) is the design
+record: the reasoning, the memory contract, and the constraints on new harmonization steps.
 
 ## Install
 
 ```bash
-pip install ./census2-writer          # local h5ad to a local store
-pip install './census2-writer[s3]'    # also write to object storage
+pip install ./census2-dataset-writer          # local h5ad to a local store
+pip install './census2-dataset-writer[s3]'    # also write to object storage
 ```
 
 The `s3` extra is unnecessary for a local conversion.
@@ -22,10 +22,10 @@ The `s3` extra is unnecessary for a local conversion.
 ## Use
 
 ```python
-import census2_writer
+import census2_dataset_writer
 
 # build and write in one call; writes nothing if the dataset is not admitted
-result = census2_writer.create("dataset.h5ad", "store.zarr")
+result = census2_dataset_writer.create("dataset.h5ad", "store.zarr")
 if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
@@ -44,9 +44,9 @@ first; `AWS_PROFILE` alone does not work.
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
 | Harmonization — what makes stores queryable together | Stub: returns its input | `harmonize` |
 
-Because two of the three are stubs, a store today is the dataset's Census slot set written to
-Zarr. The one admission criterion rejects a dataset with no cell on the assay allowlist, which
-defaults to the Census 1 assay list; see `census2_writer.assays`. It is there to keep the bulk
+Because two of the three are stubs, a store today is the dataset's Census slot set written to Zarr.
+The one admission criterion rejects a dataset with no cell on the assay allowlist, which defaults
+to the Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk
 ingestion workflow away from modalities a Census is unlikely to carry, not to settle what Census 2
 admits.
 
@@ -64,9 +64,10 @@ supplies the part this package knows, and the pipeline adds where the dataset ca
 it did.
 
 ```python
-census2_writer.provenance()
+census2_dataset_writer.provenance()
 # {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
-#  'census2_writer_version': ..., 'anndata_version': ..., 'zarr_version': ...}
+#  'census2_dataset_writer_version': ..., 'anndata_version': ...,
+#  'zarr_version': ...}
 ```
 
 Registering a store in a catalog, with metadata a reader outside the run can rely on, is a
@@ -75,7 +76,7 @@ separate job and is not implemented yet.
 ## Develop
 
 ```bash
-cd census2-writer
+cd census2-dataset-writer
 pip install -e '.[dev,s3]'
 pytest
 mypy

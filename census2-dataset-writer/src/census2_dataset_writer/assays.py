@@ -142,5 +142,5 @@ SPATIAL: frozenset[str] = frozenset(
 )
 
 # The default `assay_allowlist`. A dataset is admitted when it holds at least
-# one cell on a term in this set. See `census2_writer.admit`.
+# one cell on a term in this set. See `census2_dataset_writer.admit`.
 DEFAULT_ALLOWLIST: frozenset[str] = RNA_SEQ | SPATIAL

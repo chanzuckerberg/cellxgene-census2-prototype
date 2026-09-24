@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # For the shape only. This script stays runnable with the standard library
     # alone, so that a receipt can be read anywhere, not just in the image.
-    from census2_writer import Receipt
+    from census2_dataset_writer import Receipt
 
 
 def main() -> int:
@@ -56,8 +56,8 @@ def main() -> int:
             {r["slot_policy"] for r in admitted if "slot_policy" in r}
         ),
         # More than one value in either list means the tasks ran different code.
-        "census2_writer_version": sorted(
-            {r["census2_writer_version"] for r in receipts}
+        "census2_dataset_writer_version": sorted(
+            {r["census2_dataset_writer_version"] for r in receipts}
         ),
         "anndata_version": sorted({r["anndata_version"] for r in receipts}),
         "zarr_version": sorted({r["zarr_version"] for r in receipts}),

@@ -7,16 +7,16 @@ belongs here, during ingestion, because a store is meant to be queryable
 alongside other stores and not merely the Discover h5ad in another container.
 
 This script owns the I/O: fetch the source, write the store, publish it, and
-record a receipt. The data model lives in the `census2_writer` package, which
-decides which slots a store carries and applies harmonization. Harmonization is
-a stub today, so a store holds the source values in whichever slots the slot
-policy keeps.
+record a receipt. The data model lives in the `census2_dataset_writer` package,
+which decides which slots a store carries and applies harmonization.
+Harmonization is a stub today, so a store holds the source values in whichever
+slots the slot policy keeps.
 
 Memory discipline: this script never calls `read_h5ad`. It hands the source path
-to `census2_writer.create`, which keeps the small slots in memory and leaves `X`
-and `raw.X` as dask arrays of row blocks. Peak memory therefore tracks the block
-size and not the file size. `create` holds the `h5py` handle open until the write
-finishes.
+to `census2_dataset_writer.create`, which keeps the small slots in memory and
+leaves `X` and `raw.X` as dask arrays of row blocks. Peak memory therefore
+tracks the block size and not the file size. `create` holds the `h5py` handle
+open until the write finishes.
 """
 
 from __future__ import annotations
@@ -28,9 +28,9 @@ import subprocess
 import sys
 import time
 
-# The data model, installed in the runtime image from census2-writer/ at the
-# repository root.
-import census2_writer
+# The data model, installed in the runtime image from census2-dataset-writer/ at
+# the repository root.
+import census2_dataset_writer
 import h5py
 import numpy as np
 import zarr
@@ -59,10 +59,11 @@ def _sha256(path: str) -> str:
 def ingest(src: str, dest: str, *, config=None, refdata=None, threads=None) -> dict:
     """Ingest one h5ad into a Zarr store at `dest`, which may be remote.
 
-    Returns the result from `census2_writer.create`, which reports whether the
-    dataset was admitted. A rejection writes no store and is not an error.
+    Returns the result from `census2_dataset_writer.create`, which reports
+    whether the dataset was admitted. A rejection writes no store and is not an
+    error.
     """
-    return census2_writer.create(
+    return census2_dataset_writer.create(
         src, dest, config=config, refdata=refdata, threads=threads
     )
 
@@ -104,7 +105,7 @@ def check(src: str, dst: str, dropped_obs_columns=()) -> dict:
     def digest(arr):
         h = hashlib.sha256()
         n = arr.shape[0]
-        step = max(1, census2_writer.BLOCK_BYTES // max(arr.dtype.itemsize, 1))
+        step = max(1, census2_dataset_writer.BLOCK_BYTES // max(arr.dtype.itemsize, 1))
         for i in range(0, n, step):
             block = np.ascontiguousarray(arr[i : min(i + step, n)])
             # The round trip widens sparse index arrays from int32 to int64, so
@@ -119,7 +120,7 @@ def check(src: str, dst: str, dropped_obs_columns=()) -> dict:
     with h5py.File(src, "r") as f:
         # Route through as_store: a bare s3:// string makes zarr fall back to
         # fsspec, which needs s3fs.
-        zroot = zarr.open_consolidated(census2_writer.as_store(dst), mode="r")
+        zroot = zarr.open_consolidated(census2_dataset_writer.as_store(dst), mode="r")
         result["consolidated"] = True
 
         dropped = set(dropped_obs_columns)
@@ -191,7 +192,7 @@ def s3_cp(uri: str, dest: str) -> None:
 
 def _obstore_url(path_or_uri: str) -> str:
     """obstore addresses everything by URL, so make a local path into one."""
-    if census2_writer.is_remote(path_or_uri):
+    if census2_dataset_writer.is_remote(path_or_uri):
         return path_or_uri
     return "file://" + os.path.abspath(path_or_uri)
 
@@ -205,7 +206,7 @@ def verify_written(uri: str) -> None:
     """
     if store_bytes(uri) == 0:
         raise SystemExit(f"store is empty after writing: {uri}")
-    zarr.open_consolidated(census2_writer.as_store(uri), mode="r")
+    zarr.open_consolidated(census2_dataset_writer.as_store(uri), mode="r")
 
 
 def store_bytes(uri: str) -> int:
@@ -223,7 +224,7 @@ def write_text(uri: str, text: str) -> str:
     import obstore.store
 
     parent, name = uri.rsplit("/", 1)
-    if not census2_writer.is_remote(uri):
+    if not census2_dataset_writer.is_remote(uri):
         os.makedirs(parent, exist_ok=True)
     obstore.put(obstore.store.from_url(_obstore_url(parent)), name, text.encode())
     return uri
@@ -287,7 +288,7 @@ def main() -> int:
         )
 
     # Policy lives in the configuration. The CLI flag is an override for one key.
-    config = census2_writer.load_config(args.config)
+    config = census2_dataset_writer.load_config(args.config)
     if args.all_slots:
         config["all_slots"] = True
 
@@ -316,12 +317,12 @@ def main() -> int:
         src, dest, config=config, refdata=args.refdata, threads=args.threads
     )
 
-    # The shape of a receipt is census2_writer.Receipt, so this script and
-    # ingestion-report.py agree on it without importing each other. The
+    # The shape of a receipt is census2_dataset_writer.Receipt, so this script
+    # and ingestion-report.py agree on it without importing each other. The
     # store-level facts come from the package, so they cannot disagree with the
     # code that ran.
-    receipt: census2_writer.Receipt = {
-        **census2_writer.provenance(config),
+    receipt: census2_dataset_writer.Receipt = {
+        **census2_dataset_writer.provenance(config),
         "dataset_id": rec["dataset_id"],
         "dataset_version_id": version_id,
         "source_uri": rec["uri"],

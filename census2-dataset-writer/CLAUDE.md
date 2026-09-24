@@ -1,9 +1,9 @@
-# census2-writer
+# census2-dataset-writer
 
 The data model: what a Census 2 store contains. `README.md` covers installing and using it. The
-module docstring in `src/census2_writer/__init__.py` is the design record: the three decisions,
-the memory contract, and the constraints on anything added to `harmonize`. The repository root
-`CLAUDE.md` gives the Census 2 tentpoles and the code and documentation policy.
+module docstring in `src/census2_dataset_writer/__init__.py` is the design record: the three
+decisions, the memory contract, and the constraints on anything added to `harmonize`. The
+repository root `CLAUDE.md` gives the Census 2 tentpoles and the code and documentation policy.
 
 This file records the sharp edges: what cost us effort to find, and what is easy to catch again.
 
@@ -12,9 +12,9 @@ This file records the sharp edges: what cost us effort to find, and what is easy
 zarr has no S3 client of its own. It defines a store interface, and two adapters exist:
 `FsspecStore` over `s3fs`, and `ObjectStore` over `obstore`. This component uses `obstore` for its
 smaller dependency footprint and its object listing, so sizing a store needs no second dependency.
-Every zarr call that takes a destination must go through `census2_writer.as_store`. A
-bare `s3://` string makes zarr fall back to fsspec and fail with `Install s3fs to access S3`, and
-a local path hides the mistake because it works.
+Every zarr call that takes a destination must go through `census2_dataset_writer.as_store`. A bare
+`s3://` string makes zarr fall back to fsspec and fail with `Install s3fs to access S3`, and a
+local path hides the mistake because it works.
 
 `obstore` reads credentials from the environment or from instance metadata. It does not resolve
 AWS profiles, so `AWS_PROFILE` alone is not enough on a workstation.
