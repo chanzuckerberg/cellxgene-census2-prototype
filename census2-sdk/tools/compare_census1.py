@@ -10,7 +10,10 @@ hold. The exit code is 0 when the values on the intersection are equal.
 
     uv run --python 3.12 --with cellxgene-census==1.18.0 --with './census2-sdk[s3]' \\
         census2-sdk/tools/compare_census1.py --catalog catalog.parquet \\
-        --dataset-id <dataset_id> [--tissue lung] [--cell-type macrophage]
+        --dataset-id <dataset_id> [--tissue lung] [--cell-type macrophage] \\
+        [--out census2-sdk/tools/results/compare_<dataset_id>.json]
+
+`--out` writes the figures as JSON. `tools/results/` holds the runs that the PR cites.
 
 Needs AWS credentials in the environment for the stores (obstore reads no profile):
 
@@ -18,6 +21,7 @@ Needs AWS credentials in the environment for the stores (obstore reads no profil
 """
 
 import argparse
+import json
 import sys
 import time
 
@@ -64,6 +68,7 @@ def main() -> int:
     parser.add_argument("--dataset-id", required=True)
     parser.add_argument("--tissue")
     parser.add_argument("--cell-type", dest="cell_type")
+    parser.add_argument("--out", help="write the figures to this JSON file")
     args = parser.parse_args()
     obs_filter = {
         k: v for k, v in (("tissue", args.tissue), ("cell_type", args.cell_type)) if v
@@ -74,12 +79,14 @@ def main() -> int:
     ours = census.get_anndata(
         "homo_sapiens", {"dataset_id": args.dataset_id, **obs_filter}
     )
-    print(f"sdk: {ours.shape} in {time.time() - started:.1f}s")
+    sdk_seconds = round(time.time() - started, 1)
+    print(f"sdk: {ours.shape} in {sdk_seconds}s")
 
     started = time.time()
     theirs = census1(args.dataset_id, obs_filter)
+    census1_seconds = round(time.time() - started, 1)
     print(
-        f"census 1: {theirs.shape} in {time.time() - started:.1f}s "
+        f"census 1: {theirs.shape} in {census1_seconds}s "
         f"(cellxgene-census {cellxgene_census.__version__}, "
         f"tiledbsoma {tiledbsoma.__version__})"
     )
@@ -111,10 +118,36 @@ def main() -> int:
     )
     print(f"nonzeros in genes the SDK has and Census 1 lacks: {only_ours}")
     print(f"sdk counts total {a.sum():.0f}, census 1 counts total {b.sum():.0f}")
-    print(
-        "max abs difference:",
-        np.abs((a - b).data).max() if diff else 0,
-    )
+    max_abs = float(np.abs((a - b).data).max()) if diff else 0.0
+    print("max abs difference:", max_abs)
+    if args.out:
+        summary = {
+            "dataset_id": args.dataset_id,
+            "obs_filter": obs_filter,
+            "census_version": CENSUS_VERSION,
+            "cellxgene_census": cellxgene_census.__version__,
+            "tiledbsoma": tiledbsoma.__version__,
+            "cells": {
+                "sdk": len(our_cells),
+                "census1": len(their_cells),
+                "both": len(cells),
+            },
+            "genes": {
+                "sdk": len(our_genes),
+                "census1": len(their_genes),
+                "both": len(genes),
+            },
+            "nonzero_positions_either_side": int(union),
+            "values_differing": int(diff),
+            "nonzeros_only_in_sdk_genes": int(only_ours),
+            "counts_total": {"sdk": float(a.sum()), "census1": float(b.sum())},
+            "max_abs_difference": max_abs,
+            "seconds": {"sdk": sdk_seconds, "census1": census1_seconds},
+        }
+        with open(args.out, "w") as handle:
+            json.dump(summary, handle, indent=2)
+            handle.write("\n")
+        print(f"wrote {args.out}")
     return 0 if diff == 0 else 1
 
 

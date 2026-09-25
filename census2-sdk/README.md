@@ -75,8 +75,11 @@ stores come from re-curated dataset versions, so a cell-set difference is a find
 
 ```bash
 uv run --python 3.12 --with cellxgene-census==1.18.0 --with './census2-sdk[s3]' \
-    census2-sdk/tools/compare_census1.py --catalog catalog.parquet --dataset-id <dataset_id>
+    census2-sdk/tools/compare_census1.py --catalog catalog.parquet --dataset-id <dataset_id> \
+    --out census2-sdk/tools/results/compare_<dataset_id>.json
 ```
+
+`--out` writes the figures as JSON. `tools/results/` holds the runs that a pull request cites.
 
 ## Develop
 

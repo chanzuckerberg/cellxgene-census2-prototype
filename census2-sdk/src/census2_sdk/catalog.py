@@ -22,6 +22,7 @@ try:
     import obstore
     import obstore.store
 except ImportError:  # pragma: no cover
+    # mypy strict; this repository does not use ty, so the directive is mypy's.
     obstore = None  # type: ignore[assignment]
 
 
