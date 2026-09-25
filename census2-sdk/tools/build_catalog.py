@@ -100,7 +100,8 @@ def summarize(group: zarr.Group) -> dict[str, Any]:
             continue
         values = pd.Series(read_elem(obs[column]))
         n_obs = len(values)
-        row[column] = sorted(values.astype(str).unique())
+        # A null is not a value. astype(str) would turn it into the string "nan".
+        row[column] = sorted(values.dropna().astype(str).unique())
     if "is_primary_data" in obs:
         primary = pd.Series(read_elem(obs["is_primary_data"])).astype(bool)
         n_obs = len(primary)

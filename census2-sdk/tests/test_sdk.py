@@ -331,3 +331,26 @@ def test_duplicate_cell_key_refused(corpus: dict[str, Path], tmp_path: Path) -> 
     )
     with pytest.raises(ValueError, match="not unique"):
         census.get_anndata("homo_sapiens")
+
+
+def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
+    """A null obs value is absent from the catalog and matches no filter."""
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    adata = make_store("ds-n", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], False, 5)
+    tissue = adata.obs["tissue"].cat.add_categories(["liver"])
+    tissue.iloc[:2] = None
+    adata.obs["tissue"] = tissue
+    adata.write_zarr(prefix / "v-n.zarr")
+    (prefix / "v-n.json").write_text(
+        json.dumps(
+            {"admitted": True, "dataset_id": "ds-n", "dataset_version_id": "v-n"}
+        )
+    )
+    frame = build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    assert list(frame["tissue"][0]) == ["lung"]
+    census = census2_sdk.open_census(
+        [tmp_path / "catalog.parquet"], refdata=corpus["root"] / "refdata"
+    )
+    assert census.get_anndata("homo_sapiens", {"tissue": "nan"}).n_obs == 0
+    assert census.get_anndata("homo_sapiens", {"tissue": "lung"}).n_obs == 4

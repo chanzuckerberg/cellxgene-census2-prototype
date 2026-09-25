@@ -141,9 +141,10 @@ def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
             continue  # the catalog answered it; the store holds the dataset whole
         if column not in obs.columns:
             return np.zeros(len(obs), dtype=bool)  # the catalog kept an unproven store
+        # A null matches no value, and it is not the string "nan".
         hit = [
-            bool(wanted & set(members(value, column)))
-            for value in obs[column].astype(str)
+            not pd.isna(value) and bool(wanted & set(members(str(value), column)))
+            for value in obs[column]
         ]
         mask &= np.asarray(hit, dtype=bool)
     return mask
