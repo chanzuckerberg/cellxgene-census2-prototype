@@ -13,15 +13,16 @@ does not.
 
 ## Seams
 
-The `census2-writer` package decides whether a dataset is admitted and what a store contains; its
-README and module docstring cover the three decisions and their stubs, and its `CLAUDE.md` has the
-anndata and zarr sharp edges. Read those before changing how a store is written.
+The `census2-dataset-writer` package decides whether a dataset is admitted and what a store
+contains; its README and module docstring cover the three decisions and their stubs, and its
+`CLAUDE.md` has the anndata and zarr sharp edges. Read those before changing how a store is
+written.
 
 `cxg-ingest.py` handles what running that package as a pipeline needs: fetching the source,
-publishing, and the receipt. The receipt's shape is `census2_writer.Receipt`, and its store-level
-facts come from `census2_writer.provenance`, so the script that writes a receipt and the script
-that reads one agree on it. Policy that a caller might choose lives in the configuration rather
-than in function arguments, so there is one place to look.
+publishing, and the receipt. The receipt's shape is `census2_dataset_writer.Receipt`, and its
+store-level facts come from `census2_dataset_writer.provenance`, so the script that writes a
+receipt and the script that reads one agree on it. Policy that a caller might choose lives in the
+configuration rather than in function arguments, so there is one place to look.
 
 These arrangements suit a stub. Expect to revisit them once the harmonization steps are known,
 particularly if a step needs data the current read order does not fetch.
@@ -49,10 +50,10 @@ write fails on that column. The names seen are clinical units (`SCr_(mg/dl)`,
 column per cell type. 6 of 100 randomly sampled human datasets hold one, 1 or 2 columns out of 60
 to 102.
 
-`census2_writer.project_obs` now removes those columns, and `harmonize` calls it. The receipt
-records the names in `dropped_obs_columns`, and the run report totals them, because a store that
-holds less than its dataset should not be invisible. The round-trip check compares `obs` against
-the source minus exactly those names, so an unreported drop still fails.
+`census2_dataset_writer.project_obs` now removes those columns, and `harmonize` calls it. The
+receipt records the names in `dropped_obs_columns`, and the run report totals them, because a store
+that holds less than its dataset should not be invisible. The round-trip check compares `obs`
+against the source minus exactly those names, so an unreported drop still fails.
 
 `var` is not projected: the slashes measured were all in `obs`. A `/` in a `var` column would
 still fail the write.
@@ -68,11 +69,12 @@ DNA methylation datasets (snmC-seq) hold dense matrices, and every task that ran
 held one. Such a dataset carries no sparse alternative: `X` is dense, and there is no `raw` and
 no `layers`.
 
-Admission now rejects them, so the pipeline no longer reads a dense matrix: `census2_writer.admit`
-requires one cell on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53
-have no allowed assay, and all 18 dense datasets are among the 53. The memory request is still
-`size * 2.5` for every dataset, which over-provisions a sparse one by 6 to 10 times. Keep the
-measured fit in view if that is ever tuned: sparse peak is about `0.90 GiB + 0.16 * filesize`.
+Admission now rejects them, so the pipeline no longer reads a dense matrix:
+`census2_dataset_writer.admit` requires one cell on an assay allowlist, and no methylation assay is
+on it. Of 2228 datasets, 53 have no allowed assay, and all 18 dense datasets are among the 53. The
+memory request is still `size * 2.5` for every dataset, which over-provisions a sparse one by 6 to
+10 times. Keep the measured fit in view if that is ever tuned: sparse peak is about
+`0.90 GiB + 0.16 * filesize`.
 
 ## Sharp edges: Nextflow
 
@@ -142,12 +144,11 @@ runs on Linux. Re-run before investigating.
 
 ## Sharp edges: dependency tooling
 
-The dependency set is declared once, in `census2-writer/pyproject.toml`. pip cannot install only a
-project's dependencies, so the image stages that file beside an empty module, installs it, and a
-later layer replaces the module with the real source. Docker then reuses the large dependency
+The dependency set is declared once, in `census2-dataset-writer/pyproject.toml`. pip cannot install
+only a project's dependencies, so the image stages that file beside an empty module, installs it,
+and a later layer replaces the module with the real source. Docker then reuses the large dependency
 layer when only the package source changes. Nothing pins an exact version; the bound that matters
-is
-`anndata<0.14`, and every receipt records what wrote a store.
+is `anndata<0.14`, and every receipt records what wrote a store.
 
 uv and pixi were evaluated, and the image stays on pip. uv makes the Dockerfile simpler but adds
 another build tool. pixi works: an image built from a `pixi.lock` ran the pipeline end to end,

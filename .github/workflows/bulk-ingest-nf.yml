@@ -1,4 +1,4 @@
-# CI for the census2-writer package and the bulk ingestion pipeline.
+# CI for the census2-dataset-writer package and the bulk ingestion pipeline.
 #
 # No AWS account is involved. The package's tests need nothing but Python. The
 # ingest tests need one thing from S3: a GET of each fixture h5ad. A mock S3
@@ -11,12 +11,12 @@ on:
     branches: [main]
     paths:
       - "bulk-ingest-nf/**"
-      - "census2-writer/**"
+      - "census2-dataset-writer/**"
       - ".github/workflows/bulk-ingest-nf.yml"
   pull_request:
     paths:
       - "bulk-ingest-nf/**"
-      - "census2-writer/**"
+      - "census2-dataset-writer/**"
       - ".github/workflows/bulk-ingest-nf.yml"
 
 permissions:
@@ -43,11 +43,11 @@ jobs:
         run: pipx run ruff format --check .
 
   package:
-    name: census2-writer
+    name: census2-dataset-writer
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: census2-writer
+        working-directory: census2-dataset-writer
     steps:
       - uses: actions/checkout@v4
 
@@ -99,8 +99,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       # The context is the repository root, because the image installs the
-      # census2-writer package. The build also runs the import check in the
-      # Dockerfile, so a missing dependency fails here, not in a task.
+      # census2-dataset-writer package. The build also runs the import check in
+      # the Dockerfile, so a missing dependency fails here, not in a task.
       - name: Build the runtime image
         uses: docker/build-push-action@v6
         with:

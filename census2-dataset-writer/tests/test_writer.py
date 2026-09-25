@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import anndata
-import census2_writer
+import census2_dataset_writer
 import h5py
 import numpy as np
 import pandas as pd
@@ -63,12 +63,14 @@ def dataset(
     return adata
 
 
-def written(tmp_path: Path, **kwargs: Any) -> tuple[Path, census2_writer.Result]:
+def written(
+    tmp_path: Path, **kwargs: Any
+) -> tuple[Path, census2_dataset_writer.Result]:
     """Write a dataset to h5ad, build a store from it, return both."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(**kwargs).write_h5ad(source)
-    result = census2_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest)
     return dest, result
 
 
@@ -142,8 +144,8 @@ def test_census_slot_policy_drops_extras(tmp_path: Path) -> None:
     store: Any = zarr.open_consolidated(dest, mode="r")
 
     assert result["slots"] == ["obs", "var", "X", "raw", "uns[2 keys]"]
-    assert set(store["uns"]) == set(census2_writer.DEFAULTS["uns_keys"])
-    for slot in census2_writer.OPTIONAL_SLOTS:
+    assert set(store["uns"]) == set(census2_dataset_writer.DEFAULTS["uns_keys"])
+    for slot in census2_dataset_writer.OPTIONAL_SLOTS:
         assert slot not in store or len(list(store[slot])) == 0
 
 
@@ -152,7 +154,7 @@ def test_uns_keys_is_configurable(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
-    census2_writer.create(
+    census2_dataset_writer.create(
         source, dest, config={"all_slots": False, "uns_keys": ["title"]}
     )
 
@@ -177,9 +179,9 @@ def test_unwanted_uns_keys_are_never_read(
         return read_elem(elem, *args, **kwargs)
 
     # By name: read_elem is imported by the module, not exported from it.
-    monkeypatch.setattr("census2_writer.read_elem", spy)
+    monkeypatch.setattr("census2_dataset_writer.read_elem", spy)
     with h5py.File(source) as f:
-        built, _ = census2_writer.build(f)
+        built, _ = census2_dataset_writer.build(f)
 
     assert built is not None
     assert "spatial" not in built.uns
@@ -193,7 +195,7 @@ def test_all_slots_carries_everything(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(extras=True).write_h5ad(source)
-    result = census2_writer.create(source, dest, config={"all_slots": True})
+    result = census2_dataset_writer.create(source, dest, config={"all_slots": True})
 
     store: Any = zarr.open_consolidated(dest, mode="r")
     assert "obsm/X_pca" in result["slots"]
@@ -217,12 +219,12 @@ def test_slots_report_what_harmonize_left(
         del adata.raw
         return adata
 
-    monkeypatch.setattr(census2_writer, "harmonize", rename_and_drop)
+    monkeypatch.setattr(census2_dataset_writer, "harmonize", rename_and_drop)
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, result = census2_writer.build(f)
+        adata, result = census2_dataset_writer.build(f)
 
     assert adata is not None
     assert "layers/harmonized" in result["slots"]
@@ -237,13 +239,15 @@ def test_not_admitted_writes_nothing(
 ) -> None:
     """A rejection is a normal outcome: no store, a reason, and no exception."""
     monkeypatch.setattr(
-        census2_writer, "admit", lambda adata, config=None, refdata=None: "no thanks"
+        census2_dataset_writer,
+        "admit",
+        lambda adata, config=None, refdata=None: "no thanks",
     )
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
 
-    result = census2_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest)
 
     assert result == {
         "admitted": False,
@@ -275,7 +279,7 @@ def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     with_assay(dataset(), OFF_LIST).write_h5ad(source)
 
-    result = census2_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest)
 
     assert result["admitted"] is False
     assert OFF_LIST in str(result["reason"])
@@ -288,7 +292,7 @@ def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     with_assay(dataset(), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
 
-    result = census2_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest)
 
     assert result["admitted"] is True
     assert zarr.open_consolidated(str(dest))["obs"] is not None
@@ -302,7 +306,7 @@ def test_missing_assay_column_is_admitted(tmp_path: Path) -> None:
     dataset().write_h5ad(source)
     assert "assay_ontology_term_id" not in dataset().obs
 
-    assert census2_writer.create(source, dest)["admitted"] is True
+    assert census2_dataset_writer.create(source, dest)["admitted"] is True
 
 
 def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
@@ -310,10 +314,12 @@ def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     with_assay(dataset(), OFF_LIST).write_h5ad(source)
 
-    config = census2_writer.load_config()
+    config = census2_dataset_writer.load_config()
     config["assay_allowlist"] = []
 
-    assert census2_writer.create(source, dest, config=config)["admitted"] is True
+    assert (
+        census2_dataset_writer.create(source, dest, config=config)["admitted"] is True
+    )
 
 
 # --- the obs projection ---------------------------------------------------
@@ -343,20 +349,20 @@ def write_source(adata: anndata.AnnData, path: Path) -> None:
 
 def test_project_obs_removes_only_the_slash_columns() -> None:
     adata = with_obs_columns(dataset(), *SLASH_COLS)
-    kept = list(census2_writer.project_obs(adata).obs.columns)
+    kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
     assert kept == ["cell_type"]
 
 
 def test_project_obs_keeps_a_clean_frame_untouched() -> None:
     adata = dataset()
     before = list(adata.obs.columns)
-    assert list(census2_writer.project_obs(adata).obs.columns) == before
+    assert list(census2_dataset_writer.project_obs(adata).obs.columns) == before
 
 
 def test_harmonize_projects_obs() -> None:
     """harmonize is the seam; project_obs is what it currently does."""
     adata = with_obs_columns(dataset(), *SLASH_COLS)
-    assert list(census2_writer.harmonize(adata).obs.columns) == ["cell_type"]
+    assert list(census2_dataset_writer.harmonize(adata).obs.columns) == ["cell_type"]
 
 
 def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
@@ -365,7 +371,7 @@ def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     write_source(with_obs_columns(dataset(), *SLASH_COLS), source)
 
-    result = census2_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest)
 
     assert result["admitted"] is True
     assert result["dropped_obs_columns"] == SLASH_COLS  # source order
@@ -380,7 +386,7 @@ def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:
-        _, result = census2_writer.build(f)
+        _, result = census2_dataset_writer.build(f)
     assert result["dropped_obs_columns"] == []
 
 
@@ -390,7 +396,7 @@ def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     write_source(with_assay(with_obs_columns(dataset(), *SLASH_COLS), OFF_LIST), source)
 
-    result = census2_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest)
 
     assert result["admitted"] is False
     assert result["dropped_obs_columns"] == []
@@ -398,11 +404,11 @@ def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
 
 def test_default_allowlist_holds_rna_and_spatial() -> None:
     """The default is Census 1's two lists, merged."""
-    allowlist = set(census2_writer.DEFAULTS["assay_allowlist"])
+    allowlist = set(census2_dataset_writer.DEFAULTS["assay_allowlist"])
     assert ON_LIST in allowlist
     assert OFF_LIST not in allowlist
     assert "EFO:0022857" in allowlist  # Visium, from ALLOWED_SPATIAL_ASSAYS
-    assert allowlist == set(census2_writer.assays.DEFAULT_ALLOWLIST)
+    assert allowlist == set(census2_dataset_writer.assays.DEFAULT_ALLOWLIST)
 
 
 # --- the write thread bound -----------------------------------------------
@@ -418,7 +424,7 @@ def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> No
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
 
-    assert census2_writer.create(source, dest, threads=2)["admitted"] is True
+    assert census2_dataset_writer.create(source, dest, threads=2)["admitted"] is True
     assert dask.config.get("num_workers", None) == before
 
 
@@ -433,7 +439,7 @@ def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
     dataset(400, 20).write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, _ = census2_writer.build(f)
+        adata, _ = census2_dataset_writer.build(f)
         assert adata is not None
         assert isinstance(adata.X, da.Array), type(adata.X)
         # Blocked by rows, whole rows per block.
@@ -444,44 +450,46 @@ def test_row_chunk_is_bounded_by_the_row_count(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset(40, 12).write_h5ad(source)
     with h5py.File(source) as f:
-        assert census2_writer.row_chunk(f["X"], 40) == 40
+        assert census2_dataset_writer.row_chunk(f["X"], 40) == 40
 
 
 # --- provenance -----------------------------------------------------------
 
 
 def test_provenance_reports_the_code_that_wrote_a_store() -> None:
-    p = census2_writer.provenance()
-    assert p["recipe"] == census2_writer.RECIPE
-    assert p["zarr_format"] == census2_writer.ZARR_FORMAT
+    p = census2_dataset_writer.provenance()
+    assert p["recipe"] == census2_dataset_writer.RECIPE
+    assert p["zarr_format"] == census2_dataset_writer.ZARR_FORMAT
     # Reported from the installed distributions.
-    assert p["census2_writer_version"] == version("census2-writer")
+    assert p["census2_dataset_writer_version"] == version("census2-dataset-writer")
     assert p["anndata_version"] == version("anndata")
     assert p["zarr_version"] == version("zarr")
 
 
 def test_provenance_follows_the_slot_policy() -> None:
-    assert census2_writer.provenance()["slot_policy"] == "census"
-    assert census2_writer.provenance({"all_slots": True})["slot_policy"] == "all"
+    assert census2_dataset_writer.provenance()["slot_policy"] == "census"
+    assert (
+        census2_dataset_writer.provenance({"all_slots": True})["slot_policy"] == "all"
+    )
 
 
 # --- destinations ---------------------------------------------------------
 
 
 def test_is_remote_covers_every_scheme() -> None:
-    for scheme in census2_writer.REMOTE_SCHEMES:
-        assert census2_writer.is_remote(f"{scheme}bucket/key")
-    assert not census2_writer.is_remote("/tmp/local.zarr")
-    assert not census2_writer.is_remote(Path("/tmp/local.zarr"))
-    assert not census2_writer.is_remote(None)
+    for scheme in census2_dataset_writer.REMOTE_SCHEMES:
+        assert census2_dataset_writer.is_remote(f"{scheme}bucket/key")
+    assert not census2_dataset_writer.is_remote("/tmp/local.zarr")
+    assert not census2_dataset_writer.is_remote(Path("/tmp/local.zarr"))
+    assert not census2_dataset_writer.is_remote(None)
 
 
 def test_as_store_passes_a_local_path_through(tmp_path: Path) -> None:
-    assert census2_writer.as_store(tmp_path) is tmp_path
+    assert census2_dataset_writer.as_store(tmp_path) is tmp_path
 
 
 def test_as_store_adapts_a_remote_url() -> None:
     """A bare s3:// string would make zarr fall back to fsspec and fail."""
     pytest.importorskip("obstore")
-    store = census2_writer.as_store("s3://bucket/prefix.zarr")
+    store = census2_dataset_writer.as_store("s3://bucket/prefix.zarr")
     assert isinstance(store, zarr.storage.ObjectStore)

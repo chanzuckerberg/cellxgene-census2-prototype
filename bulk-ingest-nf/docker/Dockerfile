@@ -1,8 +1,9 @@
-# Dependencies, plus the census2-writer package.
+# Dependencies, plus the census2-dataset-writer package.
 #
-# The pipeline's own scripts ship as Nextflow module binaries, so an edit to them
-# needs no rebuild. The data model lives in this image. A change to census2-writer
-# therefore needs a rebuild, and for HealthOmics a push under a new tag.
+# The pipeline's own scripts ship as Nextflow module binaries, so an edit to
+# them needs no rebuild. The data model lives in this image. A change to
+# census2-dataset-writer therefore needs a rebuild, and for HealthOmics a push
+# under a new tag.
 #
 # Build from the repository root: the context has to include the package.
 #   docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile .
@@ -43,26 +44,28 @@ RUN set -eux; \
 # time. The range that matters is anndata <0.14, and every receipt records the
 # versions that wrote a store. Generate a lock file if a rebuild ever has to
 # resolve identically.
-COPY census2-writer/pyproject.toml census2-writer/README.md /src/census2-writer/
-RUN mkdir -p /src/census2-writer/src/census2_writer \
- && touch /src/census2-writer/src/census2_writer/__init__.py \
- && pip install --no-cache-dir '/src/census2-writer[s3]'
+COPY census2-dataset-writer/pyproject.toml census2-dataset-writer/README.md \
+     /src/census2-dataset-writer/
+RUN mkdir -p /src/census2-dataset-writer/src/census2_dataset_writer \
+ && touch /src/census2-dataset-writer/src/census2_dataset_writer/__init__.py \
+ && pip install --no-cache-dir '/src/census2-dataset-writer[s3]'
 
 # The real source, replacing the empty module. --no-deps because everything it
 # needs is installed above, so editing the package rebuilds one small layer and
 # downloads nothing.
-COPY census2-writer /src/census2-writer
-RUN pip install --no-cache-dir --no-deps --force-reinstall /src/census2-writer
+COPY census2-dataset-writer /src/census2-dataset-writer
+RUN pip install --no-cache-dir --no-deps --force-reinstall /src/census2-dataset-writer
 
 # Fail fast if the import surface the pipeline relies on is missing. Keep this
-# list matched to what census2_writer and cxg-ingest.py import.
+# list matched to what census2_dataset_writer and cxg-ingest.py import.
 RUN python -c "\
-import census2_writer, anndata, zarr, h5py, scipy, numpy, pandas, dask, obstore, obstore.store; \
+import census2_dataset_writer, anndata, zarr, h5py, scipy, numpy, pandas, dask; \
+import obstore, obstore.store; \
 import importlib.metadata as md; \
 from anndata.experimental import read_elem_lazy; \
 from anndata.io import read_elem; \
 from zarr.storage import ObjectStore; \
-print('census2-writer', md.version('census2-writer'), '| anndata', md.version('anndata'), \
-      '| zarr', md.version('zarr'))"
+print('census2-dataset-writer', md.version('census2-dataset-writer'), \
+      '| anndata', md.version('anndata'), '| zarr', md.version('zarr'))"
 
 WORKDIR /work
