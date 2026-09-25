@@ -40,6 +40,10 @@ packages = ["src/census2_sdk"]
 # working directory. CI runs ruff from the repository root.
 src = ["src"]
 
+[tool.pytest.ini_options]
+# The tests import tools/build_catalog.py, the Iteration 1 catalog builder.
+pythonpath = ["tools"]
+
 [tool.mypy]
 # Strict, because this package is a published API and its types are part of the
 # contract. Run mypy from this directory; see the root CLAUDE.md.

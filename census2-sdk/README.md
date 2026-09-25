@@ -87,7 +87,7 @@ pytest
 mypy
 ```
 
-Run both from this directory. `mypy` reads its settings from `pyproject.toml` here. The tests write
+Run both from this directory. `pytest` and `mypy` read their settings from `pyproject.toml` here. The tests write
 small stores to a temporary directory and need no network and no credentials. Lint and format with `pipx run ruff check --fix .` and `pipx run ruff format .` from the
 repository root. CI runs the unpinned `ruff check` and `ruff format --check` on this directory. See `CLAUDE.md` here for the anndata and zarr
 behavior that shaped this code.
