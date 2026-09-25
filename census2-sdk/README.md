@@ -62,7 +62,8 @@ The SDK applies the checks of design 4.3 to the selected catalog rows and report
 values when a check fails:
 
 - one organism, given by the query
-- one `gene_reference_version` among the rows that record one
+- every recorded `gene_reference_version` equals the version the SDK pins for the organism; a row
+  that records none passes
 - no spatial store together with a non-spatial store
 - a `dataset_id` in one source only, checked when the sources open
 

@@ -37,6 +37,7 @@ from anndata.io import read_elem, sparse_dataset
 from census2_sdk import catalog as _catalog
 from census2_sdk.catalog import Filter, Normalized, members, open_store
 from census2_sdk.gene_reference import (
+    ORGANISMS,
     ReferencePinMismatch,
     load_reference,
     project,
@@ -82,7 +83,7 @@ class Census:
         """Return the selected cells of `organism` as one AnnData."""
         normalized = _catalog.normalize(obs_filter)
         rows = _catalog.exclude(self.catalog, organism, normalized)
-        _check_composition(rows)
+        _check_composition(rows, ORGANISMS[organism]["version"])
         reference = load_reference(organism, self.refdata)
         var = reference_var(reference)
 
@@ -121,13 +122,21 @@ def open_census(
     return Census(sources, refdata)
 
 
-def _check_composition(rows: pd.DataFrame) -> None:
-    """Design 4.3: the checks before concatenation. Name the conflicting values."""
+def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
+    """Design 4.3: the checks before concatenation. Name the conflicting values.
+
+    A row that records a `gene_reference_version` must record the one that this
+    SDK pins for the organism. The SDK does not remap a store onto another
+    reference. A row that records none passes: the Iteration 1 stores have no
+    summary record.
+    """
     if not len(rows):
         return
     versions = sorted(set(rows["gene_reference_version"].dropna().astype(str)))
-    if len(versions) > 1:
-        raise SourceConflict(f"gene_reference_version differs: {versions}")
+    if versions and versions != [pinned]:
+        raise SourceConflict(
+            f"gene_reference_version {versions} differs from the pinned {pinned!r}"
+        )
     spatial = sorted(set(rows["spatial"].astype(bool)))
     if len(spatial) > 1:
         raise SourceConflict("spatial and non-spatial stores in one result")

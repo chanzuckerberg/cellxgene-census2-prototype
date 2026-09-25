@@ -354,3 +354,22 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     )
     assert census.get_anndata("homo_sapiens", {"tissue": "nan"}).n_obs == 0
     assert census.get_anndata("homo_sapiens", {"tissue": "lung"}).n_obs == 4
+
+
+def test_recorded_reference_must_match_the_pin(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    frame = catalog.load(corpus["catalog"])
+    frame["gene_reference_version"] = "GENCODE v47"
+    frame.to_parquet(tmp_path / "v47.parquet", index=False)
+    census = census2_sdk.open_census(
+        [tmp_path / "v47.parquet"], refdata=corpus["root"] / "refdata"
+    )
+    with pytest.raises(census2_sdk.SourceConflict, match="v47.*pinned.*v48"):
+        census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    frame["gene_reference_version"] = "GENCODE v48"
+    frame.to_parquet(tmp_path / "v48.parquet", index=False)
+    census = census2_sdk.open_census(
+        [tmp_path / "v48.parquet"], refdata=corpus["root"] / "refdata"
+    )
+    assert census.get_anndata("homo_sapiens", {"tissue": "lung"}).n_obs > 0
