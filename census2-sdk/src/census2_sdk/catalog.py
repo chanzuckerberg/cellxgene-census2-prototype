@@ -102,7 +102,16 @@ def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
 
 
 def excludes(row: Mapping[str, Any], obs_filter: Normalized) -> bool:
-    """True when the row proves that no cell of the dataset matches `obs_filter`."""
+    """True when the row proves that no cell of the dataset matches `obs_filter`.
+
+    The proof is the design 2.2 rule. The row records the value set of each
+    indexed column. The row excludes the dataset only when the set for some
+    filtered indexed column is present and disjoint from the filter values. A
+    column that the row does not record proves nothing, so the dataset stays
+    in. For `dataset_id`, an identity and not a value set, the row excludes the
+    dataset when its identity is not among the filter values. An unproven case
+    costs one extra store opened; a wrong exclusion drops cells.
+    """
     for column, wanted in obs_filter.items():
         if column == "dataset_id":
             if str(row["dataset_id"]) not in wanted:
