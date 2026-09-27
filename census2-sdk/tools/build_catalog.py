@@ -75,8 +75,6 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
                 "dataset_version_id": version_id,
                 "store_uri": store_uri,
                 "curation_schema_version": receipt.get("schema_version"),
-                # The Iteration 1 stores carry the source var and record no version.
-                "gene_reference_version": None,
                 **summarize(open_store(store_uri)),
             }
         )
@@ -122,6 +120,12 @@ def summarize(group: zarr.Group) -> dict[str, Any]:
     assert isinstance(uns, zarr.Group)
     taxon = str(read_elem(uns["organism_ontology_term_id"]))
     row["organism"] = TAXON_TO_ORGANISM.get(taxon, taxon)
+    # The writer records the gene reference that it projected the store onto.
+    row["gene_reference_version"] = (
+        str(read_elem(uns["gene_reference_version"]))
+        if "gene_reference_version" in uns
+        else None
+    )
     assays = row.get("assay_ontology_term_id") or []
     row["spatial"] = bool(SPATIAL_ASSAYS & set(assays))
     return row

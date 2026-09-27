@@ -3,9 +3,9 @@
 Query Census 2 stores through a catalog and return one AnnData.
 
 The SDK is the skeleton of plan Phase 6, tracker 6.1. It runs one query end to end over the
-Iteration 1 store set. The catalog excludes the datasets that cannot match. The SDK opens the
-remaining stores, reads the selected cells, and concatenates them by gene position. The result is
-one AnnData. The filter grammar, the per-chunk index, and private sources are later work.
+stores that `census2-dataset-writer` writes. The catalog excludes the datasets that cannot match.
+The SDK opens the remaining stores, reads the selected cells, and concatenates them by gene
+position. The result is one AnnData. The filter grammar, the per-chunk index, and private sources are later work.
 
 ## Install
 
@@ -27,9 +27,10 @@ eval "$(aws configure export-credentials --profile <profile> --format env)"
 python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 ```
 
-Each row holds the identity of the dataset, the organism, the spatial flag, and `n_obs`. It also
-holds the distinct values of the 18 indexed columns of design 2.2. The Iteration 1 stores hold no summary
-record, so the builder reads `obs` and `uns` from each store and `dataset_id` from the receipt.
+Each row holds the identity of the dataset, the organism, the spatial flag, `n_obs`, and the
+`gene_reference_version` that the writer recorded. It also holds the distinct values of the 18
+indexed columns of design 2.2. The stores hold no summary record, so the builder reads `obs` and
+`uns` from each store and `dataset_id` from the receipt.
 
 ## Query
 
@@ -46,15 +47,16 @@ column holds one of its values. The columns are the 18 indexed columns and `data
 
 The result holds:
 
-- `X`, the counts, from `raw/X` when the store has a `raw` group and from `X` when it does not
-- `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
+- `X`, the counts
+- `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows), or no
+  genes when the catalog excludes every store
 - `obs`, the columns that all selected stores hold, plus `dataset_id` and `observation_joinid`
 - `obs_names`, `<dataset_id>_<observation_joinid>`
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
 
-The SDK downloads the gene reference once from the `single-cell-curation` tag `v7.0.0` into
-`~/.cache/census2-sdk/v7.0.0/` and checks its SHA-256 digest against the pin on every load. Pass `refdata=<directory>` to `open_census` to read the file from a directory
-that you staged.
+The writer has already projected each store onto the gene reference of its organism, so every
+store of one organism has the same `var`, in the same order. The SDK takes `var` from the stores
+and downloads no reference.
 
 ## Checks before concatenation
 
@@ -62,8 +64,9 @@ The SDK applies the checks of design 4.3 to the selected catalog rows and report
 values when a check fails:
 
 - one organism, given by the query
-- every recorded `gene_reference_version` equals the version the SDK pins for the organism; a row
-  that records none passes
+- every row records a `gene_reference_version`, and it equals the version the SDK pins for the
+  organism
+- every opened store has the same `var`, checked when the stores are read
 - no spatial store together with a non-spatial store
 - a `dataset_id` in one source only, checked when the sources open
 
