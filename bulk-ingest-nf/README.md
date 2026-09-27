@@ -86,14 +86,17 @@ with `--help` for the options.
 
 `manifests/census1-2025-11-08-homo_sapiens-100.jsonl` is the shared corpus for prototype work:
 100 datasets, sampled uniformly at random from the 1086 datasets in the `homo_sapiens` experiment
-of Census 1 release `2025-11-08`, the newest LTS. It is 162 GiB of h5ad and 16.7M cells.
-Census 1 holds every cell of each of these datasets.
+of Census 1 release `2025-11-08`, the newest LTS. It is 147 GiB of h5ad and 13.3M cells.
 
 Each record names the dataset version that the release holds, at CxG schema 7.0.0, and not the
 current Discover version. A store made from it therefore holds the same source data as Census 1,
 and a query against the stores can be compared with the same query against the release, filtered
-to these `dataset_id`s. The records are in selection order, so the first N records are also a
-uniform sample.
+to these `dataset_id`s.
+
+Census 1 does not hold every cell of every dataset. It drops cells that fail its own filters, such
+as cell culture. In this sample, one dataset is partial: Census 1 holds the 5594 organoid cells of
+`ef1a4b05-540c-4f73-8ceb-49dfa800645d` and drops its 10212 primary cell culture cells. A
+comparison must apply the same filters to the stores.
 
 `tools/census1-sample.py` wrote it. The script reads the release with `cellxgene-census`, so it
 runs under uv:
@@ -102,6 +105,11 @@ runs under uv:
 tools/census1-sample.py --census-version 2025-11-08 --seed 0 --limit 100 \
     --out manifests/census1-2025-11-08-homo_sapiens-100.jsonl
 ```
+
+The script shuffles the whole population with the seed and takes the first `--limit` records. A
+larger sample with the same seed therefore starts with this one, and `--limit 0` gives all 1086
+datasets (1.7 TiB) in that order. The first N records of any such manifest are also a uniform
+sample.
 
 ## Profiles
 

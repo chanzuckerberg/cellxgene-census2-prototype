@@ -12,7 +12,8 @@ query against Census 1.
 
 The sample is uniform over the datasets that contribute cells to one organism's
 experiment in the release. The records are in selection order, so each prefix of
-the manifest is also a uniform sample.
+the manifest is also a uniform sample. With one seed, a smaller sample is a prefix
+of a larger one, and --limit 0 gives the whole population in that order.
 
 A schema migration gives every dataset a new version, so the versions in an older
 release are usually not current. Discover keeps the older h5ads in its asset
@@ -31,7 +32,10 @@ import importlib.util
 import json
 import random
 import sys
+import time
+import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import cellxgene_census
@@ -61,15 +65,33 @@ def organism_datasets(census, organism: str) -> set[str]:
     return ids
 
 
+def urlopen(req: urllib.request.Request, attempts: int = 4):
+    """Open a URL, and retry a failure that can be transient.
+
+    A sample of the whole population makes two requests for each dataset, so one
+    transient failure must not stop the run.
+    """
+    for attempt in range(attempts):
+        try:
+            return urllib.request.urlopen(req, timeout=120)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 and e.code < 500 or attempt == attempts - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError):
+            if attempt == attempts - 1:
+                raise
+        time.sleep(2**attempt)
+
+
 def http_get_json(url: str, user_agent: str) -> object:
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urlopen(req) as resp:
         return json.load(resp)
 
 
 def http_content_length(url: str, user_agent: str) -> int:
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": user_agent})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urlopen(req) as resp:
         return int(resp.headers["Content-Length"])
 
 
@@ -98,8 +120,16 @@ def main() -> int:
         default="homo_sapiens",
         help="Census experiment name (default homo_sapiens)",
     )
-    p.add_argument("--limit", type=int, default=100, help="0 means all")
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="0 means all: the whole population, in shuffled order",
+    )
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument(
+        "--jobs", type=int, default=16, help="concurrent requests to Discover"
+    )
     p.add_argument("--out", default="manifest.jsonl")
     args = p.parse_args()
 
@@ -122,11 +152,16 @@ def main() -> int:
 
     by_id = {d["dataset_id"]: d for d in datasets}
     population = sorted(members)
-    limit = args.limit or len(population)
-    chosen = random.Random(args.seed).sample(population, limit)
+    if not 0 <= args.limit <= len(population):
+        p.error(f"--limit must be 0 to {len(population)}, got {args.limit}")
+    # Shuffle the whole population and take a prefix, so that the samples of one
+    # seed nest: each is a prefix of the next larger one, and of --limit 0.
+    # random.sample does not nest, because its method depends on the sample size.
+    chosen = list(population)
+    random.Random(args.seed).shuffle(chosen)
+    chosen = chosen[: args.limit or len(population)]
 
-    records = []
-    for dataset_id in chosen:
+    def to_record(dataset_id: str) -> dict:
         row = by_id[dataset_id]
         record = cxg.to_record(
             dataset_version(cxg.API_BASE, row, cxg.USER_AGENT), cxg.SOURCE_BUCKET
@@ -140,7 +175,11 @@ def main() -> int:
                 f"for version {row['dataset_version_id']}, and Census {version} "
                 f"keeps {census_size}"
             )
-        records.append(record)
+        return record
+
+    # map() keeps the selection order.
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        records = list(pool.map(to_record, chosen))
 
     with open(args.out, "w") as fh:
         fh.writelines(json.dumps(r) + "\n" for r in records)

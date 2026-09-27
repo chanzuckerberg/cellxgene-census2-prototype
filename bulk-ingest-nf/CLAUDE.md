@@ -47,8 +47,8 @@ The superseded versions stay in the source bucket under their own `dataset_versi
 curation API's `/curation/v1/datasets/<dataset_id>/versions` gives their metadata. A manifest can
 therefore pin an older generation, and the prototyping manifest pins the 7.0.0 versions that
 Census 1 LTS `2025-11-08` holds. Each Census 1 release also keeps its own copy of each h5ad, keyed
-by `dataset_id`, in a public bucket. For all 100 records, that copy and the Discover version have
-the same size, and `tools/census1-sample.py` asserts it.
+by `dataset_id`, in a public bucket. For all 1086 human datasets, that copy and the Discover
+version have the same size, and `tools/census1-sample.py` asserts it.
 
 `cellxgene-census` needs tiledbsoma, and tiledbsoma has no wheel for Python 3.14. The script's
 uv header therefore bounds Python below 3.14; otherwise uv selects 3.14 and tries a source build
