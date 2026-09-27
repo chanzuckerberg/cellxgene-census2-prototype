@@ -37,7 +37,7 @@ On HealthOmics the run role supplies credentials to each task.
 Build the runtime image from the repository root:
 
 ```bash
-docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile ..
+docker build -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile .
 ```
 
 Prepare a manifest. This step queries the Discover API, so run it on a host with internet access.
@@ -171,7 +171,7 @@ tools/build-healthomics-bundle.sh healthomics-bundle.zip
 
 docker buildx build --platform linux/amd64 \
     -t <account>.dkr.ecr.<region>.amazonaws.com/<repo>:census2-bulk-ingest-0.1.0 \
-    -f bulk-ingest-nf/docker/Dockerfile --push ..
+    -f docker/Dockerfile --push ..
 
 aws omics create-workflow --engine NEXTFLOW --main main.nf \
     --definition-zip fileb://healthomics-bundle.zip \
