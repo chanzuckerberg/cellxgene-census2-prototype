@@ -82,6 +82,27 @@ nextflow run . -profile docker \
 `tools/cxg-manifest.py` selects which datasets to ingest, by organism, size, and count. Run it
 with `--help` for the options.
 
+## Prototyping manifest
+
+`manifests/census1-2025-11-08-homo_sapiens-100.jsonl` is the shared corpus for prototype work:
+100 datasets, sampled uniformly at random from the 1086 datasets in the `homo_sapiens` experiment
+of Census 1 release `2025-11-08`, the newest LTS. It is 162 GiB of h5ad and 16.7M cells.
+Census 1 holds every cell of each of these datasets.
+
+Each record names the dataset version that the release holds, at CxG schema 7.0.0, and not the
+current Discover version. A store made from it therefore holds the same source data as Census 1,
+and a query against the stores can be compared with the same query against the release, filtered
+to these `dataset_id`s. The records are in selection order, so the first N records are also a
+uniform sample.
+
+`tools/census1-sample.py` wrote it. The script reads the release with `cellxgene-census`, so it
+runs under uv:
+
+```bash
+tools/census1-sample.py --census-version 2025-11-08 --seed 0 --limit 100 \
+    --out manifests/census1-2025-11-08-homo_sapiens-100.jsonl
+```
+
 ## Profiles
 
 | Profile | Use |
