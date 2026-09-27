@@ -7,8 +7,8 @@ order, so a reader concatenates stores by position (design 1.5).
 
 `project` keeps the counts matrix: `raw.X` when the dataset has `raw`, else `X`. It
 drops the features that are not genes of the dataset's organism, and moves each
-remaining column to its reference position. Genes that the dataset did not measure
-are zero columns. The store therefore does not record which genes were measured.
+remaining column to its reference position. A gene that the dataset did not measure
+is a zero column. Thus the store does not record which genes the dataset measured.
 
 The writer never fetches a reference. The caller stages the files into `refdata`,
 and `load_reference` checks each file against its pinned SHA-256 digest.
@@ -118,10 +118,10 @@ def locate(
 ) -> tuple[np.ndarray, np.ndarray]:
     """The `var` rows to keep, and the reference position of each kept row.
 
-    `var` is indexed by `feature_id`. `feature_biotype` and `feature_reference` are
-    applied when present: a non-gene feature, such as an ERCC spike-in, or a gene of
-    another organism is dropped, as the Census 1 builder drops them (disposition
-    row 12). A kept gene that is absent from the reference raises
+    `var` is indexed by `feature_id`. When `var` has `feature_biotype` and
+    `feature_reference`, the function drops a non-gene feature, such as an ERCC
+    spike-in, and a gene of another organism. The Census 1 builder drops the same
+    features (disposition row 12). A kept gene that is not in the reference raises
     `GeneReferenceMismatch`.
     """
     ids = pd.Index(var.index.astype(str))
@@ -164,17 +164,18 @@ def project_matrix(
 ) -> da.Array | sp.csr_matrix:
     """`x` with its kept columns moved to reference positions. The result is CSR.
 
-    A dask array stays lazy: each row block is remapped when the store is written,
-    and holds at most the stored values of its source block. A dense source
-    becomes sparse, because most reference genes are zero in any one dataset.
+    A dask array stays lazy. Each row block is remapped when anndata writes the
+    store, and it holds at most the stored values of its source block. A dense
+    source becomes sparse, because most reference genes are zero in one dataset.
     """
     columns = np.flatnonzero(kept)
     if not isinstance(x, da.Array):
         return _remap(x, columns, positions, n_genes)
     if len(x.chunks[1]) != 1:
         raise ValueError("the matrix must be one block wide to remap its columns")
-    # dask types `map_blocks` for its own blocks, not for a function of extra
-    # arguments, so the call is untyped here and its result is named.
+    # dask types `map_blocks` for a function of the blocks alone. This function
+    # takes more arguments, so the call goes through Any, and a cast names the
+    # result.
     map_blocks: Any = x.map_blocks
     return cast(
         "da.Array",

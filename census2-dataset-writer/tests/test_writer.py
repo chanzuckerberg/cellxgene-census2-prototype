@@ -514,7 +514,7 @@ def write_source(adata: anndata.AnnData, path: Path) -> None:
     """Write a fixture h5ad that holds a slash in an obs column name.
 
     anndata 0.12 added `disallow_forward_slash_in_h5ad`, on by default, so
-    anndata now refuses to write such a name even though HDF5 permits it. The
+    anndata refuses to write such a name even though HDF5 permits it. The
     corpus datasets that carry one predate the setting. Turn it off to build
     the fixture; the reader never needs it.
     """
@@ -547,7 +547,7 @@ def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
 
 
 def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
-    """Zarr gives `/` its path meaning, so this write used to fail outright."""
+    """Zarr gives `/` its path meaning, so without `project_obs` this write fails."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     write_source(with_obs_columns(dataset(), *SLASH_COLS), source)

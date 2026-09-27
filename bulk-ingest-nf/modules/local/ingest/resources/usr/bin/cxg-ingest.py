@@ -81,10 +81,11 @@ def check(src: str, dst: str, written: dict) -> dict:
     source `var`. The store's `X` must hold the source counts (`raw/X`, else
     `X`) of every feature except the `dropped_var_features`, each at the
     position of its `feature_id` in the store's `var`. The check reads the store
-    back at those positions and compares with the source, one block of rows at a
-    time. It gathers where the writer scatters, so it does not repeat the
-    writer's code. Equal nonzero counts per block show that no value lies
-    outside those positions.
+    at those positions and compares the values with the source, one block of
+    rows at a time. The writer moves each source column to its position, and
+    the check reads each position back. Thus the check does not repeat the
+    writer's code. Equal nonzero counts per block show that no value is outside
+    those positions.
     """
     import pandas as pd
     import scipy.sparse as sp

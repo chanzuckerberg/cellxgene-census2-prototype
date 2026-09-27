@@ -76,7 +76,8 @@ def main() -> int:
             {str(r.get("gene_reference_version")) for r in admitted}
         ),
         # The gene projection drops the features that are not organism genes,
-        # such as ERCC spike-ins. Counted, not listed: there can be many.
+        # such as ERCC spike-ins. The report gives a count and not the list,
+        # because one dataset can drop many features.
         "datasets_with_dropped_var_features": len(dropped_var),
         "receipts": receipts,
     }

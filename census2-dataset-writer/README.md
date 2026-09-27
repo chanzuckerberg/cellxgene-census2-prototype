@@ -50,15 +50,15 @@ first; `AWS_PROFILE` alone does not work.
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
 | Harmonization — what makes stores queryable together | Partly made: the `obs` columns that Zarr cannot name, and the gene projection | `harmonize` |
 
-A store today holds the dataset's cells, with the counts on the organism's pinned gene reference:
+A store holds the dataset's cells, with the counts on the organism's pinned gene reference:
 
 - `X` holds the counts: `raw.X` when the source has `raw`, else `X`. The store has no `raw`.
 - `var` is the reference (GENCODE v48 for human, 78,894 rows; GENCODE M37 for mouse), in reference
   order. Every store of one organism has the same `var`, so a reader concatenates stores by
   position. A gene that the dataset did not measure is a zero column.
-- The features that are not genes of the organism, such as ERCC spike-ins, are dropped. A gene
-  that is not in the reference fails the dataset; the writer does not map genes across reference
-  versions.
+- The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
+  gene that is not in the reference fails the dataset. The writer does not map genes across
+  reference versions.
 - `uns["gene_reference_version"]` records the reference, and the result reports it with the dropped
   features.
 

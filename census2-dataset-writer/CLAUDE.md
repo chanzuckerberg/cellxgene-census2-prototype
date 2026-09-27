@@ -37,11 +37,11 @@ until the store is written.
 The round trip widens the sparse index arrays of `X` from int32 to int64; the values do not
 change. Compare index arrays by value and not by stored bytes.
 
-The gene projection remaps `X` with `map_blocks` over the dask row blocks, so it needs the matrix
-one block wide, which `lazy_matrix` gives. Each output block is a `csr_matrix`, and `meta` says so;
-without `meta`, dask calls the function on an empty array to infer the block type. The output
-blocks keep the source rows, so the blocks stay near `BLOCK_BYTES` even though the reference is
-much wider than most sources.
+The gene projection remaps `X` with `map_blocks` over the dask row blocks. Thus it needs a matrix
+that is one block wide, as `lazy_matrix` gives. Each output block is a `csr_matrix`, and `meta`
+declares that. Without `meta`, dask calls the function on an empty array to find the block type.
+An output block has the rows of its source block and at most its stored values. The reference is
+wider than most sources, but that does not make a block from a sparse source larger.
 
 Writing computes the lazy matrix through the dask threaded scheduler, which sizes its pool from
 `dask.system.CPU_COUNT`. That function honours CPU affinity and a cgroup CPU *quota*, but a

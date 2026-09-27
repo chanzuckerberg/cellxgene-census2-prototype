@@ -46,8 +46,9 @@ tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 ```
 
 Stage the pinned gene references. The writer projects every dataset onto them, and a task cannot
-fetch them. The tool needs the `census2-dataset-writer` package, which holds the pin, so run it in
-the image or install the package first. It checks each file against its pinned SHA-256 digest.
+fetch them. The tool needs the `census2-dataset-writer` package, which holds the pin. Run the tool
+in the image, or install the package first. The tool checks each file against its pinned SHA-256
+digest.
 
 ```bash
 docker run --rm -v "$PWD:/w" -w /w census2-bulk-ingest:dev \
@@ -165,7 +166,7 @@ docker run --rm -v "$PWD:/w" -w /w census2-bulk-ingest:dev \
 ```
 
 ```bash
-nf-test test --tag validation         # fast; no network, no credentials once staged
+nf-test test --tag validation         # fast; no network and no credentials after staging
 nf-test test --tag validation,ingest  # plus the pinned ingests; what CI runs
 nf-test test                          # everything, including the test that writes to S3
 ```

@@ -16,11 +16,11 @@ columns of design 2.2 and `dataset_id`. A filter grammar is open (design section
 The result carries counts in `X`, the pinned gene reference as `var`, the `obs` columns
 that all selected stores hold, and `uns["census2"]` with the sources and the store
 counts. The cell key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names`
-is `<dataset_id>_<observation_joinid>`. When the catalog excludes every store, no
-store is opened, and `var` has no genes.
+is `<dataset_id>_<observation_joinid>`. When the catalog excludes every store, the
+SDK opens no store, and `var` has no genes.
 
-The writer has already projected each store onto the reference, so every selected
-store has the same `var`. The SDK checks that, and concatenates by position.
+The writer projects each store onto the reference. Thus every selected store has
+the same `var`. The SDK checks this, and concatenates by position.
 
 Iteration 1 scaffolding, marked `ponytail:` in the code: the SDK reads `dataset_id`
 from the catalog because the stores do not hold the column.

@@ -5,7 +5,8 @@ Query Census 2 stores through a catalog and return one AnnData.
 The SDK is the skeleton of plan Phase 6, tracker 6.1. It runs one query end to end over the
 stores that `census2-dataset-writer` writes. The catalog excludes the datasets that cannot match.
 The SDK opens the remaining stores, reads the selected cells, and concatenates them by gene
-position. The result is one AnnData. The filter grammar, the per-chunk index, and private sources are later work.
+position. The result is one AnnData. The filter grammar, the per-chunk index, and private sources
+are later work.
 
 ## Install
 
@@ -54,9 +55,9 @@ The result holds:
 - `obs_names`, `<dataset_id>_<observation_joinid>`
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
 
-The writer has already projected each store onto the gene reference of its organism, so every
-store of one organism has the same `var`, in the same order. The SDK takes `var` from the stores
-and downloads no reference.
+The writer projects each store onto the gene reference of its organism. Thus every store of one
+organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads
+no reference.
 
 ## Checks before concatenation
 
@@ -66,7 +67,7 @@ values when a check fails:
 - one organism, given by the query
 - every row records a `gene_reference_version`, and it equals the version the SDK pins for the
   organism
-- every opened store has the same `var`, checked when the stores are read
+- every opened store has the same `var`; the SDK checks this when it reads the stores
 - no spatial store together with a non-spatial store
 - a `dataset_id` in one source only, checked when the sources open
 

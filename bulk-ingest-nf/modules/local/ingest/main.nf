@@ -25,11 +25,12 @@ process INGEST {
     // large for most tasks and too small for the largest. Each retry raises the
     // request.
     //
-    // The 2.5x multiple is headroom for harmonize(), which may need to load
-    // more of the dataset eagerly. Today it does not: the gene projection
-    // remaps each dask row block as it is written, and dask lazy loading has
-    // kept peak use under ~10 GiB even for the largest h5ad. Revisit the
-    // request against the task metrics that Nextflow and HealthOmics record.
+    // The 2.5x multiple is headroom for a harmonize() step that loads more of
+    // the dataset eagerly. The current steps do not. The gene projection
+    // remaps each dask row block when the store is written. Before the
+    // projection, peak use was under ~10 GiB even for the largest h5ad. Measure
+    // it again with the projection, and revisit the request against the task
+    // metrics that Nextflow and HealthOmics record.
     memory { def gib = (meta.filesize as long) / (1024L ** 3)
              def want = (Math.max(4.0d, gib * 2.5d) * task.attempt as int).GB
              def cap  = params.max_memory as nextflow.util.MemoryUnit

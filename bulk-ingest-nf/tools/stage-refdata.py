@@ -2,7 +2,7 @@
 """Stage the reference data that `--refdata` names: the pinned gene references.
 
 A HealthOmics task has no public internet access, so the writer never fetches a
-reference. Run this once, where the internet is reachable, and pass its
+reference. Run this script once, on a host with internet access. Then give its
 destination to the pipeline as `--refdata`.
 
 The files and their SHA-256 digests come from `gene_references` in

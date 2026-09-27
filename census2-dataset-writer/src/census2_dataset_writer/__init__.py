@@ -41,15 +41,16 @@ Decisions
 2. The slot policy decides which AnnData slots the store carries. This
    decision is made: the set that the Census 1 builder reads (`obs`, `var`,
    `X`, `raw`, and the `uns` keys that the `uns_keys` configuration lists),
-   or every slot when `all_slots` is set. Harmonization then folds `raw`
-   into `X`, and drops the slots that index the source genes.
+   or every slot when `all_slots` is set. Harmonization then puts the
+   counts from `raw` in `X`, and removes the slots that index the source
+   genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. This decision is partly made. `project_obs`
-   decides which `obs` columns a store carries, and today removes only the
+   decides which `obs` columns a store carries, and removes only the
    columns that Zarr cannot name. `project_genes` puts the counts in `X` and
-   projects them onto the pinned gene reference of the dataset's organism,
-   so every store of one organism has the same `var`, in the same order.
-   The store drops `raw`. See `census2_dataset_writer.genes`.
+   projects them onto the pinned gene reference of the dataset's organism.
+   Thus every store of one organism has the same `var`, in the same order.
+   The store has no `raw`. See `census2_dataset_writer.genes`.
 
 Admission runs before the optional slots are read, so a rejected dataset
 does not read them. The `uns` policy is the exception: it applies at the read,
@@ -67,9 +68,9 @@ names a reference file, and a step resolves the name against `refdata`.
 This module does not fetch a file at run time, because a HealthOmics task
 has no public internet access.
 
-An admitted dataset needs `refdata`: `gene_references` names one gene file
-for each organism, with its SHA-256 digest, and `project_genes` refuses a
-file that is absent or that has another digest.
+An admitted dataset needs `refdata`. `gene_references` names one gene file
+for each organism, with its SHA-256 digest. `project_genes` refuses a file
+that is absent or that has another digest.
 
 `load_config` is a stub: no file format is defined, and it returns
 `DEFAULTS`. Do not define a configuration schema before the step that needs
@@ -86,8 +87,8 @@ Memory
 `build` returns a complete AnnData but reads only `obs`, `var`, and `uns`
 into memory. The source `X` and `raw.X` are dask arrays of row blocks of
 about `BLOCK_BYTES`, sparse when the source is sparse. The projected `X` is
-a dask array of sparse blocks over the same rows, and each block holds at
-most the stored values of its source block. Memory use follows the block
+a dask array of sparse blocks over the same rows. Each block holds at most
+the stored values of its source block. Memory use follows the block
 size and not the file size; the corpus p99 is about 26 GiB and the maximum
 is 50 GiB. Two rules follow:
 
@@ -154,7 +155,8 @@ class Result(TypedDict):
     # `var`, in source order: the non-gene features and the genes of another
     # organism. Empty for a rejected dataset.
     dropped_var_features: list[str]
-    # The gene reference that the store's `var` is. None for a rejected dataset.
+    # The version of the gene reference in the store's `var`. None for a
+    # rejected dataset.
     gene_reference_version: str | None
 
 
@@ -343,7 +345,7 @@ def admit(
       not a Discover dataset, so a Discover criterion does not apply to it.
 
     A `uns` without `organism_ontology_term_id` is admitted for the same
-    reason, but `project_genes` cannot project it and raises.
+    reason. `project_genes` cannot project it, and raises an error.
     """
     config = DEFAULTS if config is None else config
     # A config value is Any by design, so name its shape where it is read.
@@ -403,7 +405,7 @@ def project_genes(
 
     Return a new AnnData. `X` holds `raw.X` when `raw` exists, else `X`, with its
     columns moved to reference positions, and the object has no `raw`. `var` is
-    the reference. `uns["gene_reference_version"]` records which one.
+    the reference. `uns["gene_reference_version"]` records its version.
     `varm`, `varp`, and `layers` index the source genes, so they are dropped.
     `X` stays lazy. See `census2_dataset_writer.genes` for the rules.
 
@@ -426,9 +428,8 @@ def harmonize(
     """Apply harmonization: `project_obs`, then `project_genes`.
 
     Harmonization changes values and annotations so that a query can combine
-    stores from different datasets. These two steps are a start, and the rest
-    is not specified yet. See the module docstring for the constraints on
-    whatever lands here.
+    stores from different datasets. The other steps are not specified yet.
+    See the module docstring for the constraints on whatever lands here.
     """
     adata = project_obs(adata, config, refdata)
     return project_genes(adata, config, refdata)

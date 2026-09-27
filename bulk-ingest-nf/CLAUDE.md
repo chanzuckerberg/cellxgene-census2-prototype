@@ -24,8 +24,9 @@ store-level facts come from `census2_dataset_writer.provenance`, so the script t
 receipt and the script that reads one agree on it. Policy that a caller might choose lives in the
 configuration rather than in function arguments, so there is one place to look.
 
-These arrangements suit a stub. Expect to revisit them once the harmonization steps are known,
-particularly if a step needs data the current read order does not fetch.
+These arrangements suit the harmonization steps that exist: the `obs` projection and the gene
+projection. Expect to revisit them when more steps are known, particularly if a step needs data
+that the current read order does not fetch.
 
 ## Sharp edges: upstream data
 
@@ -50,7 +51,7 @@ write fails on that column. The names seen are clinical units (`SCr_(mg/dl)`,
 column per cell type. 6 of 100 randomly sampled human datasets hold one, 1 or 2 columns out of 60
 to 102.
 
-`census2_dataset_writer.project_obs` now removes those columns, and `harmonize` calls it. The
+`census2_dataset_writer.project_obs` removes those columns, and `harmonize` calls it. The
 receipt records the names in `dropped_obs_columns`, and the run report totals them, because a store
 that holds less than its dataset should not be invisible. The round-trip check compares `obs`
 against the source minus exactly those names, so an unreported drop still fails.
@@ -59,14 +60,14 @@ The slashes measured were all in `obs`. The store's `var` is the pinned gene ref
 source `var`, so a `/` in a source `var` column does not reach the store.
 
 `census2_dataset_writer.project_genes` puts the counts (`raw/X`, else `X`) in the store's `X`, on
-the pinned gene reference, and the store has no `raw`. The receipt records
-`gene_reference_version` and the dropped non-gene features in `dropped_var_features`. The round
-trip check therefore does not compare the matrix byte for byte. It reads the store's `X` back at
-the reference position of each kept source feature, compares with the source, and requires equal
-nonzero counts, one block of rows at a time. A gene that is not in the reference fails the task:
-the writer does not map genes across reference versions.
+the pinned gene reference. The store has no `raw`. The receipt records `gene_reference_version`,
+and it records the dropped non-gene features in `dropped_var_features`. Thus the round-trip check
+does not compare the matrix byte for byte. It reads the store's `X` at the reference position of
+each kept source feature, and compares the values with the source. It also requires equal nonzero
+counts. It does this one block of rows at a time. A gene that is not in the reference fails the
+task, because the writer does not map genes across reference versions.
 
-anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by default, so anndata now
+anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by default, so anndata also
 refuses to *write* such a name to an h5ad as well. The corpus datasets that carry one predate it.
 A test fixture that needs one must turn the setting off; zarr has no equivalent opt-out, because
 there the restriction belongs to the format.
@@ -77,7 +78,7 @@ DNA methylation datasets (snmC-seq) hold dense matrices, and every task that ran
 held one. Such a dataset carries no sparse alternative: `X` is dense, and there is no `raw` and
 no `layers`.
 
-Admission now rejects them, so the pipeline no longer reads a dense matrix:
+Admission rejects them, so the pipeline does not read a dense matrix:
 `census2_dataset_writer.admit` requires one cell on an assay allowlist, and no methylation assay is
 on it. Of 2228 datasets, 53 have no allowed assay, and all 18 dense datasets are among the 53. The
 memory request is still `size * 2.5` for every dataset, which over-provisions a sparse one by 6 to
