@@ -1,28 +1,29 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.10,<3.14"  # tiledbsoma has no 3.14 wheel
+# requires-python = ">=3.10,<3.14"  # tiledbsoma 2.3.0 has no 3.14 wheel
 # dependencies = ["cellxgene-census"]
 # ///
 """Sample datasets from a Census 1 release and write an ingestion manifest.
 
 The manifest names the dataset versions that the Census 1 release holds, not the
 current Discover versions. Stores made from it therefore hold the same source
-data as the release, and a query against them can be compared with the same
-query against Census 1.
+data as the release. You can then compare a query against the stores with the
+same query against Census 1.
 
-The sample is uniform over the datasets that contribute cells to one organism's
-experiment in the release. The records are in selection order, so each prefix of
-the manifest is also a uniform sample. With one seed, a smaller sample is a prefix
-of a larger one, and --limit 0 gives the whole population in that order.
+The population is the datasets that have cells in one organism's experiment in
+the release. The script shuffles the population with a seed and takes the first
+records. The sample is therefore uniform and without replacement. Each prefix of
+the manifest is also a uniform sample. With one seed, a smaller sample is a
+prefix of a larger one, and --limit 0 gives the whole population in that order.
 
 A schema migration gives every dataset a new version, so the versions in an older
 release are usually not current. Discover keeps the older h5ads in its asset
-bucket, under their own dataset_version_id, and this script gets their metadata
-from the curation API. It then asserts that each file size agrees with the copy
-of the h5ad that the release keeps.
+bucket, under their own dataset_version_id. This script gets their metadata from
+the curation API. It then asserts that each file size agrees with the copy of the
+h5ad that the release keeps.
 
-Unlike tools/cxg-manifest.py, this script needs cellxgene-census, so run it with
-uv, which reads the dependency from the header above.
+This script needs cellxgene-census, unlike tools/cxg-manifest.py. Run it with uv,
+which reads the dependency from the header above.
 """
 
 from __future__ import annotations
@@ -68,8 +69,8 @@ def organism_datasets(census, organism: str) -> set[str]:
 def urlopen(req: urllib.request.Request, attempts: int = 4):
     """Open a URL, and retry a failure that can be transient.
 
-    A sample of the whole population makes two requests for each dataset, so one
-    transient failure must not stop the run.
+    Each dataset needs two requests, so a sample of the whole population makes
+    more than 2000. One transient failure must not stop the run.
     """
     for attempt in range(attempts):
         try:
@@ -109,7 +110,9 @@ def dataset_version(api_base: str, row: dict, user_agent: str) -> dict:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument(
         "--census-version",
         default=None,
@@ -126,7 +129,7 @@ def main() -> int:
         default=100,
         help="0 means all: the whole population, in shuffled order",
     )
-    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--seed", type=int, default=0, help="seed for the shuffle")
     p.add_argument(
         "--jobs", type=int, default=16, help="concurrent requests to Discover"
     )
@@ -154,8 +157,8 @@ def main() -> int:
     population = sorted(members)
     if not 0 <= args.limit <= len(population):
         p.error(f"--limit must be 0 to {len(population)}, got {args.limit}")
-    # Shuffle the whole population and take a prefix, so that the samples of one
-    # seed nest: each is a prefix of the next larger one, and of --limit 0.
+    # Shuffle the whole population and take a prefix. The samples of one seed
+    # then nest: each is a prefix of all larger samples, and of --limit 0.
     # random.sample does not nest, because its method depends on the sample size.
     chosen = list(population)
     random.Random(args.seed).shuffle(chosen)

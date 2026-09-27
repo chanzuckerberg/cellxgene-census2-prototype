@@ -43,16 +43,18 @@ Each CxG schema version is a complete, separately versioned copy of the corpus. 
 every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for
 a full reconversion at each schema release.
 
-The superseded versions stay in the source bucket under their own `dataset_version_id`, and the
+The superseded versions stay in the source bucket under their own `dataset_version_id`. The
 curation API's `/curation/v1/datasets/<dataset_id>/versions` gives their metadata. A manifest can
-therefore pin an older generation, and the prototyping manifest pins the 7.0.0 versions that
-Census 1 LTS `2025-11-08` holds. Each Census 1 release also keeps its own copy of each h5ad, keyed
-by `dataset_id`, in a public bucket. For all 1086 human datasets, that copy and the Discover
-version have the same size, and `tools/census1-sample.py` asserts it.
+therefore pin an older generation. The prototyping manifest pins the 7.0.0 versions that Census 1
+LTS `2025-11-08` holds.
 
-`cellxgene-census` needs tiledbsoma, and tiledbsoma has no wheel for Python 3.14. The script's
-uv header therefore bounds Python below 3.14; otherwise uv selects 3.14 and tries a source build
-that fails.
+Each Census 1 release also keeps its own copy of each h5ad in a public bucket, keyed by
+`dataset_id`. For each of the 1086 human datasets in `2025-11-08`, that copy and the Discover
+version have the same size. `tools/census1-sample.py` asserts this for each record it writes.
+
+`cellxgene-census` needs tiledbsoma, and tiledbsoma 2.3.0 publishes no wheel for Python 3.14. The
+script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
+a source build, which fails.
 
 Some datasets name an `obs` column with a `/` in it. Zarr gives `/` its path meaning, so the
 write fails on that column. The names seen are clinical units (`SCr_(mg/dl)`,
