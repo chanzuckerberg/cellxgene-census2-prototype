@@ -32,14 +32,18 @@ nextflow_pipeline {
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
                 // A pass means nothing unless the check compared the matrices.
                 assert rec.check.compared.contains("X")
-                assert rec.check.compared.contains("raw/X")
+                assert rec.check.compared.contains("var")
+                // Both datasets have raw, so X holds the counts from raw/X.
+                assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
                 assert rec.published_by == "workflow"
-                assert rec.recipe == "v1"
+                assert rec.recipe == "v2"
                 // The default slot policy is the Census set, not every slot.
                 assert rec.slot_policy == "census"
                 assert rec.slots_written.contains("X")
-                assert rec.slots_written.contains("raw")
+                assert !rec.slots_written.contains("raw")
+                assert rec.gene_reference_version == "GENCODE v48"
+                assert rec.dropped_var_features instanceof List
             }
         }
     }
@@ -148,7 +152,10 @@ nextflow_pipeline {
                 assert path("${s}/obs").exists()
                 assert path("${s}/var").exists()
                 assert path("${s}/X").exists()
-                assert path("${s}/raw").exists()
+                // anndata writes an absent raw as a null-encoded element.
+                def raw = path("${s}/raw/zarr.json")
+                assert !raw.exists() ||
+                    new groovy.json.JsonSlurper().parse(raw.toFile()).attributes?.get("encoding-type") != "raw"
             }
         }
     }

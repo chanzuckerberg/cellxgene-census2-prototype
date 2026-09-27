@@ -55,8 +55,16 @@ receipt records the names in `dropped_obs_columns`, and the run report totals th
 that holds less than its dataset should not be invisible. The round-trip check compares `obs`
 against the source minus exactly those names, so an unreported drop still fails.
 
-`var` is not projected: the slashes measured were all in `obs`. A `/` in a `var` column would
-still fail the write.
+The slashes measured were all in `obs`. The store's `var` is the pinned gene reference, not the
+source `var`, so a `/` in a source `var` column does not reach the store.
+
+`census2_dataset_writer.project_genes` puts the counts (`raw/X`, else `X`) in the store's `X`, on
+the pinned gene reference, and the store has no `raw`. The receipt records
+`gene_reference_version` and the dropped non-gene features in `dropped_var_features`. The round
+trip check therefore does not compare the matrix byte for byte. It reads the store's `X` back at
+the reference position of each kept source feature, compares with the source, and requires equal
+nonzero counts, one block of rows at a time. A gene that is not in the reference fails the task:
+the writer does not map genes across reference versions.
 
 anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by default, so anndata now
 refuses to *write* such a name to an h5ad as well. The corpus datasets that carry one predate it.

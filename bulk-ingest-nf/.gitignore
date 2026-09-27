@@ -14,3 +14,5 @@ reports/
 # scratch manifests; tests/fixtures/manifest.jsonl is tracked on purpose
 /*.jsonl
 healthomics-bundle.zip
+tests/refdata/
+/refdata/

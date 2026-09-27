@@ -17,7 +17,8 @@ pipeline is the I/O around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline
 - Nextflow 24.04 or later.
 - Docker.
 - AWS credentials that can read the source bucket.
-- Internet access for `tools/cxg-manifest.py` only. The pipeline itself needs none.
+- Internet access for `tools/cxg-manifest.py` and `tools/stage-refdata.py` only. The pipeline
+  itself needs none.
 
 **Credentials in the container.** Tasks read credentials from the environment. A profile that
 resolves credentials through a helper, such as SSO or an external `credential_process`, does not
@@ -44,13 +45,22 @@ It needs only the Python standard library.
 tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 ```
 
+Stage the pinned gene references. The writer projects every dataset onto them, and a task cannot
+fetch them. The tool needs the `census2-dataset-writer` package, which holds the pin, so run it in
+the image or install the package first. It checks each file against its pinned SHA-256 digest.
+
+```bash
+docker run --rm -v "$PWD:/w" -w /w census2-bulk-ingest:dev \
+    python tools/stage-refdata.py refdata/
+```
+
 Ingest it:
 
 ```bash
 eval "$(aws configure export-credentials --profile <your-profile> --format env)"
 
 nextflow run . -profile docker \
-    --manifest manifest.jsonl --check \
+    --manifest manifest.jsonl --refdata refdata/ --check \
     --outdir ./out
 ```
 
@@ -63,7 +73,7 @@ The task writes each store to its final location; there is no staging step.
 aws s3 cp manifest.jsonl s3://my-bucket/census2-ingest/manifest.jsonl
 
 nextflow run . -profile docker \
-    --manifest s3://my-bucket/census2-ingest/manifest.jsonl \
+    --manifest s3://my-bucket/census2-ingest/manifest.jsonl --refdata refdata/ \
     --outdir s3://my-bucket/census2-ingest
 ```
 
@@ -74,9 +84,9 @@ nextflow run . -profile docker \
 | `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
 | `--all_slots` | `false` | Carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`, instead of the default Census slot set. |
-| `--check` | `false` | Verify each output against its source. A failure goes into the receipt, and `REPORT` fails the run. |
+| `--check` | `false` | Verify each output against its source: `obs`, and the counts at their gene reference positions. A failure goes into the receipt, and `REPORT` fails the run. |
 | `--config` | none | Ingestion configuration file, staged into every task. The file format is not defined yet. |
-| `--refdata` | none | Directory of reference data, staged into every task. Nothing reads it yet. |
+| `--refdata` | none, required | Directory or `s3://` prefix that holds the gene references from `tools/stage-refdata.py`, staged into every task. |
 | `--report_dir` | none | Where the run report publishes, and the execution reports on HealthOmics. The `healthomics` profile sets it. |
 
 `tools/cxg-manifest.py` selects which datasets to ingest, by organism, size, and count. Run it
@@ -114,7 +124,7 @@ package: `pip install '../census2-dataset-writer[s3]'`.
 
 ```bash
 modules/local/ingest/resources/usr/bin/cxg-ingest.py \
-    --record "$(head -1 manifest.jsonl)" --outdir ./out --check
+    --record "$(head -1 manifest.jsonl)" --outdir ./out --refdata refdata/ --check
 
 modules/local/report/resources/usr/bin/ingestion-report.py ./out/*.json \
     --out ingestion_report.json
@@ -139,15 +149,23 @@ aws omics create-workflow --engine NEXTFLOW --main main.nf \
 
 Pass the destination as `s3_//bucket/prefix`, not `s3://`: HealthOmics validates an `s3://`
 parameter value as an existing input object, and an output prefix is not one. `--outdir` must be
-remote on HealthOmics, and the pipeline refuses a local path.
+remote on HealthOmics, and the pipeline refuses a local path. Stage `--refdata` to an S3 prefix
+with `tools/stage-refdata.py s3://bucket/prefix/refdata/`, and pass that prefix as an `s3://`
+input.
 
 ## Tests
 
 Tests use [nf-test](https://www.nf-test.com) and run against the pinned manifest in
-`tests/fixtures/manifest.jsonl`.
+`tests/fixtures/manifest.jsonl`. Every test needs the gene references in `tests/refdata`, which
+is not tracked. Stage them once, as CI does:
 
 ```bash
-nf-test test --tag validation         # fast; no network, no credentials
+docker run --rm -v "$PWD:/w" -w /w census2-bulk-ingest:dev \
+    python tools/stage-refdata.py tests/refdata
+```
+
+```bash
+nf-test test --tag validation         # fast; no network, no credentials once staged
 nf-test test --tag validation,ingest  # plus the pinned ingests; what CI runs
 nf-test test                          # everything, including the test that writes to S3
 ```
