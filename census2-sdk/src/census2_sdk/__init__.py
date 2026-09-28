@@ -115,7 +115,7 @@ def open_census(sources: Sequence[PathLike]) -> Census:
 
 
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
-    """The checks before concatenation. Name the conflicting values.
+    """Design 4.3: the checks before concatenation. Name the conflicting values.
 
     Every row must record the `gene_reference_version` that this SDK pins for the
     organism. The SDK does not remap a store onto another reference, and a row
@@ -164,8 +164,8 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
     var = cast("pd.DataFrame", read_elem(group["var"]))
     x = _rows(group["X"], keep)
 
-    # ponytail: the stores hold no dataset_id column until the writer stamps it
-    # into obs.
+    # ponytail: the stores hold no dataset_id column; it comes from the writer
+    # once disposition row 13 lands in harmonize.
     dataset_id = str(row["dataset_id"])
     obs.insert(
         0,

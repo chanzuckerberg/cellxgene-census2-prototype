@@ -113,7 +113,7 @@ def load_reference(
     return frame
 
 
-class Location(NamedTuple):
+class VarProjection(NamedTuple):
     """Where the rows of a source `var` go in the reference."""
 
     # One flag for each source `var` row. It is false for a feature that the
@@ -127,7 +127,7 @@ class Location(NamedTuple):
 
 def locate(
     var: pd.DataFrame, taxon: str, reference: pd.DataFrame, version: str
-) -> Location:
+) -> VarProjection:
     """Find the reference position of each gene in `var`, indexed by `feature_id`.
 
     A kept gene that is not in the reference raises `GeneReferenceMismatch`.
@@ -150,7 +150,7 @@ def locate(
             f"{int(missing.sum())} of {int(kept.sum())} feature_ids are not in the "
             f"pinned reference {version} ({CURATION_TAG}). First missing: {sample}"
         )
-    return Location(kept=kept, positions=positions.astype(np.int64))
+    return VarProjection(kept=kept, positions=positions.astype(np.int64))
 
 
 def _remap(
@@ -168,7 +168,7 @@ def _remap(
 
 
 def project_matrix(
-    x: Any, location: Location, n_genes: int
+    x: Any, projection: VarProjection, n_genes: int
 ) -> da.Array | sp.csr_matrix:
     """`x` with its kept columns moved to reference positions. The result is CSR.
 
@@ -176,8 +176,8 @@ def project_matrix(
     store, and it holds at most the stored values of its source block. A dense
     source becomes sparse, because most reference genes are zero in one dataset.
     """
-    columns = np.flatnonzero(location.kept)
-    positions = location.positions
+    columns = np.flatnonzero(projection.kept)
+    positions = projection.positions
     if not isinstance(x, da.Array):
         return _remap(x, columns, positions, n_genes)
     if len(x.chunks[1]) != 1:
@@ -223,8 +223,8 @@ def project(
     reference = load_reference(spec, refdata)
 
     counts = adata.raw if adata.raw is not None else adata
-    location = locate(counts.var, str(taxon), reference, spec["version"])
-    x = project_matrix(counts.X, location, len(reference))
+    projection = locate(counts.var, str(taxon), reference, spec["version"])
+    x = project_matrix(counts.X, projection, len(reference))
 
     uns = dict(adata.uns)
     uns["gene_reference_version"] = spec["version"]

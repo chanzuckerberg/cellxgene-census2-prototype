@@ -30,7 +30,7 @@ python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
 Each row holds the identity of the dataset, the organism, the spatial flag, `n_obs`, and the
 `gene_reference_version` that the writer recorded. It also holds the distinct values of the 18
-indexed columns. The stores hold no summary record, so the builder reads `obs` and
+indexed columns of design 2.2. The stores hold no summary record, so the builder reads `obs` and
 `uns` from each store and `dataset_id` from the receipt.
 
 ## Query
