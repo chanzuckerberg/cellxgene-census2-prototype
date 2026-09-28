@@ -356,6 +356,19 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     assert census.get_anndata("homo_sapiens", {"tissue": "lung"}).n_obs == 4
 
 
+def test_mask_by_category_equals_mask_by_cell() -> None:
+    """The categorical path and the per-cell fallback apply the same rule."""
+    disease = ["normal || flu", "flu", None, "normal", "cold"]
+    obs = pd.DataFrame({"disease": pd.Categorical(disease)})
+    wanted = {"disease": frozenset({"flu"})}
+    expected = np.array([True, True, False, False, False])
+    assert (census2_sdk._mask(obs, wanted) == expected).all()
+    obs["disease"] = obs["disease"].astype(object)
+    assert (census2_sdk._mask(obs, wanted) == expected).all()
+    empty = pd.DataFrame({"disease": pd.Categorical([None, None])})
+    assert not census2_sdk._mask(empty, wanted).any()
+
+
 def test_recorded_reference_must_match_the_pin(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:

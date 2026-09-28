@@ -150,13 +150,21 @@ def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
             continue  # the catalog answered it; the store holds the dataset whole
         if column not in obs.columns:
             return np.zeros(len(obs), dtype=bool)  # the catalog kept an unproven store
-        # A null matches no value, and it is not the string "nan".
-        hit = [
-            not pd.isna(value) and bool(wanted & set(members(str(value), column)))
-            for value in obs[column]
-        ]
-        mask &= np.asarray(hit, dtype=bool)
+        col = obs[column]
+        if isinstance(col.dtype, pd.CategoricalDtype):
+            # Apply the rule once for each category, then index by the codes. A
+            # null has code -1, which indexes the False at the end.
+            by_category = [_hit(c, column, wanted) for c in col.cat.categories]
+            hit = np.array(by_category + [False], dtype=bool)[col.cat.codes.to_numpy()]
+        else:
+            hit = np.fromiter((_hit(v, column, wanted) for v in col), bool, len(col))
+        mask &= hit
     return mask
+
+
+def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
+    """True when one cell's value holds a wanted member. A null holds none."""
+    return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
 def _read_store(
