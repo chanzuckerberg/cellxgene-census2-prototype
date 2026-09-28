@@ -5,9 +5,9 @@ organism in `single-cell-curation`, pinned by repository tag. Its row order is t
 gene position. Every store of one organism has the reference as its `var`, in this
 order, so a reader concatenates stores by position.
 
-`project` keeps the counts matrix: `raw.X` when the dataset has `raw`, else `X`. It
-drops the features that are not genes of the dataset's organism, and moves each
-remaining column to its reference position. A gene that the dataset did not measure
+`project` takes the counts in `X`, where `select_counts` puts them. It drops the
+features that are not genes of the dataset's organism, and moves each remaining
+column to its reference position. A gene that the dataset did not measure
 is a zero column. Thus the store does not record which genes the dataset measured.
 
 The writer never fetches a reference. The caller stages the files into `refdata`,
@@ -207,11 +207,12 @@ def project(
 ) -> anndata.AnnData:
     """Return a new AnnData whose `X` is the counts on the reference genes.
 
-    `X` is `raw.X` when `raw` exists, else `X`, and the result
-    has no `raw`. `var` is the reference.
-    `obs`, `uns`, `obsm`, and `obsp` pass through. `varm`, `varp`, and `layers` are
-    indexed by the source genes, so they are dropped.
+    `X` must hold the counts, and `adata` must have no `raw`. `var` is the
+    reference. `obs`, `uns`, `obsm`, and `obsp` pass through. `varm`, `varp`, and
+    `layers` are indexed by the source genes, so they are dropped.
     """
+    if adata.raw is not None:
+        raise ValueError("the counts must be in X, and raw absent: run select_counts")
     taxon = adata.uns.get("organism_ontology_term_id")
     if taxon is None:
         raise ValueError(
@@ -222,9 +223,8 @@ def project(
         raise ValueError(f"no gene reference is configured for {taxon}")
     reference = load_reference(spec, refdata)
 
-    counts = adata.raw if adata.raw is not None else adata
-    projection = locate(counts.var, str(taxon), reference, spec["version"])
-    x = project_matrix(counts.X, projection, len(reference))
+    projection = locate(adata.var, str(taxon), reference, spec["version"])
+    x = project_matrix(adata.X, projection, len(reference))
 
     obsm: dict[str, Any] = {key: adata.obsm[key] for key in adata.obsm}
     obsp: dict[str, Any] = {key: adata.obsp[key] for key in adata.obsp}

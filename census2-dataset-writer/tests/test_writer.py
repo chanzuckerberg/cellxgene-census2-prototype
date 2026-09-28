@@ -261,6 +261,31 @@ def test_an_admitted_dataset_needs_refdata(tmp_path: Path) -> None:
         census2_dataset_writer.create(source, tmp_path / "store.zarr")
 
 
+def test_select_counts_takes_raw_and_drops_it() -> None:
+    adata = dataset(extras=True, raw=True)
+    raw_x, raw_ids = counts(adata)
+    selected = census2_dataset_writer.select_counts(adata)
+    x: Any = selected.X
+    assert selected.raw is None
+    assert np.array_equal(x.toarray(), raw_x)
+    assert list(selected.var.index) == raw_ids
+    # These index the genes of the normalized X, not of raw.X. anndata 0.13
+    # keeps X in layers[None].
+    assert [k for k in selected.layers if k is not None] == []
+    assert list(selected.varm) == []
+    assert list(selected.obsm) == ["X_pca"]
+
+
+def test_select_counts_keeps_a_dataset_without_raw() -> None:
+    adata = dataset(raw=False)
+    assert census2_dataset_writer.select_counts(adata) is adata
+
+
+def test_project_genes_refuses_a_dataset_with_raw(refdata: Path) -> None:
+    with pytest.raises(ValueError, match="select_counts"):
+        census2_dataset_writer.project_genes(dataset(raw=True), refdata=refdata)
+
+
 def test_default_references_pin_human_and_mouse() -> None:
     references = census2_dataset_writer.genes.REFERENCES
     assert set(references) == {"NCBITaxon:9606", "NCBITaxon:10090"}
@@ -531,7 +556,8 @@ def test_project_obs_keeps_a_clean_frame_untouched() -> None:
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
-    """harmonize is the seam; project_obs and project_genes are what it does."""
+    """harmonize is the seam; project_obs, select_counts, and project_genes are
+    what it does."""
     adata = with_obs_columns(dataset(), *SLASH_COLS)
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)

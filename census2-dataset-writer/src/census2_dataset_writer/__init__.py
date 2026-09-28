@@ -45,11 +45,13 @@ Decisions
    counts from `raw` in `X`, and removes the slots that index the source
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. `project_obs` decides which `obs` columns a
-   store carries, and removes only the columns that Zarr cannot name. `project_genes` puts the counts in `X` and
-   projects them onto the pinned gene reference of the dataset's organism.
-   Thus every store of one organism has the same `var`, in the same order.
-   The store has no `raw`. See `census2_dataset_writer.genes`.
+   query can combine stores. It runs three steps in order. `project_obs`
+   decides which `obs` columns a store carries, and removes only the columns
+   that Zarr cannot name. `select_counts` puts the counts in `X`: `raw.X`
+   when the dataset has `raw`, else `X`. The store has no `raw`.
+   `project_genes` projects the counts onto the pinned gene reference of the
+   dataset's organism. Thus every store of one organism has the same `var`,
+   in the same order. See `census2_dataset_writer.genes`.
 
 Admission runs before the optional slots are read, so a rejected dataset
 does not read them. The `uns` policy is the exception: it applies at the read,
@@ -395,18 +397,47 @@ def project_obs(
     return adata
 
 
+def select_counts(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Put the counts in `X`, and remove `raw`.
+
+    A Discover dataset holds the counts in `raw.X` when `X` holds normalized
+    values, and in `X` when it has no `raw`. With `raw`, return a new AnnData
+    whose `X` and `var` are `raw.X` and `raw.var`. `layers`, `varm`, and `varp`
+    index the genes of the normalized `X`, so they are dropped. Without `raw`,
+    return `adata` unchanged. `X` stays lazy.
+    """
+    if adata.raw is None:
+        return adata
+    obsm: dict[str, Any] = {key: adata.obsm[key] for key in adata.obsm}
+    obsp: dict[str, Any] = {key: adata.obsp[key] for key in adata.obsp}
+    # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
+    # `read_lazy` produces. `build` assembles obs with `read_elem`.
+    return anndata.AnnData(
+        X=adata.raw.X,
+        obs=cast("pd.DataFrame", adata.obs),
+        var=adata.raw.var,
+        uns=dict(adata.uns),
+        obsm=obsm,
+        obsp=obsp,
+    )
+
+
 def project_genes(
     adata: anndata.AnnData,
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Put the counts in `X`, projected onto the organism's pinned gene reference.
+    """Project the counts in `X` onto the organism's pinned gene reference.
 
-    Return a new AnnData. `X` holds `raw.X` when `raw` exists, else `X`, with its
-    columns moved to reference positions, and the object has no `raw`. `var` is
-    the reference.
-    `varm`, `varp`, and `layers` index the source genes, so they are dropped.
-    `X` stays lazy. See `census2_dataset_writer.genes` for the rules.
+    Return a new AnnData. `X` has its columns moved to reference positions, and
+    `var` is the reference. `varm`, `varp`, and `layers` index the source genes,
+    so they are dropped. `X` stays lazy. Run `select_counts` first: this step
+    refuses an AnnData that has `raw`. See `census2_dataset_writer.genes` for the
+    rules.
 
     `gene_references` in `config` names the reference file for each organism.
     The file must be staged in `refdata`.
@@ -424,13 +455,14 @@ def harmonize(
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Apply harmonization: `project_obs`, then `project_genes`.
+    """Apply harmonization: `project_obs`, `select_counts`, then `project_genes`.
 
     Harmonization changes values and annotations so that a query can combine
     stores from different datasets. The other steps are not specified yet.
     See the module docstring for the constraints on whatever lands here.
     """
     adata = project_obs(adata, config, refdata)
+    adata = select_counts(adata, config, refdata)
     return project_genes(adata, config, refdata)
 
 

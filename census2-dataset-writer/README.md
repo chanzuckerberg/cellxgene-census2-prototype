@@ -48,7 +48,7 @@ first; `AWS_PROFILE` alone does not work.
 |---|---|---|
 | Admission — does the dataset belong in Census 2 | Minimal stub: the `assay_allowlist`, and an organism with a gene reference | `admit` |
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
-| Harmonization — what makes stores queryable together | Partly made: the `obs` columns that Zarr cannot name, and the gene projection | `harmonize` |
+| Harmonization — what makes stores queryable together | Partly made: the `obs` columns that Zarr cannot name, the counts matrix, and the gene projection | `harmonize` |
 
 A store holds the dataset's cells, with the counts on the organism's pinned gene reference:
 
