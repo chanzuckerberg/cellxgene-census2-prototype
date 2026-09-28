@@ -32,8 +32,10 @@ import time
 import census2_dataset_writer
 import h5py
 import numpy as np
+import pandas as pd
+import scipy.sparse as sp
 import zarr
-from anndata.io import read_elem
+from anndata.io import read_elem, sparse_dataset
 
 
 def log(msg: str) -> None:
@@ -87,9 +89,6 @@ def check(src: str, dst: str, written: dict) -> dict:
     writer's code. Equal nonzero counts per block show that no value is outside
     those positions.
     """
-    import pandas as pd
-    import scipy.sparse as sp
-    from anndata.io import sparse_dataset
 
     result: dict = {"passed": True, "compared": []}
 
