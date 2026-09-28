@@ -12,6 +12,7 @@ import os
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 import zarr
 
@@ -101,6 +102,16 @@ def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
     return pd.read_parquet(uri)
 
 
+def unrecorded(value: Any) -> bool:
+    """True when a row records no value: the column is absent, None, or a scalar null.
+
+    A value set (a list or an array) is recorded even when it is empty. A catalog
+    without the column gives `None` through `row.get`; two sources where only one
+    has the column give a float `NaN` through `pd.concat`.
+    """
+    return value is None or (np.ndim(value) == 0 and bool(pd.isna(value)))
+
+
 def excludes(row: Mapping[str, Any], obs_filter: Normalized) -> bool:
     """True when the row proves that no cell of the dataset matches `obs_filter`.
 
@@ -117,10 +128,11 @@ def excludes(row: Mapping[str, Any], obs_filter: Normalized) -> bool:
             if str(row["dataset_id"]) not in wanted:
                 return True
             continue
-        values = row[column]
-        if values is None or (not isinstance(values, list) and pd.isna(values).all()):
-            continue  # the store has no such column; unproven keeps the dataset
-        present = {m for v in values for m in members(str(v), column)}
+        values = row.get(column)
+        if unrecorded(values):
+            continue  # the row records no value set; unproven keeps the dataset
+        value_set = cast("Iterable[Any]", values)  # unrecorded() rules out None
+        present = {m for v in value_set for m in members(str(v), column)}
         if not (present & wanted):
             return True
     return False

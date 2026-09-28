@@ -35,7 +35,7 @@ import zarr
 from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
-from census2_sdk.catalog import Filter, Normalized, members, open_store
+from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
 from census2_sdk.gene_reference import (
     ORGANISMS,
     ReferencePinMismatch,
@@ -129,17 +129,37 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     SDK pins for the organism. The SDK does not remap a store onto another
     reference. A row that records none passes: the Iteration 1 stores have no
     summary record.
+
+    Spatial and non-spatial stores do not compose. A row that records no
+    `spatial` value cannot prove that its store composes with another, so a
+    result of two or more stores refuses it. One store always composes with
+    itself. A catalog without the column records no value.
     """
-    if not len(rows):
-        return
-    versions = sorted(set(rows["gene_reference_version"].dropna().astype(str)))
+    versions = sorted(
+        {str(v) for v in _recorded(rows, "gene_reference_version") if v is not None}
+    )
     if versions and versions != [pinned]:
         raise SourceConflict(
             f"gene_reference_version {versions} differs from the pinned {pinned!r}"
         )
-    spatial = sorted(set(rows["spatial"].astype(bool)))
-    if len(spatial) > 1:
+    if len(rows) < 2:
+        return
+    spatial = _recorded(rows, "spatial")
+    unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
+    if unknown:
+        raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
+    if len({bool(v) for v in spatial}) > 1:
         raise SourceConflict("spatial and non-spatial stores in one result")
+
+
+def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
+    """One entry per row: the recorded value, or None when the row records none.
+
+    A catalog without the column records none. `unrecorded` gives the rule.
+    """
+    if column not in rows.columns:
+        return [None] * len(rows)
+    return [None if unrecorded(v) else v for v in rows[column]]
 
 
 def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:

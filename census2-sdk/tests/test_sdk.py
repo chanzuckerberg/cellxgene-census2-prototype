@@ -305,6 +305,47 @@ def test_absent_column_selects_no_cells(corpus: dict[str, Path]) -> None:
     assert "tissue" in result.obs.columns and "dataset_id" in result.obs.columns
 
 
+def test_catalog_without_a_column_keeps_the_dataset(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """A catalog that lacks an indexed column proves nothing about it (design 2.2).
+
+    Alone, and mixed with a catalog that has the column, the dataset stays in and
+    the read decides. An unrecorded `gene_reference_version` passes. An
+    unrecorded `spatial` value refuses a result of two or more stores.
+    """
+    frame = catalog.load(corpus["catalog"])
+    full = frame[frame["dataset_id"] != "ds-c"]
+    partial = frame[frame["dataset_id"] == "ds-c"]
+    full.to_parquet(tmp_path / "full.parquet", index=False)
+    partial.drop(columns=["tissue", "gene_reference_version"]).to_parquet(
+        tmp_path / "no-tissue.parquet", index=False
+    )
+    partial.drop(columns=["spatial"]).to_parquet(
+        tmp_path / "no-spatial.parquet", index=False
+    )
+    refdata = corpus["root"] / "refdata"
+
+    alone = census2_sdk.open_census([tmp_path / "no-tissue.parquet"], refdata=refdata)
+    result = alone.get_anndata("homo_sapiens", {"tissue": "lung"})
+    assert result.n_obs == 0 and result.uns["census2"]["stores_opened"] == 1
+
+    mixed = census2_sdk.open_census(
+        [tmp_path / "full.parquet", tmp_path / "no-tissue.parquet"], refdata=refdata
+    )
+    result = mixed.get_anndata("homo_sapiens", {"tissue": "lung"})
+    assert result.uns["census2"]["stores_opened"] == 3
+    assert result.n_obs == expected(corpus, {"tissue": "lung"}).n_obs
+    assert mixed.get_anndata("homo_sapiens", {"tissue": "kidney"}).n_obs == 20
+
+    unknown = census2_sdk.open_census(
+        [tmp_path / "full.parquet", tmp_path / "no-spatial.parquet"], refdata=refdata
+    )
+    assert unknown.get_anndata("homo_sapiens", {"tissue": "kidney"}).n_obs == 20
+    with pytest.raises(census2_sdk.SourceConflict, match=r"no spatial.*ds-c"):
+        unknown.get_anndata("homo_sapiens", {"dataset_id": ["ds-a", "ds-c"]})
+
+
 def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census(
         [corpus["catalog"]], refdata=corpus["root"] / "refdata"
