@@ -2,9 +2,9 @@
 
 The writer projects every store onto the reference of its organism: the store's
 `var` is the reference, in reference order, and `uns["gene_reference_version"]`
-names it. Stores of one organism therefore concatenate by position (design 1.5).
+names it. Stores of one organism therefore concatenate by position.
 The SDK holds only the version names. It refuses a store whose catalog row records
-another version, and it does not remap genes during a query (design 4.3).
+another version, and it does not remap genes during a query.
 """
 
 from typing import TypedDict

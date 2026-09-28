@@ -45,9 +45,8 @@ Decisions
    counts from `raw` in `X`, and removes the slots that index the source
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. This decision is partly made. `project_obs`
-   decides which `obs` columns a store carries, and removes only the
-   columns that Zarr cannot name. `project_genes` puts the counts in `X` and
+   query can combine stores. `project_obs` decides which `obs` columns a
+   store carries, and removes only the columns that Zarr cannot name. `project_genes` puts the counts in `X` and
    projects them onto the pinned gene reference of the dataset's organism.
    Thus every store of one organism has the same `var`, in the same order.
    The store has no `raw`. See `census2_dataset_writer.genes`.
@@ -170,7 +169,7 @@ BLOCK_BYTES = 64 * 1024**2
 # encoding, the slot policy, and harmonization. Raise it when any of those
 # change, so that a receipt says which format its store holds. Nothing is keyed
 # on it: a store's location is its dataset version alone.
-RECIPE = "v2"
+RECIPE = "v1"
 
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
 # have to infer it.
