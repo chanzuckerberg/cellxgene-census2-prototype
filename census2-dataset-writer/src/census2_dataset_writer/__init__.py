@@ -404,7 +404,7 @@ def project_genes(
 
     Return a new AnnData. `X` holds `raw.X` when `raw` exists, else `X`, with its
     columns moved to reference positions, and the object has no `raw`. `var` is
-    the reference. `uns["gene_reference_version"]` records its version.
+    the reference.
     `varm`, `varp`, and `layers` index the source genes, so they are dropped.
     `X` stays lazy. See `census2_dataset_writer.genes` for the rules.
 
@@ -536,14 +536,20 @@ def build(
     adata = harmonize(adata, config, refdata)
     kept = set(adata.obs.columns)
     stored = set(adata.var.index.astype(str))
-    version = adata.uns.get("gene_reference_version")
+    # harmonize projects onto the reference that `gene_references` names for
+    # the organism, which admission requires.
+    references = cast(
+        "dict[str, genes.Reference]",
+        config.get("gene_references", DEFAULTS["gene_references"]),
+    )
+    spec = references.get(str(adata.uns.get("organism_ontology_term_id")))
     return adata, {
         "admitted": True,
         "reason": None,
         "slots": slots_of(adata),
         "dropped_obs_columns": [c for c in before if c not in kept],
         "dropped_var_features": [i for i in features if i not in stored],
-        "gene_reference_version": None if version is None else str(version),
+        "gene_reference_version": None if spec is None else spec["version"],
     }
 
 

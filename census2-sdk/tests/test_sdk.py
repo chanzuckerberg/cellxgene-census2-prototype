@@ -1,8 +1,8 @@
 """Tests for the catalog and the query path. No network, no AWS.
 
 The fixture writes three small stores in the form that the writer produces: the
-counts in `X`, a shared 20-gene reference as `var`, `gene_reference_version` in
-`uns`, `observation_joinid` in `obs`, and no `dataset_id`. Each store measured a
+counts in `X`, a shared 20-gene reference as `var`, `observation_joinid` in `obs`,
+and no `dataset_id`. The receipt beside each store records `gene_reference_version`. Each store measured a
 different subset of the reference genes, so the others are zero columns.
 """
 
@@ -53,7 +53,6 @@ def make_store(
     seed: int,
     *,
     var_ids: list[str] = REFERENCE_IDS,
-    version: str | None = "GENCODE v48",
 ) -> anndata.AnnData:
     rng = np.random.default_rng(seed)
     x = sp.random(
@@ -83,25 +82,27 @@ def make_store(
         "schema_version": "7.1.0",
         "organism_ontology_term_id": "NCBITaxon:9606",
     }
-    if version is not None:
-        adata.uns["gene_reference_version"] = version
     return adata
 
 
-def write_one(prefix: Path, adata: anndata.AnnData, dataset_id: str) -> None:
+def write_one(
+    prefix: Path,
+    adata: anndata.AnnData,
+    dataset_id: str,
+    version: str | None = "GENCODE v48",
+) -> None:
     """One store and its receipt, as the ingestion pipeline writes them."""
     version_id = f"v-{dataset_id}"
     adata.write_zarr(prefix / f"{version_id}.zarr")
-    (prefix / f"{version_id}.json").write_text(
-        json.dumps(
-            {
-                "admitted": True,
-                "dataset_id": dataset_id,
-                "dataset_version_id": version_id,
-                "schema_version": "7.1.0",
-            }
-        )
-    )
+    receipt = {
+        "admitted": True,
+        "dataset_id": dataset_id,
+        "dataset_version_id": version_id,
+        "schema_version": "7.1.0",
+    }
+    if version is not None:
+        receipt["gene_reference_version"] = version
+    (prefix / f"{version_id}.json").write_text(json.dumps(receipt))
 
 
 @pytest.fixture(scope="module")
@@ -117,10 +118,15 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     return {"root": root, "prefix": prefix, "catalog": root / "catalog.parquet"}
 
 
-def one_store_catalog(tmp_path: Path, adata: anndata.AnnData, dataset_id: str) -> Path:
+def one_store_catalog(
+    tmp_path: Path,
+    adata: anndata.AnnData,
+    dataset_id: str,
+    version: str | None = "GENCODE v48",
+) -> Path:
     prefix = tmp_path / "out"
     prefix.mkdir()
-    write_one(prefix, adata, dataset_id)
+    write_one(prefix, adata, dataset_id, version)
     build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
     return tmp_path / "catalog.parquet"
 
@@ -276,10 +282,10 @@ def test_store_with_another_var_refused(
         census.get_anndata("homo_sapiens")
 
 
-def test_store_without_a_recorded_reference_refused(tmp_path: Path) -> None:
-    """A store that records no reference was not projected by the writer."""
-    adata = make_store("ds-u", 5, REFERENCE_IDS, ["lung"], ["normal"], 7, version=None)
-    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-u")])
+def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
+    """A receipt that names no reference gives a catalog row that the SDK refuses."""
+    adata = make_store("ds-u", 5, REFERENCE_IDS, ["lung"], ["normal"], 7)
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-u", None)])
     with pytest.raises(census2_sdk.SourceConflict, match="no gene_reference_version"):
         census.get_anndata("homo_sapiens")
 

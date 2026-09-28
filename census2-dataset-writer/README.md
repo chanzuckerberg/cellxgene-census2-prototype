@@ -59,8 +59,8 @@ A store holds the dataset's cells, with the counts on the organism's pinned gene
 - The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
   gene that is not in the reference fails the dataset. The writer does not map genes across
   reference versions.
-- `uns["gene_reference_version"]` records the reference, and the result reports it with the dropped
-  features.
+- The result reports the reference version and the dropped features, and the pipeline records
+  both in the receipt.
 
 The assay criterion rejects a dataset with no cell on the assay allowlist, which defaults to the
 Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk ingestion

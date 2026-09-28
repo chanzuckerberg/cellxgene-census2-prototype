@@ -20,8 +20,8 @@ The `ponytail:` comments in the code mark the `dataset_id` stamp and the list co
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the
-counts, `var` is the reference in reference order, and `uns["gene_reference_version"]` names it.
-The catalog builder copies the version into the catalog row. The SDK holds only the version names,
+counts, and `var` is the reference in reference order. The receipt records `gene_reference_version`,
+and the catalog builder copies it into the catalog row. The store does not record it. The SDK holds only the version names,
 in `gene_reference.py`. These names must agree with the writer's pin in
 `census2_dataset_writer.genes`. The SDK refuses a row that records another version or no version.
 It also refuses a store whose `var` differs from the `var` of the first store that it opened. It

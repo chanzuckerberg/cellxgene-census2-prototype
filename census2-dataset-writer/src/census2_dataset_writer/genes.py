@@ -54,7 +54,7 @@ class Reference(TypedDict):
     """One organism's reference file, as the configuration names it."""
 
     file: str  # resolved against `refdata`
-    version: str  # recorded in the store as `uns["gene_reference_version"]`
+    version: str  # reported in the result and the receipt
     sha256: str
     url: str  # where `stage-refdata.py` fetches the file; the writer never does
 
@@ -208,7 +208,7 @@ def project(
     """Return a new AnnData whose `X` is the counts on the reference genes.
 
     `X` is `raw.X` when `raw` exists, else `X`, and the result
-    has no `raw`. `var` is the reference. `uns` gains `gene_reference_version`.
+    has no `raw`. `var` is the reference.
     `obs`, `uns`, `obsm`, and `obsp` pass through. `varm`, `varp`, and `layers` are
     indexed by the source genes, so they are dropped.
     """
@@ -226,8 +226,6 @@ def project(
     projection = locate(counts.var, str(taxon), reference, spec["version"])
     x = project_matrix(counts.X, projection, len(reference))
 
-    uns = dict(adata.uns)
-    uns["gene_reference_version"] = spec["version"]
     obsm: dict[str, Any] = {key: adata.obsm[key] for key in adata.obsm}
     obsp: dict[str, Any] = {key: adata.obsp[key] for key in adata.obsp}
     # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
@@ -236,7 +234,7 @@ def project(
         X=x,
         obs=cast("pd.DataFrame", adata.obs),
         var=reference,
-        uns=uns,
+        uns=dict(adata.uns),
         obsm=obsm,
         obsp=obsp,
     )

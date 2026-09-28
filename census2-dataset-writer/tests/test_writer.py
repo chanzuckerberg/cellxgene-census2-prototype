@@ -177,7 +177,6 @@ def test_the_store_holds_counts_on_the_reference(tmp_path: Path) -> None:
     var: Any = read_elem(store["var"])
     assert list(var.index) == REF_IDS
     assert list(var.columns) == census2_dataset_writer.genes.COLUMNS
-    assert read_elem(store["uns"]["gene_reference_version"]) == "TEST v1"
     assert result["gene_reference_version"] == "TEST v1"
     # raw.X holds the counts, and X the halved values: the store took raw.X.
     assert "raw" not in result["slots"]
@@ -283,11 +282,8 @@ def test_census_slot_policy_drops_extras(tmp_path: Path) -> None:
     dest, result = written(tmp_path, extras=True)
     store: Any = zarr.open_consolidated(dest, mode="r")
 
-    assert result["slots"] == ["obs", "var", "X", "uns[3 keys]"]
-    assert set(store["uns"]) == {
-        *census2_dataset_writer.DEFAULTS["uns_keys"],
-        "gene_reference_version",
-    }
+    assert result["slots"] == ["obs", "var", "X", "uns[2 keys]"]
+    assert set(store["uns"]) == set(census2_dataset_writer.DEFAULTS["uns_keys"])
     for slot in census2_dataset_writer.OPTIONAL_SLOTS:
         assert slot not in store or len(list(store[slot])) == 0
 
@@ -309,7 +305,7 @@ def test_uns_keys_is_configurable(tmp_path: Path) -> None:
     )
 
     store: Any = zarr.open_consolidated(dest, mode="r")
-    assert set(store["uns"]) == {*keys, "gene_reference_version"}
+    assert set(store["uns"]) == set(keys)
 
 
 def test_unwanted_uns_keys_are_never_read(

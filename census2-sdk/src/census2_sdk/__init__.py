@@ -118,8 +118,8 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     """Design 4.3: the checks before concatenation. Name the conflicting values.
 
     Every row must record the `gene_reference_version` that this SDK pins for the
-    organism. The SDK does not remap a store onto another reference, and a row
-    that records none is from a store that the writer did not project.
+    organism. The SDK does not remap a store onto another reference. A row that
+    records none has no receipt that names the reference of its store.
     """
     if not len(rows):
         return
