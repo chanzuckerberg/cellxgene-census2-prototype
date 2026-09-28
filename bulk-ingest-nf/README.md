@@ -19,6 +19,8 @@ pipeline is the I/O around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline
 - AWS credentials that can read the source bucket.
 - Internet access for `tools/cxg-manifest.py` and `tools/stage-refdata.py` only. The pipeline
   itself needs none.
+- `aria2c` for `tools/stage-refdata.py`, when you run it outside the runtime image
+  (`brew install aria2`).
 
 **Credentials in the container.** Tasks read credentials from the environment. A profile that
 resolves credentials through a helper, such as SSO or an external `credential_process`, does not
@@ -46,9 +48,9 @@ tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl
 ```
 
 Stage the pinned gene references. The writer projects every dataset onto them, and a task cannot
-fetch them. The tool needs the `census2-dataset-writer` package, which holds the pin. Run the tool
-in the image, or install the package first. The tool checks each file against its pinned SHA-256
-digest.
+fetch them. The tool needs the `census2-dataset-writer` package, which holds the pin, and
+`aria2c`. The runtime image has both. `aria2c` downloads the files in parallel chunks, retries,
+resumes a partial file, and checks each file against its pinned SHA-256 digest.
 
 ```bash
 docker run --rm -v "$PWD:/w" -w /w census2-bulk-ingest:dev \

@@ -13,8 +13,9 @@
 #       -t census2-bulk-ingest:dev -f bulk-ingest-nf/docker/Dockerfile .
 FROM python:3.12-slim
 
+# aria2 is for tools/stage-refdata.py, which CI runs in this image. No task uses it.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl unzip ca-certificates procps \
+ && apt-get install -y --no-install-recommends curl unzip ca-certificates procps aria2 \
  && rm -rf /var/lib/apt/lists/*
 
 # AWS CLI v2. The task fetches each source h5ad with it. Writes to object storage
