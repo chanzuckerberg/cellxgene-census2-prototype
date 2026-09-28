@@ -80,6 +80,8 @@ def main() -> int:
         "homo_sapiens", {"dataset_id": args.dataset_id, **obs_filter}
     )
     sdk_seconds = round(time.time() - started, 1)
+    if ours is None:
+        raise SystemExit(f"the SDK selects no cell of {args.dataset_id}")
     print(f"sdk: {ours.shape} in {sdk_seconds}s")
 
     started = time.time()

@@ -163,6 +163,13 @@ def expected(
     return anndata.concat(parts, join="inner")
 
 
+def query(census: census2_sdk.Census, obs_filter: Any) -> anndata.AnnData:
+    """A query that must select cells: `get_anndata` returns None when none match."""
+    result = census.get_anndata("homo_sapiens", obs_filter)
+    assert result is not None
+    return result
+
+
 def X(adata: anndata.AnnData) -> sp.csr_matrix:
     return sp.csr_matrix(cast("Any", adata.X))
 
@@ -213,7 +220,7 @@ def test_get_anndata_matches_brute_force(
     corpus: dict[str, Path], obs_filter: dict[str, str | list[str]]
 ) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
-    result = census.get_anndata("homo_sapiens", obs_filter)
+    result = query(census, obs_filter)
     assert list(result.var_names) == REFERENCE_IDS
     assert result.uns["census2"]["stores_in_catalog"] == 3
     same(result, expected(corpus, obs_filter))
@@ -221,7 +228,7 @@ def test_get_anndata_matches_brute_force(
 
 def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
-    result = census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    result = query(census, {"tissue": "lung"})
     assert result.uns["census2"]["stores_opened"] == 2
     assert result.uns["census2"]["sources"] == [str(corpus["catalog"])]
     assert result.obs.index.is_unique
@@ -232,19 +239,15 @@ def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
 
 def test_empty_result(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
-    result = census.get_anndata("homo_sapiens", {"tissue": "brain"})
-    # No store is opened, so no store supplies a var.
-    assert result.shape == (0, 0)
-    assert result.uns["census2"]["stores_opened"] == 0
-    assert list(result.obs.columns) == ["dataset_id", "observation_joinid"]
+    assert census.get_anndata("homo_sapiens", {"tissue": "brain"}) is None
 
 
 def test_over_exclusion_is_visible(corpus: dict[str, Path]) -> None:
     """The check the harness relies on: drop a true candidate, the result shrinks."""
     census = census2_sdk.open_census([corpus["catalog"]])
-    full = census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    full = query(census, {"tissue": "lung"})
     census.catalog = census.catalog[census.catalog["dataset_id"] != "ds-a"]
-    mutated = census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    mutated = query(census, {"tissue": "lung"})
     assert set(mutated.obs_names) < set(full.obs_names)
 
 
@@ -259,9 +262,9 @@ def test_spatial_mix_refused(corpus: dict[str, Path], tmp_path: Path) -> None:
     frame.to_parquet(tmp_path / "catalog.parquet", index=False)
     census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="spatial"):
-        census.get_anndata("homo_sapiens", {"tissue": "lung"})
+        query(census, {"tissue": "lung"})
     # Excluding the spatial store makes the rest compose.
-    assert census.get_anndata("homo_sapiens", {"dataset_id": "ds-b"}).n_obs == 25
+    assert query(census, {"dataset_id": "ds-b"}).n_obs == 25
 
 
 def test_store_with_another_var_refused(
@@ -291,19 +294,18 @@ def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
 
 
 def test_absent_column_selects_no_cells(corpus: dict[str, Path]) -> None:
-    """The catalog keeps a store whose obs lacks the column; the read then matches none."""
+    """The catalog keeps a store whose obs lacks the column; the read then matches none.
+
+    The result is None, as when the catalog excludes every store.
+    """
     census = census2_sdk.open_census([corpus["catalog"]])
-    result = census.get_anndata("homo_sapiens", {"tissue_general": "lung"})
-    assert result.shape == (0, 20)
-    assert result.uns["census2"]["stores_opened"] == 3
-    # The opened stores still give the result its obs schema.
-    assert "tissue" in result.obs.columns and "dataset_id" in result.obs.columns
+    assert census.get_anndata("homo_sapiens", {"tissue_general": "lung"}) is None
 
 
 def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     generator = (t for t in ["lung", "kidney"])
-    result = census.get_anndata("homo_sapiens", {"tissue": generator})
+    result = query(census, {"tissue": generator})
     same(result, expected(corpus, {"tissue": ["lung", "kidney"]}))
 
 
@@ -324,8 +326,8 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     path = one_store_catalog(tmp_path, adata, "ds-n")
     assert list(catalog.load(path)["tissue"][0]) == ["lung"]
     census = census2_sdk.open_census([path])
-    assert census.get_anndata("homo_sapiens", {"tissue": "nan"}).n_obs == 0
-    assert census.get_anndata("homo_sapiens", {"tissue": "lung"}).n_obs == 4
+    assert census.get_anndata("homo_sapiens", {"tissue": "nan"}) is None
+    assert query(census, {"tissue": "lung"}).n_obs == 4
 
 
 def test_recorded_reference_must_match_the_pin(
@@ -336,8 +338,8 @@ def test_recorded_reference_must_match_the_pin(
     frame.to_parquet(tmp_path / "v47.parquet", index=False)
     census = census2_sdk.open_census([tmp_path / "v47.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="v47.*pinned.*v48"):
-        census.get_anndata("homo_sapiens", {"tissue": "lung"})
+        query(census, {"tissue": "lung"})
     frame["gene_reference_version"] = "GENCODE v48"
     frame.to_parquet(tmp_path / "v48.parquet", index=False)
     census = census2_sdk.open_census([tmp_path / "v48.parquet"])
-    assert census.get_anndata("homo_sapiens", {"tissue": "lung"}).n_obs > 0
+    assert query(census, {"tissue": "lung"}).n_obs > 0

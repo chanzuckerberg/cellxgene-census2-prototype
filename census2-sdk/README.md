@@ -49,11 +49,12 @@ column holds one of its values. The columns are the 18 indexed columns and `data
 The result holds:
 
 - `X`, the counts
-- `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows), or no
-  genes when the catalog excludes every store
+- `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
 - `obs`, the columns that all selected stores hold, plus `dataset_id` and `observation_joinid`
 - `obs_names`, `<dataset_id>_<observation_joinid>`
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
+
+When no cell matches, `get_anndata` returns None.
 
 The writer projects each store onto the gene reference of its organism. Thus every store of one
 organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads

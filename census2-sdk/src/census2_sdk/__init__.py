@@ -16,8 +16,8 @@ columns of design 2.2 and `dataset_id`. A filter grammar is open (design section
 The result carries counts in `X`, the pinned gene reference as `var`, the `obs` columns
 that all selected stores hold, and `uns["census2"]` with the sources and the store
 counts. The cell key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names`
-is `<dataset_id>_<observation_joinid>`. When the catalog excludes every store, the
-SDK opens no store, and `var` has no genes.
+is `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns
+None.
 
 The writer projects each store onto the reference. Thus every selected store has
 the same `var`. The SDK checks this, and concatenates by position.
@@ -74,8 +74,12 @@ class Census:
 
     def get_anndata(
         self, organism: str, obs_filter: Filter | None = None
-    ) -> anndata.AnnData:
-        """Return the selected cells of `organism` as one AnnData."""
+    ) -> anndata.AnnData | None:
+        """Return the selected cells of `organism` as one AnnData.
+
+        Return None when no cell matches, whether or not the catalog excluded
+        every store.
+        """
         normalized = _catalog.normalize(obs_filter)
         rows = _catalog.exclude(self.catalog, organism, normalized)
         _check_composition(rows, ORGANISMS[organism]["version"])
@@ -85,22 +89,13 @@ class Census:
             for row in cast("list[dict[str, Any]]", rows.to_dict("records"))
         ]
         _check_var(parts, list(rows["store_uri"].astype(str)))
-        if parts:
-            # Zero-row parts stay in, so the obs schema is the columns that all
-            # opened stores hold even when no cell matched.
-            result = anndata.concat(parts, join="inner", merge="same")
-            if not result.obs_names.is_unique:
-                raise SourceConflict("the cell key is not unique across the result")
-        else:
-            empty = pd.DataFrame(
-                {
-                    "dataset_id": pd.Series([], dtype=str),
-                    "observation_joinid": pd.Series([], dtype=str),
-                }
-            )
-            result = anndata.AnnData(
-                X=sp.csr_matrix((0, 0), dtype=np.float32), obs=empty
-            )
+        if not sum(part.n_obs for part in parts):
+            return None
+        # Zero-row parts stay in, so the obs schema is the columns that all
+        # opened stores hold.
+        result = anndata.concat(parts, join="inner", merge="same")
+        if not result.obs_names.is_unique:
+            raise SourceConflict("the cell key is not unique across the result")
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
