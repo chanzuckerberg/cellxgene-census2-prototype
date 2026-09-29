@@ -7,7 +7,7 @@
 .gate-band::after{top:7px;background:var(--ink)}
 .gate-label{position:static;display:block;padding:0 7px 6px;color:var(--ink)}
 .epic-bands{display:grid;gap:3px}
-.epic-band{display:block;background:var(--epic-color);border-radius:3px;height:16px;color:#fff;font-size:9px;line-height:16px;padding:0 6px;white-space:nowrap;text-align:left}
+.epic-band{display:block;background:var(--epic-color);border-radius:3px;height:16px;color:var(--epic-ink,#fff);font-size:9px;line-height:16px;padding:0 6px;white-space:nowrap;text-align:left}
 .undated-group{display:grid;gap:8px;padding:12px 10px}
 .undated-group .undated{margin:0;width:fit-content}
 .undated-epics{display:flex;flex-wrap:wrap;gap:4px}
@@ -19,6 +19,15 @@
 .epic-swatch{display:inline-block;width:9px;height:9px;flex-shrink:0;border-radius:2px;background:var(--epic-color)}
 .epic-link:hover{border-color:var(--epic-color)}
 .epic-link.compact{display:inline-flex;border:0;padding:0;white-space:nowrap}
+.palette-toolbar{padding:0 26px 20px;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+.palette-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.palette-label{font-size:11px;color:var(--muted)}
+#palette-options{display:flex;gap:6px;flex-wrap:wrap}
+#palette-options button{display:flex;align-items:center;gap:7px;background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:7px 10px;font-size:11px}
+#palette-options button[aria-pressed=true]{background:var(--soft);border-color:var(--teal);color:var(--ink)}
+.palette-preview{display:flex;gap:2px}
+.palette-preview i{height:13px;width:6px;border-radius:2px}
+#palette-description{font-size:11px;color:var(--muted)}
 @media(max-width:1050px){.epic-legend{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:780px){.epic-key{padding:16px 20px}.epic-legend{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(prefers-reduced-motion:no-preference){.iteration-row{transition:background .15s}.epic-link{transition:border-color .15s}}

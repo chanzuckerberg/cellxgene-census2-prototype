@@ -1,16 +1,44 @@
 (() => {
   'use strict';
   const data = JSON.parse(document.getElementById('project-data').textContent);
+  const palettes = {
+    current: {label:'Current', description:'The original epic colours use solid fills and white labels.', ink:'#ffffff', colors:Object.fromEntries(data.epics.map((epic) => [epic.id, epic.color]))},
+    ...JSON.parse(document.getElementById('palette-data').textContent),
+  };
   const $ = (id) => document.getElementById(id);
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
-  const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:${epic.color}"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
-  const epicBands = (epics) => epics.map((epic) => `<span class="epic-band" style="--epic-color:${epic.color}" title="${esc(epic.title)}"><span>Phase ${esc(epic.id)}</span></span>`).join('');
+  const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
+  const epicBands = (epics) => epics.map((epic) => `<span class="epic-band" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)}"><span>Phase ${esc(epic.id)}</span></span>`).join('');
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
   let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1';
   const tasksFor = (id) => data.tasks.filter((task) => task.iteration === id);
+  const hasPalette = (id) => Object.hasOwn(palettes,id);
+  let savedPalette;
+  try { savedPalette = localStorage.getItem('census2-palette'); } catch { /* Storage can be unavailable in embedded previews. */ }
+  const requestedPalette = new URL(location.href).searchParams.get('palette');
+  $('palette-options').innerHTML = Object.entries(palettes).map(([id,palette]) => `<button type="button" data-palette="${esc(id)}" aria-pressed="false"><span class="palette-preview" aria-hidden="true">${['4','5','6','9'].map((epic) => `<i style="background:${palette.colors[epic]}"></i>`).join('')}</span>${esc(palette.label)}</button>`).join('');
+
+  function selectPalette(id, persist = true) {
+    if (!hasPalette(id)) return;
+    const palette = palettes[id];
+    const style = document.documentElement.style;
+    Object.entries(palette.colors).forEach(([epic,color]) => style.setProperty(`--epic-${epic}`,color));
+    style.setProperty('--epic-ink',palette.ink);
+    document.querySelectorAll('[data-palette]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.palette === id)));
+    $('palette-description').textContent = palette.description;
+    if (persist) {
+      try { localStorage.setItem('census2-palette',id); } catch { /* The selection still applies without storage. */ }
+      try {
+        const url = new URL(location.href);
+        url.searchParams.set('palette',id);
+        history.replaceState(null,'',url);
+      } catch { /* The selection still applies without browser history. */ }
+    }
+  }
+  selectPalette(hasPalette(requestedPalette) ? requestedPalette : hasPalette(savedPalette) ? savedPalette : 'current',false);
 
   $('source-links').innerHTML = link(data.sources.outline, 'Presentation outline') + link(data.sources.project, 'Project') + link(data.sources.tracker, 'Tracker');
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
@@ -77,6 +105,8 @@
   }
 
   document.addEventListener('click', (event) => {
+    const palette = event.target.closest('[data-palette]');
+    if (palette) selectPalette(palette.dataset.palette);
     const row = event.target.closest('[data-iteration]');
     if (row) {
       selectIteration(row.dataset.iteration);

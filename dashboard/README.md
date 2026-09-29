@@ -38,8 +38,12 @@ The tracker has no iteration property. `snapshot.json` holds the proposed mappin
 An epic can support several iterations. Each child task has one proposed iteration.
 The dashboard labels this mapping for review. It does not change the tracker.
 
-Each epic has a fixed colour in `snapshot.json`. The chart, legend, epic links, and task table use
-that colour. Phase numbers identify the chart bands. The bands do not assign separate epic dates.
+Each epic has an original colour in `snapshot.json`. Phase numbers identify the chart bands.
+The bands do not assign separate epic dates.
+
+The colour selector compares the current palette with muted and vivid variants from `palettes.json`.
+The selection applies to the chart, legend, and links. The browser saves the choice when storage
+is available. A URL with `?palette=muted` or `?palette=vivid` opens the selected variant.
 
 The chart bands connect successive proposed gate dates. The first band starts at the chart's
 September boundary for display. These bands do not specify task start dates or effort.
