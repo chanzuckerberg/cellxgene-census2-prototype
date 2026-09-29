@@ -14,8 +14,23 @@
 .epic-band:focus-visible{outline:3px solid #d49a39;outline-offset:2px}
 .phase-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:18px 0;font-size:12px}
 .phase-note{color:var(--muted);font-size:11px;margin-top:12px}
-.workspace.phase-view{grid-template-columns:1fr}
-.phase-view .context-panel{display:none}
+.phase-drawer{position:fixed;inset:0 0 0 auto;width:420px;max-width:100%;height:100dvh;max-height:none;margin:0;padding:0;background:var(--panel);color:var(--ink);border:0;border-left:1px solid var(--line);box-shadow:-12px 0 40px #00000024;overflow-y:auto;overscroll-behavior:contain;z-index:20}
+.drawer-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
+.drawer-header .eyebrow{margin:0}
+#close-phase{width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-size:24px;line-height:1}
+.drawer-body{padding:24px}
+.drawer-body h2{font-size:24px;line-height:1.25;margin-bottom:14px}
+.drawer-body .detail-top{flex-wrap:wrap}
+.drawer-body .epic-list{display:grid}
+.drawer-body .table-iteration{text-align:left}
+.drawer-tasks{list-style:none;margin:0;padding:0}
+.drawer-tasks li{padding:13px 0;border-top:1px solid var(--line)}
+.drawer-tasks li>a{font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.drawer-task-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px;color:var(--muted);font-size:10px}
+.phase-drawer::backdrop{background:#07101b99}
+@media(min-width:1200px){body.drawer-open main{margin-right:440px}body.drawer-open .topbar{margin-right:420px;padding-left:28px;padding-right:28px}body.drawer-open .summary{grid-template-columns:repeat(2,1fr)}body.drawer-open .intro{flex-wrap:wrap}body.drawer-open .timeline-foot{flex-wrap:wrap}}
+@media(max-width:1199px){body.drawer-open{overflow:hidden}.phase-drawer{width:min(440px,100%)}}
+@media(prefers-reduced-motion:no-preference){.phase-drawer[open]{animation:drawer-enter .18s ease-out}@keyframes drawer-enter{from{transform:translateX(100%)}to{transform:translateX(0)}}}
 .epic-status{font-weight:600}
 .undated-group{display:grid;gap:8px;padding:12px 10px}
 .undated-group .undated{margin:0;width:fit-content}

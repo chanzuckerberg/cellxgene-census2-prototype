@@ -9,12 +9,47 @@
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
   const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
-  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="iteration-detail" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span><span class="epic-status">${esc(epic.status)}</span></button>`).join('');
+  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="phase-drawer" aria-haspopup="dialog" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span><span class="epic-status">${esc(epic.status)}</span></button>`).join('');
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
   let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1';
   let selectedEpic = null;
+  let phaseTrigger = null;
+  const drawer = $('phase-drawer');
+  const narrowScreen = matchMedia('(max-width:1199px)');
+
+  function openDrawer() {
+    document.body.classList.add('drawer-open');
+    if (!drawer.open) {
+      if (narrowScreen.matches) drawer.showModal();
+      else drawer.show();
+    }
+  }
+
+  function closeDrawer() {
+    if (!drawer.open) return;
+    drawer.close();
+    document.body.classList.remove('drawer-open');
+    phaseTrigger?.focus({preventScroll:true});
+  }
+
+  function dismissPhase() {
+    selectIteration(selected);
+  }
+
+  $('close-phase').addEventListener('click',dismissPhase);
+  drawer.addEventListener('cancel',(event) => { event.preventDefault(); dismissPhase(); });
+  document.addEventListener('keydown',(event) => {
+    if (event.key === 'Escape' && drawer.open) { event.preventDefault(); dismissPhase(); }
+  });
+  drawer.addEventListener('click',(event) => {
+    const bounds = drawer.getBoundingClientRect();
+    if (narrowScreen.matches && event.target === drawer && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) dismissPhase();
+  });
+  narrowScreen.addEventListener('change',() => {
+    if (drawer.open) { drawer.close(); openDrawer(); }
+  });
   const tasksFor = (id) => data.tasks.filter((task) => task.iteration === id);
   const hasPalette = (id) => Object.hasOwn(palettes,id);
   let savedPalette;
@@ -122,6 +157,7 @@
   function selectIteration(id, setHash = true) {
     const item = data.iterations.find((iteration) => iteration.id === id);
     if (!item) return;
+    closeDrawer();
     selected = id;
     if (selectedEpic !== null) $('scope').value = 'selection';
     selectedEpic = null;
@@ -138,7 +174,6 @@
   }
 
   function updateHighlights() {
-    document.querySelector('.workspace').classList.toggle('phase-view',selectedEpic !== null);
     document.querySelectorAll('.iteration-row').forEach((row) => {
       const active = selectedEpic === null && row.dataset.iteration === selected;
       row.classList.toggle('is-selected',active);
@@ -161,8 +196,10 @@
     const tasks = data.tasks.filter((task) => task.epic === id);
     const completed = tasks.filter((task) => task.status === 'Done').length;
     const iterations = data.iterations.filter((item) => epic.iterations.includes(item.id));
-    $('iteration-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">PHASE ${esc(id)} / TRACKER SNAPSHOT</p>${badge(epic.status)}</div><h2 id="detail-title">${esc(epic.title)}</h2><p class="delivery">The status applies to the whole epic. The task table shows its linked tasks across all mapped iterations.</p><div class="phase-actions">${link(epic.url,'Open epic in Notion')}<button type="button" class="table-iteration" data-iteration="${selected}">Back to ${selected === 'later' ? 'Later' : `iteration ${selected}`}</button></div><div class="epic-heading"><h3>Related iterations</h3><small>Proposed mapping</small></div><div class="epic-list">${iterations.map((item) => `<button type="button" class="table-iteration" data-iteration="${item.id}">${item.id === 'later' ? 'Later' : `Iteration ${item.id}`}: ${esc(item.title)}</button>`).join('')}</div><div class="detail-bottom"><span>${tasks.length ? `${completed} of ${tasks.length} linked tasks are marked Done.` : 'No child tasks are linked in this snapshot.'}</span></div><p class="phase-note">The saved status and task counts do not establish completion of an iteration gate.</p>`;
+    $('phase-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">PHASE ${esc(id)} / TRACKER SNAPSHOT</p>${badge(epic.status)}</div><h2 id="phase-title">${esc(epic.title)}</h2><p class="delivery">The status applies to the whole epic, across all mapped iterations.</p><div class="phase-actions">${link(epic.url,'Open epic in Notion')}<button type="button" class="table-iteration" data-iteration="${selected}">Back to ${selected === 'later' ? 'Later' : `iteration ${selected}`}</button></div><div class="epic-heading"><h3>Related iterations</h3><small>Proposed mapping</small></div><div class="epic-list">${iterations.map((item) => `<button type="button" class="table-iteration" data-iteration="${item.id}">${item.id === 'later' ? 'Later' : `Iteration ${item.id}`}: ${esc(item.title)}</button>`).join('')}</div><div class="epic-heading"><h3>Linked tasks (${tasks.length})</h3><small>${completed} marked Done</small></div>${tasks.length ? `<ul class="drawer-tasks">${tasks.map((task) => `<li>${link(task.url,task.title)}<div class="drawer-task-meta">${badge(task.status)}<span>${esc(task.owner)}</span><span>${task.iteration === 'later' ? 'Later' : `Iteration ${esc(task.iteration)}`}</span></div></li>`).join('')}</ul>` : '<p class="phase-note">No child tasks are linked in this snapshot. Open the epic in Notion for its deliverables.</p>'}<p class="phase-note">The saved status and task counts do not establish completion of an iteration gate.</p>`;
     renderTasks();
+    openDrawer();
+    drawer.scrollTop = 0;
   }
 
   document.addEventListener('click', (event) => {
@@ -172,15 +209,17 @@
     if (palette) selectPalette(palette.dataset.palette);
     const phase = event.target.closest('[data-phase]');
     if (phase) {
+      phaseTrigger = phase;
       selected = phase.closest('.iteration-row').dataset.iteration;
       selectEpic(phase.dataset.phase);
-      $('iteration-detail').focus();
       return;
     }
     const row = event.target.closest('[data-iteration]');
     if (row) {
+      const fromDrawer = drawer.contains(row);
       selectIteration(row.dataset.iteration);
-      if (row.classList.contains('table-iteration')) $('iteration-detail').focus();
+      if (fromDrawer) document.querySelector(`.row-label[data-iteration="${selected}"]`).focus({preventScroll:true});
+      else if (row.classList.contains('table-iteration')) $('iteration-detail').focus();
     }
   });
   $('search').addEventListener('input',renderTasks);
@@ -189,7 +228,11 @@
   $('reset').addEventListener('click',() => { $('search').value=''; $('status').value='all'; $('scope').value='selection'; renderTasks(); });
   function selectFromHash() {
     const phase = location.hash.startsWith('#phase-') && data.epics.find((epic) => epic.id === location.hash.slice(7));
-    if (phase) selectEpic(phase.id,false);
+    if (phase) {
+      selectIteration(phase.iterations.includes(selected) ? selected : phase.iterations[0],false);
+      phaseTrigger = document.querySelector(`.iteration-row[data-iteration="${selected}"] [data-phase="${phase.id}"]`);
+      selectEpic(phase.id,false);
+    }
     else selectIteration(data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1',false);
   }
   window.addEventListener('hashchange',selectFromHash);

@@ -21,8 +21,23 @@
 .epic-band:focus-visible{outline:3px solid #d49a39;outline-offset:2px}
 .phase-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:18px 0;font-size:12px}
 .phase-note{color:var(--muted);font-size:11px;margin-top:12px}
-.workspace.phase-view{grid-template-columns:1fr}
-.phase-view .context-panel{display:none}
+.phase-drawer{position:fixed;inset:0 0 0 auto;width:420px;max-width:100%;height:100dvh;max-height:none;margin:0;padding:0;background:var(--panel);color:var(--ink);border:0;border-left:1px solid var(--line);box-shadow:-12px 0 40px #00000024;overflow-y:auto;overscroll-behavior:contain;z-index:20}
+.drawer-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
+.drawer-header .eyebrow{margin:0}
+#close-phase{width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-size:24px;line-height:1}
+.drawer-body{padding:24px}
+.drawer-body h2{font-size:24px;line-height:1.25;margin-bottom:14px}
+.drawer-body .detail-top{flex-wrap:wrap}
+.drawer-body .epic-list{display:grid}
+.drawer-body .table-iteration{text-align:left}
+.drawer-tasks{list-style:none;margin:0;padding:0}
+.drawer-tasks li{padding:13px 0;border-top:1px solid var(--line)}
+.drawer-tasks li>a{font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.drawer-task-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:8px;color:var(--muted);font-size:10px}
+.phase-drawer::backdrop{background:#07101b99}
+@media(min-width:1200px){body.drawer-open main{margin-right:440px}body.drawer-open .topbar{margin-right:420px;padding-left:28px;padding-right:28px}body.drawer-open .summary{grid-template-columns:repeat(2,1fr)}body.drawer-open .intro{flex-wrap:wrap}body.drawer-open .timeline-foot{flex-wrap:wrap}}
+@media(max-width:1199px){body.drawer-open{overflow:hidden}.phase-drawer{width:min(440px,100%)}}
+@media(prefers-reduced-motion:no-preference){.phase-drawer[open]{animation:drawer-enter .18s ease-out}@keyframes drawer-enter{from{transform:translateX(100%)}to{transform:translateX(0)}}}
 .epic-status{font-weight:600}
 .undated-group{display:grid;gap:8px;padding:12px 10px}
 .undated-group .undated{margin:0;width:fit-content}
@@ -124,6 +139,10 @@
     </section>
     <footer><span>Census 2 / Project delivery</span><span>Notion is the source for task status. The iteration mapping is proposed.</span></footer>
   </main>
+  <dialog id="phase-drawer" class="phase-drawer" aria-labelledby="phase-title">
+    <div class="drawer-header"><span class="eyebrow">PHASE DETAILS</span><button type="button" id="close-phase" aria-label="Close phase details" title="Close phase details" autofocus>×</button></div>
+    <div id="phase-detail" class="drawer-body"></div>
+  </dialog>
   <noscript><p class="empty">Enable JavaScript to use the timeline. Read the linked presentation outline in Notion for the plan.</p></noscript>
   <script type="application/json" id="project-data">{"schemaVersion":1,"capturedAt":"2026-09-29T19:53:16Z","sources":{"outline":"https://app.notion.com/p/3e616a753789813491d6ffa66a4c3998","project":"https://app.notion.com/p/38f16a753789806b8fb0e21950fd3659","plan":"https://app.notion.com/p/3b216a75378981c9b7f3d954789aefe4","tracker":"https://app.notion.com/p/95716a7537898228b0150198eacd21dc","iterationProposal":"https://app.notion.com/p/68916a75378982a3908e018e928d7eb7"},"outlineEditedAt":"2026-09-28T19:15:06.075Z","mappingNote":"The iteration mapping is a dashboard proposal based on the outline and phase deliverables. The tracker has no iteration property.","scheduleNote":"Gate dates are proposals from the presentation outline. The bands connect successive gates; they do not specify task start dates.","iterations":[{"id":"0","title":"Design and measurement","date":null,"status":"Done","delivery":"The design record, the evidence, and the plan.","gate":"The design and measurement work is complete.","notes":["The layout spike, differential harness, and catalog prototype provide the starting evidence."]},{"id":"1","title":"End-to-end skeleton","date":"2026-09-30","status":"In progress","delivery":"The writer, bulk ingestion, catalog, SDK, and one comparison with Census 1.","gate":"One query runs through the system and matches Census 1 on the dataset under comparison.","notes":["The tracker marks SDK task 6.1 Done. The outline still says the SDK is in review.","The tracker marks task 9.1 In Review. PR #2 is merged. The gate status needs a team decision."]},{"id":"2","title":"Full harmonization","date":"2026-10-30","status":"Not started","delivery":"Stores match Census 1 cell for cell and value for value. The team defines the retained obs columns, including perturbation fields.","gate":"The harness reports no difference against Census 1 on the current store set.","notes":["Task 6.2, the harness run through the SDK, is still a draft outside the tracker.","Corpus v1.1 corrections are follow-ups on tasks 2.1 and 2.2. Their Done status does not close those follow-ups."]},{"id":"3","title":"Scale and layout","date":"2026-11-27","status":"Not started","delivery":"The full corpus, a selected store layout, and the release builder provide a preview.","gate":"The full corpus is readable through the catalog and SDK in a development bucket.","notes":["The preview has no production sign-off.","The X encoding decision needs the scverse collaboration."]},{"id":"4","title":"Continuous ingestion and private data","date":"2026-12-18","status":"Not started","delivery":"The curation pipeline step, private catalogs, the filter interface, and a beta use the preview.","gate":"The system supports continuous ingestion and public and private sources in one query.","notes":["The filter interface depends on the retained obs columns.","The production runtime and artifact registration remain open decisions."]},{"id":"5","title":"Approvals and first release","date":"2027-01-29","status":"Not started","delivery":"Sign-off, identity mapping, retention agreement, the published SDK, documentation, and the first release.","gate":"The release and SDK are published after the required approvals and agreements.","notes":["Retention, Discover artifact registration, and design sign-off need agreements outside the team.","Migration documentation belongs here. Broader ecosystem migration continues after the first release."]},{"id":"later","title":"After the first release","date":null,"status":"Not started","delivery":"The R client, spatial support, ecosystem migration, optional compaction, and cutover.","gate":"Each deferred phase has its own completion condition in the plan.","notes":["The outline assigns no gate date to this work."]}],"epics":[{"id":"0","title":"Phase 0: Design","color":"#536878","url":"https://app.notion.com/3c116a75378981f38f8dcaada14c7cb1","status":"Done","iterations":["0"],"trackerStart":"2026-09-07","trackerEnd":"2026-09-18"},{"id":"1","title":"Phase 1: Approvals and amendments","color":"#9a6515","url":"https://app.notion.com/3c116a75378981e59bd7ede8d0979c9f","status":"Backlog","iterations":["5"],"trackerStart":"2026-09-21","trackerEnd":"2026-10-02"},{"id":"2","title":"Phase 2: The validation harness","color":"#4169a1","url":"https://app.notion.com/3c116a7537898144a8dfc35c5a4fc76b","status":"Done","iterations":["0","2","3"],"trackerStart":"2026-09-21","trackerEnd":"2026-10-02"},{"id":"3","title":"Phase 3: Spatial representation","color":"#9b4d87","url":"https://app.notion.com/3c116a75378981f49523d18a20753057","status":"Backlog","iterations":["later"],"trackerStart":"2026-09-21","trackerEnd":"2026-10-02"},{"id":"4","title":"Phase 4: The per-dataset writer","color":"#207a63","url":"https://app.notion.com/3c116a7537898163801bfb63c1479310","status":"In Progress","iterations":["0","1","2","3","4"],"trackerStart":"2026-10-05","trackerEnd":"2026-10-16"},{"id":"5","title":"Phase 5: The catalog","color":"#b25432","url":"https://app.notion.com/3c116a75378981fcac74c6718cd20db9","status":"Backlog","iterations":["1","3","4"],"trackerStart":"2026-10-19","trackerEnd":"2026-10-30"},{"id":"6","title":"Phase 6: The v2 Python SDK","color":"#7254a3","url":"https://app.notion.com/3c116a75378981b8b046ceb75bbc5209","status":"In Progress","iterations":["1","2","3","4","5"],"trackerStart":"2026-11-02","trackerEnd":"2026-11-13"},{"id":"7","title":"Phase 7: The identity proof","color":"#34768e","url":"https://app.notion.com/3c116a75378981d18484fe99c15df7bf","status":"Backlog","iterations":["5"],"trackerStart":"2026-11-16","trackerEnd":"2026-11-27"},{"id":"8","title":"Phase 8: Backfill ingestion","color":"#89642f","url":"https://app.notion.com/3c116a7537898104a246c124afa4d08b","status":"Backlog","iterations":["3"],"trackerStart":"2026-11-02","trackerEnd":"2026-11-13"},{"id":"9","title":"Phase 9: Ongoing ingestion","color":"#a94f68","url":"https://app.notion.com/3c116a7537898157b527c25c60b34ea5","status":"In Progress","iterations":["1","4"],"trackerStart":"2026-11-02","trackerEnd":"2026-11-13"},{"id":"10","title":"Phase 10: Publish","color":"#647c30","url":"https://app.notion.com/3c116a753789815485ccf5cbbde45a7e","status":"Backlog","iterations":["3","5"],"trackerStart":"2026-11-30","trackerEnd":"2026-12-11"},{"id":"11","title":"Phase 11: Private datasets","color":"#276f9d","url":"https://app.notion.com/3c116a7537898130a7b7e73ac355292e","status":"Backlog","iterations":["4"],"trackerStart":"2026-11-16","trackerEnd":"2026-11-27"},{"id":"12","title":"Phase 12: Migrate the ecosystem","color":"#806350","url":"https://app.notion.com/3c116a753789816ba627f165ba5ca10c","status":"Backlog","iterations":["5","later"],"trackerStart":"2026-12-14","trackerEnd":"2026-12-25"},{"id":"13","title":"Phase 13: R parity","color":"#89518f","url":"https://app.notion.com/3c116a75378981a3a4e7c8585e808558","status":"Backlog","iterations":["later"],"trackerStart":"2026-12-14","trackerEnd":"2026-12-25"},{"id":"14","title":"Phase 14: Compaction (optional)","color":"#347f7b","url":"https://app.notion.com/3c116a75378981d5bf1ad02bcf7cebda","status":"Backlog","iterations":["later"],"trackerStart":"2026-12-14","trackerEnd":"2026-12-25"},{"id":"15","title":"Phase 15: Cutover","color":"#636a9e","url":"https://app.notion.com/3c116a75378981049f61d42b56047602","status":"Backlog","iterations":["later"],"trackerStart":"2026-12-28","trackerEnd":"2027-01-08"}],"tasks":[{"id":"2.1","title":"2.1 Define the fixed query corpus","url":"https://app.notion.com/3c116a75378981719cc6e63695198a09","status":"Done","epic":"2","iteration":"0","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"2.2","title":"2.2 Build the v1 oracle runner","url":"https://app.notion.com/3c116a753789813eac52fa91b1009cff","status":"Done","epic":"2","iteration":"0","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"2.3","title":"2.3 Define the canonical result form and build the comparator","url":"https://app.notion.com/3c116a75378981b68162e9c4f21aa5fc","status":"Done","epic":"2","iteration":"0","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"2.4","title":"2.4 Build the stack-under-test adapter","url":"https://app.notion.com/3c116a75378981f9a0d8d30953e6bb11","status":"Done","epic":"2","iteration":"0","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"2.5","title":"2.5 Build the benchmark rig for data volume and request count","url":"https://app.notion.com/3c116a75378981d18b14e4238b30096f","status":"Done","epic":"2","iteration":"0","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.1","title":"4.1 Write the harmonization disposition table","url":"https://app.notion.com/3c116a753789814ca3ced777e2fe8cba","status":"Done","epic":"4","iteration":"0","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.2","title":"4.2 Build the gene-reference projection module","url":"https://app.notion.com/3c116a75378981429cc1c76307369ee5","status":"In Progress","epic":"4","iteration":"2","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.3","title":"4.3 Port the spike's X encoding","url":"https://app.notion.com/3c116a7537898124bfceff64917531b4","status":"Backlog","epic":"4","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.4","title":"4.4 Encode obs and var","url":"https://app.notion.com/3c116a753789810f9883dad1a2867e41","status":"Backlog","epic":"4","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.5","title":"4.5 Compute the derived per-dataset artifacts","url":"https://app.notion.com/3c116a75378981a8a519fdf36679a539","status":"Backlog","epic":"4","iteration":"2","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.6","title":"4.6 Assert identity uniqueness on every write","url":"https://app.notion.com/3c116a7537898155a1f1fa059a344476","status":"Backlog","epic":"4","iteration":"2","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.7","title":"4.7 Emit the store-root records: inventory and summary","url":"https://app.notion.com/3c116a75378981a3a1bcf02c255059f2","status":"Backlog","epic":"4","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.8","title":"4.8 Derive the address and finalize atomically","url":"https://app.notion.com/3c116a75378981c39479e6c1bd1f7db3","status":"Backlog","epic":"4","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.9","title":"4.9 Run the differential sign-off against the v1 stack","url":"https://app.notion.com/3c116a7537898147bb27c74021309d2d","status":"Backlog","epic":"4","iteration":"2","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"4.10","title":"4.10 Build the pipeline entrypoint","url":"https://app.notion.com/3c116a75378981c599d6c19aaf5a70f4","status":"Done","epic":"4","iteration":"1","owner":"Mike (mlin)","trackerStart":null,"trackerEnd":null},{"id":"4.11","title":"4.11 Define the census dataset writer contract for both callers","url":"https://app.notion.com/3db16a75378981b9a0d8ca088bf1bd2d","status":"Backlog","epic":"4","iteration":"4","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.1","title":"5.1 Define the catalog row schema and dictionary format","url":"https://app.notion.com/3c116a75378981c1a224f275740fdb42","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.2","title":"5.2 Build the dictionary and bitmaps from the TileDB corpus","url":"https://app.notion.com/3c116a75378981aaa00ce0d2f93a5307","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.3","title":"5.3 Build the exclusion path in the SDK","url":"https://app.notion.com/3c116a7537898161aecec58acdbd537c","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.4","title":"5.4 Extract one implementation shared with the per-chunk obs index","url":"https://app.notion.com/3c116a753789814b8bd3dd4521f1fead","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.5","title":"5.5 Implement the publication protocol","url":"https://app.notion.com/3c116a753789819d80a3e62c4331c968","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.6","title":"5.6 Build catalog rows from store summary records","url":"https://app.notion.com/3c116a75378981b1b704c3bdb40a7d63","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.7","title":"5.7 Run the no-false-negative proof","url":"https://app.notion.com/3c116a7537898129a0c8c973a4fa8bc1","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"5.8","title":"5.8 Derive the column set from the curation schema","url":"https://app.notion.com/3c116a753789814dae41d9d69d103062","status":"Backlog","epic":"5","iteration":"3","owner":"Unassigned","trackerStart":null,"trackerEnd":null},{"id":"6.1","title":"6.1 Build the SDK skeleton over the catalog","url":"https://app.notion.com/3e316a7537898153a443f8480d0bf249","status":"Done","epic":"6","iteration":"1","owner":"Ronen Kalo","trackerStart":null,"trackerEnd":null},{"id":"9.1","title":"9.1 Build the Nextflow bulk-ingestion pipeline","url":"https://app.notion.com/3db16a75378981a39442c113e71151bd","status":"In Review","epic":"9","iteration":"1","owner":"Mike (mlin)","trackerStart":null,"trackerEnd":null},{"id":"9.2","title":"9.2 Add the census-writer step to the curation ingestion pipeline","url":"https://app.notion.com/3db16a75378981fba2b6d393580e7b0b","status":"Backlog","epic":"9","iteration":"4","owner":"Ronen Kalo","trackerStart":null,"trackerEnd":null}]}</script>
   <script type="application/json" id="palette-data">{"muted":{"label":"Muted","description":"Soft fills with dark labels reduce the amount of solid colour in the chart.","ink":"#23313b","colors":{"0":"#d5dee5","1":"#ecd6a7","2":"#c4d6ef","3":"#e2c6dc","4":"#bcddd1","5":"#edcbbb","6":"#d3c8e8","7":"#bddce5","8":"#ddcfac","9":"#e8c4cc","10":"#d4dfa9","11":"#b8d8ed","12":"#dacabc","13":"#dec6e9","14":"#b9deda","15":"#c9cdec"}},"vivid":{"label":"Vivid","description":"Saturated fills put more emphasis on the epic bands.","ink":"#ffffff","colors":{"0":"#475569","1":"#a16207","2":"#1d4ed8","3":"#a21caf","4":"#047857","5":"#c2410c","6":"#6d28d9","7":"#0e7490","8":"#854d0e","9":"#be123c","10":"#4d7c0f","11":"#0369a1","12":"#92400e","13":"#7e22ce","14":"#0f766e","15":"#4338ca"}}}</script>
@@ -138,12 +157,47 @@
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
   const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
-  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="iteration-detail" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span><span class="epic-status">${esc(epic.status)}</span></button>`).join('');
+  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="phase-drawer" aria-haspopup="dialog" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span><span class="epic-status">${esc(epic.status)}</span></button>`).join('');
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
   let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1';
   let selectedEpic = null;
+  let phaseTrigger = null;
+  const drawer = $('phase-drawer');
+  const narrowScreen = matchMedia('(max-width:1199px)');
+
+  function openDrawer() {
+    document.body.classList.add('drawer-open');
+    if (!drawer.open) {
+      if (narrowScreen.matches) drawer.showModal();
+      else drawer.show();
+    }
+  }
+
+  function closeDrawer() {
+    if (!drawer.open) return;
+    drawer.close();
+    document.body.classList.remove('drawer-open');
+    phaseTrigger?.focus({preventScroll:true});
+  }
+
+  function dismissPhase() {
+    selectIteration(selected);
+  }
+
+  $('close-phase').addEventListener('click',dismissPhase);
+  drawer.addEventListener('cancel',(event) => { event.preventDefault(); dismissPhase(); });
+  document.addEventListener('keydown',(event) => {
+    if (event.key === 'Escape' && drawer.open) { event.preventDefault(); dismissPhase(); }
+  });
+  drawer.addEventListener('click',(event) => {
+    const bounds = drawer.getBoundingClientRect();
+    if (narrowScreen.matches && event.target === drawer && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) dismissPhase();
+  });
+  narrowScreen.addEventListener('change',() => {
+    if (drawer.open) { drawer.close(); openDrawer(); }
+  });
   const tasksFor = (id) => data.tasks.filter((task) => task.iteration === id);
   const hasPalette = (id) => Object.hasOwn(palettes,id);
   let savedPalette;
@@ -251,6 +305,7 @@
   function selectIteration(id, setHash = true) {
     const item = data.iterations.find((iteration) => iteration.id === id);
     if (!item) return;
+    closeDrawer();
     selected = id;
     if (selectedEpic !== null) $('scope').value = 'selection';
     selectedEpic = null;
@@ -267,7 +322,6 @@
   }
 
   function updateHighlights() {
-    document.querySelector('.workspace').classList.toggle('phase-view',selectedEpic !== null);
     document.querySelectorAll('.iteration-row').forEach((row) => {
       const active = selectedEpic === null && row.dataset.iteration === selected;
       row.classList.toggle('is-selected',active);
@@ -290,8 +344,10 @@
     const tasks = data.tasks.filter((task) => task.epic === id);
     const completed = tasks.filter((task) => task.status === 'Done').length;
     const iterations = data.iterations.filter((item) => epic.iterations.includes(item.id));
-    $('iteration-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">PHASE ${esc(id)} / TRACKER SNAPSHOT</p>${badge(epic.status)}</div><h2 id="detail-title">${esc(epic.title)}</h2><p class="delivery">The status applies to the whole epic. The task table shows its linked tasks across all mapped iterations.</p><div class="phase-actions">${link(epic.url,'Open epic in Notion')}<button type="button" class="table-iteration" data-iteration="${selected}">Back to ${selected === 'later' ? 'Later' : `iteration ${selected}`}</button></div><div class="epic-heading"><h3>Related iterations</h3><small>Proposed mapping</small></div><div class="epic-list">${iterations.map((item) => `<button type="button" class="table-iteration" data-iteration="${item.id}">${item.id === 'later' ? 'Later' : `Iteration ${item.id}`}: ${esc(item.title)}</button>`).join('')}</div><div class="detail-bottom"><span>${tasks.length ? `${completed} of ${tasks.length} linked tasks are marked Done.` : 'No child tasks are linked in this snapshot.'}</span></div><p class="phase-note">The saved status and task counts do not establish completion of an iteration gate.</p>`;
+    $('phase-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">PHASE ${esc(id)} / TRACKER SNAPSHOT</p>${badge(epic.status)}</div><h2 id="phase-title">${esc(epic.title)}</h2><p class="delivery">The status applies to the whole epic, across all mapped iterations.</p><div class="phase-actions">${link(epic.url,'Open epic in Notion')}<button type="button" class="table-iteration" data-iteration="${selected}">Back to ${selected === 'later' ? 'Later' : `iteration ${selected}`}</button></div><div class="epic-heading"><h3>Related iterations</h3><small>Proposed mapping</small></div><div class="epic-list">${iterations.map((item) => `<button type="button" class="table-iteration" data-iteration="${item.id}">${item.id === 'later' ? 'Later' : `Iteration ${item.id}`}: ${esc(item.title)}</button>`).join('')}</div><div class="epic-heading"><h3>Linked tasks (${tasks.length})</h3><small>${completed} marked Done</small></div>${tasks.length ? `<ul class="drawer-tasks">${tasks.map((task) => `<li>${link(task.url,task.title)}<div class="drawer-task-meta">${badge(task.status)}<span>${esc(task.owner)}</span><span>${task.iteration === 'later' ? 'Later' : `Iteration ${esc(task.iteration)}`}</span></div></li>`).join('')}</ul>` : '<p class="phase-note">No child tasks are linked in this snapshot. Open the epic in Notion for its deliverables.</p>'}<p class="phase-note">The saved status and task counts do not establish completion of an iteration gate.</p>`;
     renderTasks();
+    openDrawer();
+    drawer.scrollTop = 0;
   }
 
   document.addEventListener('click', (event) => {
@@ -301,15 +357,17 @@
     if (palette) selectPalette(palette.dataset.palette);
     const phase = event.target.closest('[data-phase]');
     if (phase) {
+      phaseTrigger = phase;
       selected = phase.closest('.iteration-row').dataset.iteration;
       selectEpic(phase.dataset.phase);
-      $('iteration-detail').focus();
       return;
     }
     const row = event.target.closest('[data-iteration]');
     if (row) {
+      const fromDrawer = drawer.contains(row);
       selectIteration(row.dataset.iteration);
-      if (row.classList.contains('table-iteration')) $('iteration-detail').focus();
+      if (fromDrawer) document.querySelector(`.row-label[data-iteration="${selected}"]`).focus({preventScroll:true});
+      else if (row.classList.contains('table-iteration')) $('iteration-detail').focus();
     }
   });
   $('search').addEventListener('input',renderTasks);
@@ -318,7 +376,11 @@
   $('reset').addEventListener('click',() => { $('search').value=''; $('status').value='all'; $('scope').value='selection'; renderTasks(); });
   function selectFromHash() {
     const phase = location.hash.startsWith('#phase-') && data.epics.find((epic) => epic.id === location.hash.slice(7));
-    if (phase) selectEpic(phase.id,false);
+    if (phase) {
+      selectIteration(phase.iterations.includes(selected) ? selected : phase.iterations[0],false);
+      phaseTrigger = document.querySelector(`.iteration-row[data-iteration="${selected}"] [data-phase="${phase.id}"]`);
+      selectEpic(phase.id,false);
+    }
     else selectIteration(data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1',false);
   }
   window.addEventListener('hashchange',selectFromHash);
