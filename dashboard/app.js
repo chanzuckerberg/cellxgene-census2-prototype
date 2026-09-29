@@ -40,6 +40,34 @@
   }
   selectPalette(hasPalette(requestedPalette) ? requestedPalette : hasPalette(savedPalette) ? savedPalette : 'current',false);
 
+  const themes = {
+    system: {label:'System', description:'The original green theme follows your device’s light or dark setting.'},
+    slate: {label:'Slate', description:'Cool grey panels with blue accents.'},
+    sand: {label:'Sand', description:'Warm ivory panels with terracotta accents.'},
+    midnight: {label:'Midnight', description:'Dark navy panels with periwinkle accents.'},
+  };
+  const hasTheme = (id) => Object.hasOwn(themes,id);
+  let savedTheme;
+  try { savedTheme = localStorage.getItem('census2-theme'); } catch { /* Storage can be unavailable in embedded previews. */ }
+  const requestedTheme = new URL(location.href).searchParams.get('theme');
+  $('theme-options').innerHTML = Object.entries(themes).map(([id,theme]) => `<button type="button" data-theme-option="${id}" aria-pressed="false"><i class="theme-preview ${id}" aria-hidden="true"></i>${theme.label}</button>`).join('');
+
+  function selectTheme(id, persist = true) {
+    if (!hasTheme(id)) return;
+    document.documentElement.dataset.theme = id;
+    document.querySelectorAll('[data-theme-option]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.themeOption === id)));
+    $('theme-description').textContent = themes[id].description;
+    if (persist) {
+      try { localStorage.setItem('census2-theme',id); } catch { /* The selection still applies without storage. */ }
+      try {
+        const url = new URL(location.href);
+        url.searchParams.set('theme',id);
+        history.replaceState(null,'',url);
+      } catch { /* The selection still applies without browser history. */ }
+    }
+  }
+  selectTheme(hasTheme(requestedTheme) ? requestedTheme : hasTheme(savedTheme) ? savedTheme : 'system',false);
+
   $('source-links').innerHTML = link(data.sources.outline, 'Presentation outline') + link(data.sources.project, 'Project') + link(data.sources.tracker, 'Tracker');
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
   const age = Math.floor((Date.now() - Date.parse(data.capturedAt)) / 86400000);
@@ -105,6 +133,8 @@
   }
 
   document.addEventListener('click', (event) => {
+    const theme = event.target.closest('[data-theme-option]');
+    if (theme) selectTheme(theme.dataset.themeOption);
     const palette = event.target.closest('[data-palette]');
     if (palette) selectPalette(palette.dataset.palette);
     const row = event.target.closest('[data-iteration]');

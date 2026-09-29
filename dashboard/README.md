@@ -41,9 +41,14 @@ The dashboard labels this mapping for review. It does not change the tracker.
 Each epic has an original colour in `snapshot.json`. Phase numbers identify the chart bands.
 The bands do not assign separate epic dates.
 
-The colour selector compares the current palette with muted and vivid variants from `palettes.json`.
+The dashboard theme selector offers Slate, Sand, and Midnight. System uses the original green theme
+and follows the device's light or dark setting. The browser saves the choice when storage is
+available. A URL with `?theme=slate`, `?theme=sand`, or `?theme=midnight` opens that theme.
+
+The epic colour selector compares the current palette with muted and vivid variants from `palettes.json`.
 The selection applies to the chart, legend, and links. The browser saves the choice when storage
 is available. A URL with `?palette=muted` or `?palette=vivid` opens the selected variant.
+Theme and epic colours are independent. Combine them in one URL, such as `?theme=sand&palette=muted`.
 
 The chart bands connect successive proposed gate dates. The first band starts at the chart's
 September boundary for display. These bands do not specify task start dates or effort.
