@@ -7,7 +7,8 @@ rules:
   rows by `feature_id`. Position plays no part.
 - A categorical column is decoded to its values. Codes do not leave the stack.
 - Each X layer is reordered to the sorted obs x sorted var coordinate space, as CSR
-  with sorted indices, dtype preserved. Raw counts are exact.
+  with duplicate coordinates summed, explicit zeros removed, and sorted indices, dtype
+  preserved. Raw counts are exact.
 - Every array is written as `.npy`, whose bytes are a function of shape, dtype, and
   content only. A string column becomes two arrays, uint64 offsets and UTF-8 bytes.
   Zip, gzip, and Parquet embed timestamps or writer metadata, so they are not used.
@@ -76,6 +77,8 @@ def frame_arrays(kind: str, frame: pd.DataFrame) -> Arrays:
 
 def layer_arrays(name: str, matrix: sparse.csr_matrix) -> Arrays:
     m = matrix.tocsr().copy()
+    m.sum_duplicates()
+    m.eliminate_zeros()
     m.sort_indices()
     return {
         f"X.{name}.indptr": m.indptr,
