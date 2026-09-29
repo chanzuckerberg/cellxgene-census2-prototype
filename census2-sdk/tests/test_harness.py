@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
-from harness.canonical import canonicalize_anndata
+from harness.canonical import canonicalize_anndata, frame_arrays, layer_arrays
 from harness.comparator import Finding, compare
 
 RNG = np.random.default_rng(7)  # fixed seed: the fixture must be reproducible
@@ -162,3 +162,60 @@ def test_raw_is_exact(truth: ad.AnnData) -> None:
     corrupt.X = x
     findings = compare(canonicalize_anndata(truth), canonicalize_anndata(corrupt))
     assert [f.where for f in findings] == ["X.raw"]
+
+
+def test_explicit_zero_and_duplicate_are_invisible(truth: ad.AnnData) -> None:
+    """The same matrix in a different sparse structure is the same answer.
+
+    The CSR is built from its three arrays, because the coordinate constructor sums
+    duplicates itself and would not exercise the canonical form.
+    """
+    x = x_of(truth)
+    first_col = int(x.indices[0])
+    empty_col = int(np.setdiff1d(np.arange(truth.n_vars), x.indices[: x.indptr[1]])[0])
+    # Row 0 gains a duplicate of its first entry, split in two halves, and an explicit zero.
+    half = x.data[0] / 2
+    data = np.concatenate(
+        [[half, half], x.data[1 : x.indptr[1]], [np.float32(0)], x.data[x.indptr[1] :]]
+    )
+    indices = np.concatenate(
+        [
+            [first_col, first_col],
+            x.indices[1 : x.indptr[1]],
+            [empty_col],
+            x.indices[x.indptr[1] :],
+        ]
+    )
+    indptr = x.indptr.copy()
+    indptr[1:] += 2
+    same = truth.copy()
+    same.X = sp.csr_matrix((data.astype(np.float32), indices, indptr), shape=x.shape)
+    assert compare(canonicalize_anndata(truth), canonicalize_anndata(same)) == []
+
+
+def test_missing_identity_is_a_finding_when_the_axis_has_columns() -> None:
+    """Two results without identity columns do not compare equal by default."""
+    frame = pd.DataFrame({"cell_type": ["a", "b"]})
+    left, right = frame_arrays("obs", frame), frame_arrays("obs", frame.iloc[::-1])
+    findings = compare(left, right)
+    assert [f.kind for f in findings] == ["column-set"]
+    assert findings[0].where == "obs" and "missing on both sides" in findings[0].detail
+
+
+def test_absent_axis_is_not_compared() -> None:
+    """A presence result has no obs and no var, and that is not a finding."""
+    presence = sp.csr_matrix(np.eye(3, dtype=bool))
+    left, right = (
+        layer_arrays("presence", presence),
+        layer_arrays("presence", presence.copy()),
+    )
+    assert compare(left, right) == []
+
+
+def test_large_integers_compare_exactly() -> None:
+    big = 2**53
+    ids = pd.DataFrame({"dataset_id": ["d"], "observation_joinid": ["c"]})
+    left = frame_arrays("obs", ids.assign(n=np.array([big], dtype=np.int64)))
+    right = frame_arrays("obs", ids.assign(n=np.array([big + 1], dtype=np.int64)))
+    findings = compare(left, right)
+    assert [f.where for f in findings] == ["obs.n"]

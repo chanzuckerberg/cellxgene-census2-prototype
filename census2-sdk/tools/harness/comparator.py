@@ -18,11 +18,15 @@ The rules:
    because the operation order of derived floating-point arithmetic can differ
    between stacks.
 4. A column present on one side only is a finding.
-5. Numeric columns compare NaN-aware (NaN equals NaN), and an int/float dtype
-   disagreement is tolerated when the values compare equal. The Census 1 SDK's dtype
-   for a nullable integer column (the spatial `array_row`, `array_col`, `in_tissue`)
-   depends on whether the selected rows include a null (evidence 18.1). A kind
-   disagreement (string vs numeric) is a finding.
+5. Two integer columns compare exactly. A float column, or an int/float pair,
+   compares NaN-aware (NaN equals NaN) in float64, and the dtype disagreement is
+   tolerated when the values compare equal. The Census 1 SDK's dtype for a nullable
+   integer column (the spatial `array_row`, `array_col`, `in_tissue`) depends on
+   whether the selected rows include a null (evidence 18.1). A kind disagreement
+   (string vs numeric) is a finding.
+6. An axis that neither side holds, such as `obs` in a presence result, is not
+   compared. An axis that either side holds must carry its identity columns on both
+   sides, or the axis is a finding.
 
 `compare` returns a list of findings. An empty list means the same answer.
 """
@@ -86,6 +90,10 @@ def _compare_axis(axis: str, left: Arrays, right: Arrays) -> list[Finding]:
             findings.append(
                 Finding("column-set", axis, "identity columns present on one side only")
             )
+        elif _column_names(left, axis) or _column_names(right, axis):
+            findings.append(
+                Finding("column-set", axis, "identity columns missing on both sides")
+            )
         return findings
 
     # 1. row sets, by identity multiset
@@ -134,7 +142,9 @@ def _compare_axis(axis: str, left: Arrays, right: Arrays) -> list[Finding]:
         lv, rv = _column(left, col), _column(right, col)
         assert lv is not None and rv is not None
         lk, rk = lv.dtype.kind, rv.dtype.kind
-        if {lk, rk} <= set("iuf"):  # rule 5: numeric, NaN-aware, dtype-tolerant
+        if {lk, rk} <= set("iu"):  # rule 5: integers compare exactly
+            neq = lv != rv
+        elif {lk, rk} <= set("iuf"):  # rule 5: floats, NaN-aware, dtype-tolerant
             l64, r64 = lv.astype(np.float64), rv.astype(np.float64)
             neq = ~((l64 == r64) | (np.isnan(l64) & np.isnan(r64)))
         elif lv.dtype != rv.dtype and (lk not in "OU" or rk not in "OU"):
