@@ -15,8 +15,6 @@ values, and its grammar is open (design section 8), so its adapter answers the e
 can express and reports the rest as unsupported.
 """
 
-from __future__ import annotations
-
 import json
 import pathlib
 from collections.abc import Iterable

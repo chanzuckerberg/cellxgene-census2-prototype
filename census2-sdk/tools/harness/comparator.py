@@ -31,8 +31,6 @@ The rules:
 `compare` returns a list of findings. An empty list means the same answer.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 
 import numpy as np
