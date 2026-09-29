@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Census 2 | Project timeline</title>
+  <style>/*__CSS__*/</style>
+</head>
+<body>
+  <a class="skip" href="#iteration-detail">Skip to iteration details</a>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">c2</span><span>CELLxGENE <b>Census 2</b></span><span class="internal">Internal</span></div>
+    <nav aria-label="Project sources" id="source-links"></nav>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">PROJECT DELIVERY / SEPTEMBER 2026 TO JANUARY 2027</p><h1>From prototype to first release.</h1><p class="lede">Follow the iteration gates. Open an iteration to see its deliverables, epics, and tasks.</p></div>
+      <div class="snapshot"><span class="snapshot-dot"></span><div><strong id="snapshot-date"></strong><small id="snapshot-age">The dashboard uses a saved Notion snapshot.</small></div></div>
+    </section>
+    <div class="summary" id="summary"></div>
+    <section class="timeline-panel" aria-labelledby="timeline-heading">
+      <div class="section-heading"><div><p class="eyebrow">DELIVERY SEQUENCE</p><h2 id="timeline-heading">Iteration timeline</h2></div><div class="legend"><span><i class="dot done"></i>Done</span><span><i class="dot current"></i>In progress</span><span><i class="diamond"></i>Proposed gate</span></div></div>
+      <div class="timeline-scroll"><div class="timeline" id="timeline"></div></div>
+      <div class="timeline-foot"><p id="schedule-note"></p><span>Statuses come from the outline.</span></div>
+    </section>
+    <div class="workspace">
+      <section class="detail-panel" id="iteration-detail" tabindex="-1" aria-labelledby="detail-title"></section>
+      <aside class="context-panel" aria-labelledby="context-title">
+        <p class="eyebrow">READ THE PLAN</p><h2 id="context-title">What the dates mean</h2>
+        <p>Each iteration ends when its gate holds. The target dates are proposals.</p>
+        <div class="checkpoint"><span class="checkpoint-date">30 OCT</span><div><h3>Prototype</h3><p>The harness checks parity on the current store set.</p></div></div>
+        <div class="checkpoint"><span class="checkpoint-date">27 NOV</span><div><h3>Preview</h3><p>The full corpus is readable in a development bucket.</p></div></div>
+        <div class="checkpoint"><span class="checkpoint-date">29 JAN</span><div><h3>First release</h3><p>The release requires sign-off and retention agreements.</p></div></div>
+        <details open class="source-note"><summary>Source and mapping notes</summary><p id="mapping-note"></p><p>The tracker phase dates differ from the outline. This timeline uses the outline dates.</p><p>Task counts describe the linked records. They do not measure gate completion or engineering effort.</p><p>Task links open the current tracker. The displayed statuses remain fixed until the snapshot is rebuilt.</p></details>
+      </aside>
+    </div>
+    <section class="task-panel" aria-labelledby="tasks-heading">
+      <div class="section-heading"><div><p class="eyebrow">NOTION TRACKER</p><h2 id="tasks-heading">Tasks in this iteration</h2></div><span id="task-count" class="count" aria-live="polite"></span></div>
+      <div class="filters"><label class="search">Search tasks<input type="search" id="search" placeholder="Task name, number, or owner"></label><label>Status<select id="status"><option value="all">All statuses</option><option>Done</option><option>In Progress</option><option>In Review</option><option>Backlog</option></select></label><label>Scope<select id="scope"><option value="iteration">Selected iteration</option><option value="all">All iterations</option></select></label><button type="button" id="reset">Reset filters</button></div>
+      <div class="table-scroll"><table><thead><tr><th scope="col">Task</th><th scope="col">Epic</th><th scope="col">Iteration</th><th scope="col">Owner / assignee</th><th scope="col">Tracker status</th></tr></thead><tbody id="tasks"></tbody></table></div>
+      <p id="empty" class="empty" hidden>No tasks match these filters.</p>
+    </section>
+    <footer><span>Census 2 / Project delivery</span><span>Notion is the source for task status. The iteration mapping is proposed.</span></footer>
+  </main>
+  <noscript><p class="empty">Enable JavaScript to use the timeline. Read the linked presentation outline in Notion for the plan.</p></noscript>
+  <script type="application/json" id="project-data">/*__DATA__*/</script>
+  <script>/*__SCRIPT__*/</script>
+</body>
+</html>

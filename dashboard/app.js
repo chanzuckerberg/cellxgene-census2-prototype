@@ -1,0 +1,88 @@
+(() => {
+  'use strict';
+  const data = JSON.parse(document.getElementById('project-data').textContent);
+  const $ = (id) => document.getElementById(id);
+  const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
+  const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
+  const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
+  const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
+  let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1';
+  const tasksFor = (id) => data.tasks.filter((task) => task.iteration === id);
+
+  $('source-links').innerHTML = link(data.sources.outline, 'Presentation outline') + link(data.sources.project, 'Project') + link(data.sources.tracker, 'Tracker');
+  $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
+  const age = Math.floor((Date.now() - Date.parse(data.capturedAt)) / 86400000);
+  $('snapshot-age').textContent = age > 0 ? `Captured ${age} day${age === 1 ? '' : 's'} ago. Task status does not refresh automatically.` : 'Task status does not refresh automatically.';
+  const done = data.tasks.filter((task) => task.status === 'Done').length;
+  $('summary').innerHTML = [
+    ['6','Iterations','plus work after the first release'],
+    [data.epics.length,'Linked epics','from the project tracker'],
+    [data.tasks.length,'Linked tasks',`${done} marked Done in the tracker`],
+    ['30 Sep','First proposed gate','End-to-end skeleton'],
+  ].map(([n,title,sub]) => `<div class="metric"><div><p class="metric-label">${esc(title)}</p><small>${esc(sub)}</small></div><strong>${esc(n)}</strong></div>`).join('');
+  $('schedule-note').textContent = data.scheduleNote;
+  $('mapping-note').textContent = data.mappingNote;
+
+  const rangeStart = Date.parse('2026-09-01T00:00:00Z');
+  const rangeEnd = Date.parse('2027-02-01T00:00:00Z');
+  const position = (value) => 100 * (Date.parse(`${value}T00:00:00Z`) - rangeStart) / (rangeEnd - rangeStart);
+  const months = [['2026-09-01','Sep 2026'],['2026-10-01','Oct'],['2026-11-01','Nov'],['2026-12-01','Dec'],['2027-01-01','Jan 2027']];
+  const grid = months.map(([value]) => `transparent ${position(value)}%, var(--line) ${position(value)}%, var(--line) calc(${position(value)}% + 1px), transparent calc(${position(value)}% + 1px)`).join(', ');
+  let prior = 0;
+  $('timeline').innerHTML = `<div class="axis"><span>Iteration / outline status</span><div class="months">${months.map(([value,label]) => `<span style="position:absolute;left:${position(value)}%">${label}</span>`).join('')}</div></div>` + data.iterations.map((item) => {
+    let track;
+    if (item.date) {
+      const end = position(item.date);
+      track = `<span class="gate-band ${item.id === '1' ? 'current' : ''}" style="--start:${prior}%;--width:${end-prior}%"><span class="gate-label">${esc(date(item.date))}</span></span>`;
+      prior = end;
+    } else {
+      track = `<span class="undated">${item.id === '0' ? '<i class="dot done"></i> Design and measurement complete' : 'No proposed date'}</span>`;
+    }
+    return `<button type="button" class="iteration-row" data-iteration="${item.id}" aria-pressed="false" aria-controls="iteration-detail" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}"><span class="row-label"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta"><i class="dot ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"></i>${esc(item.status)}</span></span></span><span class="track" style="background:linear-gradient(to right,${grid})">${track}</span></button>`;
+  }).join('');
+
+  function renderTasks() {
+    const search = $('search').value.trim().toLowerCase();
+    const status = $('status').value;
+    const all = $('scope').value === 'all';
+    const tasks = data.tasks.filter((task) => (all || task.iteration === selected) && (status === 'all' || task.status === status) && `${task.title} ${task.owner}`.toLowerCase().includes(search));
+    $('tasks-heading').textContent = all ? 'Tasks across all iterations' : 'Tasks in this iteration';
+    $('task-count').textContent = `${tasks.length} of ${all ? data.tasks.length : tasksFor(selected).length} tasks`;
+    $('empty').hidden = tasks.length > 0;
+    $('empty').textContent = tasksFor(selected).length === 0 && !all ? 'No child tasks are mapped to this iteration yet. Open the linked epics for their deliverables.' : 'No tasks match these filters.';
+    $('tasks').innerHTML = tasks.map((task) => {
+      const epic = data.epics.find((item) => item.id === task.epic);
+      return `<tr><td>${link(task.url,task.title)}</td><td>${link(epic.url,`Phase ${epic.id}`)}</td><td><button class="table-iteration" data-iteration="${task.iteration}" type="button">${task.iteration === 'later' ? 'Later' : `Iteration ${task.iteration}`}</button></td><td>${esc(task.owner)}</td><td>${badge(task.status)}</td></tr>`;
+    }).join('');
+  }
+
+  function selectIteration(id, setHash = true) {
+    const item = data.iterations.find((iteration) => iteration.id === id);
+    if (!item) return;
+    selected = id;
+    if (setHash) {
+      try { history.replaceState(null, '', `#iteration-${id}`); } catch { /* The embedded preview can restrict browser history. */ }
+    }
+    document.querySelectorAll('.iteration-row').forEach((row) => row.setAttribute('aria-pressed', String(row.dataset.iteration === id)));
+    const tasks = tasksFor(id);
+    const completed = tasks.filter((task) => task.status === 'Done').length;
+    const epics = data.epics.filter((epic) => epic.iterations.includes(id));
+    $('iteration-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">${id === 'later' ? 'DEFERRED WORK' : `ITERATION ${id}`} / PROPOSED MAPPING</p>${badge(item.status)}</div><h2 id="detail-title">${esc(item.title)}</h2><p class="delivery">${esc(item.delivery)}</p><div class="gate-box"><span class="gate-icon" aria-hidden="true">◇</span><div><p class="eyebrow">GATE SUMMARY${item.date ? ` / PROPOSED ${date(item.date,{year:'numeric'}).toUpperCase()}` : ''}</p><p>${esc(item.gate)}</p></div></div><div class="epic-heading"><h3>Related epics</h3><small>Each link opens Notion</small></div><div class="epic-list">${epics.map((epic) => link(epic.url,epic.title,'epic-link')).join('')}</div><div class="detail-notes"><h3>Source notes and open work</h3><ul>${item.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul></div><div class="detail-bottom"><span>${tasks.length ? `${completed} of ${tasks.length} mapped tasks are marked Done.` : 'No child tasks are mapped yet.'}</span>${link(data.sources.outline,'Read the outline')}</div>`;
+    renderTasks();
+  }
+
+  document.addEventListener('click', (event) => {
+    const row = event.target.closest('[data-iteration]');
+    if (row) {
+      selectIteration(row.dataset.iteration);
+      if (row.classList.contains('table-iteration')) $('iteration-detail').focus();
+    }
+  });
+  $('search').addEventListener('input',renderTasks);
+  $('status').addEventListener('change',renderTasks);
+  $('scope').addEventListener('change',renderTasks);
+  $('reset').addEventListener('click',() => { $('search').value=''; $('status').value='all'; $('scope').value='iteration'; renderTasks(); });
+  window.addEventListener('hashchange',() => selectIteration(location.hash.slice(11),false));
+  selectIteration(selected,false);
+})();
