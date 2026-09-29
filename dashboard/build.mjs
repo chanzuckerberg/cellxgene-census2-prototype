@@ -16,6 +16,7 @@ const unique = (items) => {
 };
 const iterations = unique(data.iterations);
 const epics = unique(data.epics);
+assert.equal(new Set(data.epics.map((epic) => epic.workstream)).size, data.epics.length, 'Workstream names must be unique');
 for (const palette of Object.values(palettes)) {
   assert.match(palette.ink, /^#[0-9a-f]{6}$/i);
   assert.deepEqual(new Set(Object.keys(palette.colors)), epics);
@@ -34,6 +35,7 @@ for (const iteration of data.iterations) {
   assert.ok(iteration.date === null || /^\d{4}-\d{2}-\d{2}$/.test(iteration.date));
 }
 for (const epic of data.epics) {
+  assert.ok(typeof epic.workstream === 'string' && epic.workstream.trim(), 'Each epic needs a workstream name');
   assert.match(epic.color, /^#[0-9a-f]{6}$/i);
   assert.ok(typeof epic.status === 'string' && epic.status.trim(), 'Each epic needs a tracker status');
   safeLink(epic.url);

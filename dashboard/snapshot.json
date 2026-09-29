@@ -89,7 +89,7 @@
       "date": null,
       "status": "Not started",
       "delivery": "The R client, spatial support, ecosystem migration, optional compaction, and cutover.",
-      "gate": "Each deferred phase has its own completion condition in the plan.",
+      "gate": "Each deferred workstream has its own completion condition in the plan.",
       "notes": [
         "The outline assigns no gate date to this work."
       ]
@@ -106,7 +106,8 @@
         "0"
       ],
       "trackerStart": "2026-09-07",
-      "trackerEnd": "2026-09-18"
+      "trackerEnd": "2026-09-18",
+      "workstream": "Design"
     },
     {
       "id": "1",
@@ -118,7 +119,8 @@
         "5"
       ],
       "trackerStart": "2026-09-21",
-      "trackerEnd": "2026-10-02"
+      "trackerEnd": "2026-10-02",
+      "workstream": "Approvals"
     },
     {
       "id": "2",
@@ -132,7 +134,8 @@
         "3"
       ],
       "trackerStart": "2026-09-21",
-      "trackerEnd": "2026-10-02"
+      "trackerEnd": "2026-10-02",
+      "workstream": "Validation"
     },
     {
       "id": "3",
@@ -144,7 +147,8 @@
         "later"
       ],
       "trackerStart": "2026-09-21",
-      "trackerEnd": "2026-10-02"
+      "trackerEnd": "2026-10-02",
+      "workstream": "Spatial"
     },
     {
       "id": "4",
@@ -160,7 +164,8 @@
         "4"
       ],
       "trackerStart": "2026-10-05",
-      "trackerEnd": "2026-10-16"
+      "trackerEnd": "2026-10-16",
+      "workstream": "Writer"
     },
     {
       "id": "5",
@@ -174,7 +179,8 @@
         "4"
       ],
       "trackerStart": "2026-10-19",
-      "trackerEnd": "2026-10-30"
+      "trackerEnd": "2026-10-30",
+      "workstream": "Catalog"
     },
     {
       "id": "6",
@@ -190,7 +196,8 @@
         "5"
       ],
       "trackerStart": "2026-11-02",
-      "trackerEnd": "2026-11-13"
+      "trackerEnd": "2026-11-13",
+      "workstream": "SDK"
     },
     {
       "id": "7",
@@ -202,7 +209,8 @@
         "5"
       ],
       "trackerStart": "2026-11-16",
-      "trackerEnd": "2026-11-27"
+      "trackerEnd": "2026-11-27",
+      "workstream": "Identity"
     },
     {
       "id": "8",
@@ -214,7 +222,8 @@
         "3"
       ],
       "trackerStart": "2026-11-02",
-      "trackerEnd": "2026-11-13"
+      "trackerEnd": "2026-11-13",
+      "workstream": "Backfill"
     },
     {
       "id": "9",
@@ -227,7 +236,8 @@
         "4"
       ],
       "trackerStart": "2026-11-02",
-      "trackerEnd": "2026-11-13"
+      "trackerEnd": "2026-11-13",
+      "workstream": "Ingestion"
     },
     {
       "id": "10",
@@ -240,7 +250,8 @@
         "5"
       ],
       "trackerStart": "2026-11-30",
-      "trackerEnd": "2026-12-11"
+      "trackerEnd": "2026-12-11",
+      "workstream": "Publishing"
     },
     {
       "id": "11",
@@ -252,7 +263,8 @@
         "4"
       ],
       "trackerStart": "2026-11-16",
-      "trackerEnd": "2026-11-27"
+      "trackerEnd": "2026-11-27",
+      "workstream": "Private data"
     },
     {
       "id": "12",
@@ -265,7 +277,8 @@
         "later"
       ],
       "trackerStart": "2026-12-14",
-      "trackerEnd": "2026-12-25"
+      "trackerEnd": "2026-12-25",
+      "workstream": "Migration"
     },
     {
       "id": "13",
@@ -277,7 +290,8 @@
         "later"
       ],
       "trackerStart": "2026-12-14",
-      "trackerEnd": "2026-12-25"
+      "trackerEnd": "2026-12-25",
+      "workstream": "R parity"
     },
     {
       "id": "14",
@@ -289,7 +303,8 @@
         "later"
       ],
       "trackerStart": "2026-12-14",
-      "trackerEnd": "2026-12-25"
+      "trackerEnd": "2026-12-25",
+      "workstream": "Compaction"
     },
     {
       "id": "15",
@@ -301,7 +316,8 @@
         "later"
       ],
       "trackerStart": "2026-12-28",
-      "trackerEnd": "2027-01-08"
+      "trackerEnd": "2027-01-08",
+      "workstream": "Cutover"
     }
   ],
   "tasks": [

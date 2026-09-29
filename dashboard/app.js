@@ -2,13 +2,13 @@
   'use strict';
   const data = JSON.parse(document.getElementById('project-data').textContent);
   const palettes = {
-    current: {label:'Current', description:'The original epic colours use solid fills and white labels.', ink:'#ffffff', colors:Object.fromEntries(data.epics.map((epic) => [epic.id, epic.color]))},
+    current: {label:'Current', description:'The original workstream colours use solid fills and white labels.', ink:'#ffffff', colors:Object.fromEntries(data.epics.map((epic) => [epic.id, epic.color]))},
     ...JSON.parse(document.getElementById('palette-data').textContent),
   };
   const $ = (id) => document.getElementById(id);
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
-  const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
+  const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" title="${esc(epic.title)}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(epic.workstream)} <span aria-hidden="true">↗</span></a>`;
   const statusIcons = {
     'Done':'<circle cx="10" cy="10" r="7"/><path d="m6.5 10 2.3 2.3 4.7-4.8"/>',
     'In Progress':'<circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 0 14Z" fill="currentColor" stroke="none"/>',
@@ -16,14 +16,14 @@
     'In Review':'<path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z"/><circle cx="10" cy="10" r="2"/>',
   };
   const statusIcon = (status) => `<svg class="status-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${Object.hasOwn(statusIcons,status) ? statusIcons[status] : '<circle cx="10" cy="10" r="7"/><path d="M8 7a2 2 0 1 1 3 1.7c-1 .5-1 1.3-1 1.8M10 13h0"/>'}</svg>`;
-  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="phase-drawer" aria-haspopup="dialog" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span>${statusIcon(epic.status)}</button>`).join('');
+  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-workstream="${epic.id}" aria-pressed="false" aria-controls="workstream-drawer" aria-haspopup="dialog" aria-label="${esc(epic.workstream)} workstream; tracker status: ${esc(epic.status)}. Show workstream details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.workstream)} — Tracker status: ${esc(epic.status)}"><span class="workstream-name">${esc(epic.workstream)}</span>${statusIcon(epic.status)}</button>`).join('');
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
   let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1';
   let selectedEpic = null;
-  let phaseTrigger = null;
-  const drawer = $('phase-drawer');
+  let workstreamTrigger = null;
+  const drawer = $('workstream-drawer');
   const narrowScreen = matchMedia('(max-width:1199px)');
 
   function openDrawer() {
@@ -38,21 +38,21 @@
     if (!drawer.open) return;
     drawer.close();
     document.body.classList.remove('drawer-open');
-    phaseTrigger?.focus({preventScroll:true});
+    workstreamTrigger?.focus({preventScroll:true});
   }
 
-  function dismissPhase() {
+  function dismissWorkstream() {
     selectIteration(selected);
   }
 
-  $('close-phase').addEventListener('click',dismissPhase);
-  drawer.addEventListener('cancel',(event) => { event.preventDefault(); dismissPhase(); });
+  $('close-workstream').addEventListener('click',dismissWorkstream);
+  drawer.addEventListener('cancel',(event) => { event.preventDefault(); dismissWorkstream(); });
   document.addEventListener('keydown',(event) => {
-    if (event.key === 'Escape' && drawer.open) { event.preventDefault(); dismissPhase(); }
+    if (event.key === 'Escape' && drawer.open) { event.preventDefault(); dismissWorkstream(); }
   });
   drawer.addEventListener('click',(event) => {
     const bounds = drawer.getBoundingClientRect();
-    if (narrowScreen.matches && event.target === drawer && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) dismissPhase();
+    if (narrowScreen.matches && event.target === drawer && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) dismissWorkstream();
   });
   narrowScreen.addEventListener('change',() => {
     if (drawer.open) { drawer.close(); openDrawer(); }
@@ -125,7 +125,7 @@
   $('schedule-note').textContent = data.scheduleNote;
   $('mapping-note').textContent = data.mappingNote;
   $('epic-legend').innerHTML = data.epics.map((epic) => epicLink(epic)).join('');
-  $('phase-status-key').innerHTML = '<span class="phase-status-label">Phase status</span>' + [...new Set(data.epics.map((epic) => epic.status))].map((status) => `<span>${statusIcon(status)}${esc(status)}</span>`).join('');
+  $('workstream-status-key').innerHTML = '<span class="workstream-status-label">Workstream status</span>' + [...new Set(data.epics.map((epic) => epic.status))].map((status) => `<span>${statusIcon(status)}${esc(status)}</span>`).join('');
 
   const rangeStart = Date.parse('2026-09-01T00:00:00Z');
   const rangeEnd = Date.parse('2027-02-01T00:00:00Z');
@@ -152,10 +152,10 @@
     const all = $('scope').value === 'all';
     const scopedTasks = all ? data.tasks : selectedEpic !== null ? data.tasks.filter((task) => task.epic === selectedEpic) : tasksFor(selected);
     const tasks = scopedTasks.filter((task) => (status === 'all' || task.status === status) && `${task.title} ${task.owner}`.toLowerCase().includes(search));
-    $('tasks-heading').textContent = all ? 'Tasks across all iterations' : selectedEpic !== null ? `Tasks in phase ${selectedEpic}` : 'Tasks in this iteration';
+    $('tasks-heading').textContent = all ? 'Tasks across all iterations' : selectedEpic !== null ? `Tasks in ${data.epics.find((epic) => epic.id === selectedEpic).workstream}` : 'Tasks in this iteration';
     $('task-count').textContent = `${tasks.length} of ${scopedTasks.length} tasks`;
     $('empty').hidden = tasks.length > 0;
-    $('empty').textContent = scopedTasks.length === 0 && !all ? selectedEpic !== null ? 'No child tasks are linked to this phase in the snapshot. Open the epic in Notion for its deliverables.' : 'No child tasks are mapped to this iteration yet. Open the linked epics for their deliverables.' : 'No tasks match these filters.';
+    $('empty').textContent = scopedTasks.length === 0 && !all ? selectedEpic !== null ? 'No child tasks are linked to this workstream in the snapshot. Open the epic in Notion for its deliverables.' : 'No child tasks are mapped to this iteration yet. Open the linked epics for their deliverables.' : 'No tasks match these filters.';
     $('tasks').innerHTML = tasks.map((task) => {
       const epic = data.epics.find((item) => item.id === task.epic);
       return `<tr><td>${link(task.url,task.title)}</td><td>${epicLink(epic,true)}</td><td><button class="table-iteration" data-iteration="${task.iteration}" type="button">${task.iteration === 'later' ? 'Later' : `Iteration ${task.iteration}`}</button></td><td>${esc(task.owner)}</td><td>${badge(task.status)}</td></tr>`;
@@ -177,7 +177,7 @@
     const tasks = tasksFor(id);
     const completed = tasks.filter((task) => task.status === 'Done').length;
     const epics = data.epics.filter((epic) => epic.iterations.includes(id));
-    $('iteration-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">${id === 'later' ? 'DEFERRED WORK' : `ITERATION ${id}`} / PROPOSED MAPPING</p>${badge(item.status)}</div><h2 id="detail-title">${esc(item.title)}</h2><p class="delivery">${esc(item.delivery)}</p><div class="gate-box"><span class="gate-icon" aria-hidden="true">◇</span><div><p class="eyebrow">GATE SUMMARY${item.date ? ` / PROPOSED ${date(item.date,{year:'numeric'}).toUpperCase()}` : ''}</p><p>${esc(item.gate)}</p></div></div><div class="epic-heading"><h3>Related epics</h3><small>Each link opens Notion</small></div><div class="epic-list">${epics.map((epic) => epicLink(epic)).join('')}</div><div class="detail-notes"><h3>Source notes and open work</h3><ul>${item.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul></div><div class="detail-bottom"><span>${tasks.length ? `${completed} of ${tasks.length} mapped tasks are marked Done.` : 'No child tasks are mapped yet.'}</span>${link(data.sources.outline,'Read the outline')}</div>`;
+    $('iteration-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">${id === 'later' ? 'DEFERRED WORK' : `ITERATION ${id}`} / PROPOSED MAPPING</p>${badge(item.status)}</div><h2 id="detail-title">${esc(item.title)}</h2><p class="delivery">${esc(item.delivery)}</p><div class="gate-box"><span class="gate-icon" aria-hidden="true">◇</span><div><p class="eyebrow">GATE SUMMARY${item.date ? ` / PROPOSED ${date(item.date,{year:'numeric'}).toUpperCase()}` : ''}</p><p>${esc(item.gate)}</p></div></div><div class="epic-heading"><h3>Related workstreams</h3><small>Each link opens Notion</small></div><div class="epic-list">${epics.map((epic) => epicLink(epic)).join('')}</div><div class="detail-notes"><h3>Source notes and open work</h3><ul>${item.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul></div><div class="detail-bottom"><span>${tasks.length ? `${completed} of ${tasks.length} mapped tasks are marked Done.` : 'No child tasks are mapped yet.'}</span>${link(data.sources.outline,'Read the outline')}</div>`;
     renderTasks();
   }
 
@@ -187,7 +187,7 @@
       row.classList.toggle('is-selected',active);
       row.querySelector('.row-label').setAttribute('aria-pressed',String(active));
     });
-    document.querySelectorAll('[data-phase]').forEach((button) => button.setAttribute('aria-pressed',String(button.dataset.phase === selectedEpic)));
+    document.querySelectorAll('[data-workstream]').forEach((button) => button.setAttribute('aria-pressed',String(button.dataset.workstream === selectedEpic)));
   }
 
   function selectEpic(id, setHash = true) {
@@ -196,15 +196,15 @@
     selectedEpic = id;
     if (!epic.iterations.includes(selected)) selected = epic.iterations[0];
     $('scope').value = 'selection';
-    $('scope').options[0].textContent = 'Selected phase';
+    $('scope').options[0].textContent = 'Selected workstream';
     if (setHash) {
-      try { history.replaceState(null,'',`#phase-${id}`); } catch { /* The embedded preview can restrict browser history. */ }
+      try { history.replaceState(null,'',`#workstream-${id}`); } catch { /* The embedded preview can restrict browser history. */ }
     }
     updateHighlights();
     const tasks = data.tasks.filter((task) => task.epic === id);
     const completed = tasks.filter((task) => task.status === 'Done').length;
     const iterations = data.iterations.filter((item) => epic.iterations.includes(item.id));
-    $('phase-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">PHASE ${esc(id)} / TRACKER SNAPSHOT</p>${badge(epic.status)}</div><h2 id="phase-title">${esc(epic.title)}</h2><p class="delivery">The status applies to the whole epic, across all mapped iterations.</p><div class="phase-actions">${link(epic.url,'Open epic in Notion')}<button type="button" class="table-iteration" data-iteration="${selected}">Back to ${selected === 'later' ? 'Later' : `iteration ${selected}`}</button></div><div class="epic-heading"><h3>Related iterations</h3><small>Proposed mapping</small></div><div class="epic-list">${iterations.map((item) => `<button type="button" class="table-iteration" data-iteration="${item.id}">${item.id === 'later' ? 'Later' : `Iteration ${item.id}`}: ${esc(item.title)}</button>`).join('')}</div><div class="epic-heading"><h3>Linked tasks (${tasks.length})</h3><small>${completed} marked Done</small></div>${tasks.length ? `<ul class="drawer-tasks">${tasks.map((task) => `<li>${link(task.url,task.title)}<div class="drawer-task-meta">${badge(task.status)}<span>${esc(task.owner)}</span><span>${task.iteration === 'later' ? 'Later' : `Iteration ${esc(task.iteration)}`}</span></div></li>`).join('')}</ul>` : '<p class="phase-note">No child tasks are linked in this snapshot. Open the epic in Notion for its deliverables.</p>'}<p class="phase-note">The saved status and task counts do not establish completion of an iteration gate.</p>`;
+    $('workstream-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">WORKSTREAM / TRACKER SNAPSHOT</p>${badge(epic.status)}</div><h2 id="workstream-title">${esc(epic.workstream)}</h2><p class="tracker-reference">Tracker epic: ${esc(epic.title)}</p><p class="delivery">The status applies to the whole epic, across all mapped iterations.</p><div class="workstream-actions">${link(epic.url,'Open epic in Notion')}<button type="button" class="table-iteration" data-iteration="${selected}">Back to ${selected === 'later' ? 'Later' : `iteration ${selected}`}</button></div><div class="epic-heading"><h3>Related iterations</h3><small>Proposed mapping</small></div><div class="epic-list">${iterations.map((item) => `<button type="button" class="table-iteration" data-iteration="${item.id}">${item.id === 'later' ? 'Later' : `Iteration ${item.id}`}: ${esc(item.title)}</button>`).join('')}</div><div class="epic-heading"><h3>Linked tasks (${tasks.length})</h3><small>${completed} marked Done</small></div>${tasks.length ? `<ul class="drawer-tasks">${tasks.map((task) => `<li>${link(task.url,task.title)}<div class="drawer-task-meta">${badge(task.status)}<span>${esc(task.owner)}</span><span>${task.iteration === 'later' ? 'Later' : `Iteration ${esc(task.iteration)}`}</span></div></li>`).join('')}</ul>` : '<p class="workstream-note">No child tasks are linked in this snapshot. Open the epic in Notion for its deliverables.</p>'}<p class="workstream-note">The saved status and task counts do not establish completion of an iteration gate.</p>`;
     renderTasks();
     openDrawer();
     drawer.scrollTop = 0;
@@ -215,11 +215,11 @@
     if (theme) selectTheme(theme.dataset.themeOption);
     const palette = event.target.closest('[data-palette]');
     if (palette) selectPalette(palette.dataset.palette);
-    const phase = event.target.closest('[data-phase]');
-    if (phase) {
-      phaseTrigger = phase;
-      selected = phase.closest('.iteration-row').dataset.iteration;
-      selectEpic(phase.dataset.phase);
+    const workstream = event.target.closest('[data-workstream]');
+    if (workstream) {
+      workstreamTrigger = workstream;
+      selected = workstream.closest('.iteration-row').dataset.iteration;
+      selectEpic(workstream.dataset.workstream);
       return;
     }
     const row = event.target.closest('[data-iteration]');
@@ -235,11 +235,11 @@
   $('scope').addEventListener('change',renderTasks);
   $('reset').addEventListener('click',() => { $('search').value=''; $('status').value='all'; $('scope').value='selection'; renderTasks(); });
   function selectFromHash() {
-    const phase = location.hash.startsWith('#phase-') && data.epics.find((epic) => epic.id === location.hash.slice(7));
-    if (phase) {
-      selectIteration(phase.iterations.includes(selected) ? selected : phase.iterations[0],false);
-      phaseTrigger = document.querySelector(`.iteration-row[data-iteration="${selected}"] [data-phase="${phase.id}"]`);
-      selectEpic(phase.id,false);
+    const workstream = location.hash.startsWith('#workstream-') && data.epics.find((epic) => epic.id === location.hash.slice(12));
+    if (workstream) {
+      selectIteration(workstream.iterations.includes(selected) ? selected : workstream.iterations[0],false);
+      workstreamTrigger = document.querySelector(`.iteration-row[data-iteration="${selected}"] [data-workstream="${workstream.id}"]`);
+      selectEpic(workstream.id,false);
     }
     else selectIteration(data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1',false);
   }

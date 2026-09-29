@@ -11,13 +11,16 @@ also holds the original HTML snapshot.
 Open `index.html` in a browser. The file also works as an HTML attachment in Notion.
 It contains its data, styles, and script. It makes no API requests and needs no credentials.
 
-Click a phase band to highlight that phase across the timeline. A right-side drawer shows its
+Click a workstream band to highlight that workstream across the timeline. A right-side drawer shows its
 saved status, related iterations, linked tasks, and an explicit link to the epic in Notion.
 The timeline stays interactive on desktop. On smaller screens, the drawer opens as a modal.
-Close it with the close button or Escape. Focus returns to the phase band.
-The task table also shows the phase's linked tasks. Its search and status filters still apply.
+Close it with the close button or Escape. Focus returns to the workstream band.
+The task table also shows the workstream's linked tasks. Its search and status filters still apply.
 Click an iteration label or the Back button to close the drawer and show the iteration.
-A URL with `#phase-4` opens phase 4. Phase selection does not open Notion automatically.
+A URL with `#workstream-4` opens Writer. Workstream selection does not open Notion automatically.
+Workstreams span iterations. Each maps to one tracker epic. The `workstream` field in the snapshot
+holds its short display name, such as SDK or Catalog. The drawer retains the original epic title
+and phase number for traceability. Dashboard labels do not rename records in Notion.
 
 ## Build
 
@@ -40,29 +43,29 @@ with the source files so the preview opens without a build step.
   supplies task titles, statuses, owners, and parent relations.
 - The [plan](https://app.notion.com/p/3b216a75378981c9b7f3d954789aefe4)
   and [iteration proposal](https://app.notion.com/p/68916a75378982a3908e018e928d7eb7)
-  supply the phase deliverables used for the proposed iteration mapping.
+  supply the workstream deliverables used for the proposed iteration mapping.
 
 The tracker has no iteration property. `snapshot.json` holds the proposed mapping.
 An epic can support several iterations. Each child task has one proposed iteration.
 The dashboard labels this mapping for review. It does not change the tracker.
 
-Each epic has an original colour in `snapshot.json`. Phase numbers identify the chart bands.
+Each epic has an original colour in `snapshot.json`. Workstream names identify the chart bands.
 Each band shows the epic's saved tracker status. The status applies to the whole epic, not its
 completion within each iteration. The bands do not assign separate epic dates.
-Phase bars use status icons: a circled check for Done, a half-filled circle for In Progress,
+Workstream bars use status icons: a circled check for Done, a half-filled circle for In Progress,
 an empty circle for Backlog, and an eye for In Review. The legend identifies the displayed icons.
 Tooltips, accessible labels, the drawer, and task tables retain the full status text.
 
 Midnight is the default theme. A saved choice or URL theme takes precedence.
-The theme and epic colour pickers start closed. Click the colour-settings icon to open them.
+The theme and workstream colour pickers start closed. Click the colour-settings icon to open them.
 The dashboard theme selector offers Slate, Sand, and Midnight. System uses the original green theme
 and follows the device's light or dark setting. The browser saves the choice when storage is
 available. A URL with `?theme=slate`, `?theme=sand`, or `?theme=midnight` opens that theme.
 
-The epic colour selector compares the current palette with muted and vivid variants from `palettes.json`.
+The workstream colour selector compares the current palette with muted and vivid variants from `palettes.json`.
 The selection applies to the chart, legend, and links. The browser saves the choice when storage
 is available. A URL with `?palette=muted` or `?palette=vivid` opens the selected variant.
-Theme and epic colours are independent. Combine them in one URL, such as `?theme=sand&palette=muted`.
+Theme and workstream colours are independent. Combine them in one URL, such as `?theme=sand&palette=muted`.
 
 The chart bands connect successive proposed gate dates. The first band starts at the chart's
 September boundary for display. These bands do not specify task start dates or effort.
