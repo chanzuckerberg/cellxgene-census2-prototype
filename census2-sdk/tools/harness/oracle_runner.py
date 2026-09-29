@@ -238,6 +238,7 @@ def main():
                     "query": q.label,
                     "path": path,
                     "env": env,
+                    "source": values["_source"],
                     "clamp": sample["dataset_ids"],
                 }
                 digest = write_result(out_dir, arrays, meta)
