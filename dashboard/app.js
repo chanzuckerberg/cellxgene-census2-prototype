@@ -111,7 +111,10 @@
   }
   selectTheme(hasTheme(requestedTheme) ? requestedTheme : hasTheme(savedTheme) ? savedTheme : 'midnight',false);
 
-  $('source-links').innerHTML = link(data.sources.outline, 'Presentation outline') + link(data.sources.project, 'Project') + link(data.sources.tracker, 'Tracker');
+  $('source-links').innerHTML = [
+    ['design', 'Design doc'], ['twoPager', 'Meg’s 2-pager'], ['slides', 'Slides'],
+    ['outline', 'Presentation outline'], ['project', 'Project'], ['tracker', 'Tracker'],
+  ].map(([key, label]) => link(data.sources[key], label)).join('');
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
   const age = Math.floor((Date.now() - Date.parse(data.capturedAt)) / 86400000);
   $('snapshot-age').textContent = age > 0 ? `Captured ${age} day${age === 1 ? '' : 's'} ago. Task status does not refresh automatically.` : 'Task status does not refresh automatically.';

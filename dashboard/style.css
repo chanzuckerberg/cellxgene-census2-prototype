@@ -97,6 +97,10 @@
 .metric strong{font-variant-numeric:tabular-nums;font-size:27px;letter-spacing:-1px}
 .metric:first-child{padding-left:0}
 .brand-mark{font-family:var(--mono);font-size:16px;letter-spacing:-1px}
+.topbar{flex-wrap:wrap}
+.topbar nav{flex-wrap:wrap;row-gap:10px}
+.topbar nav a{white-space:nowrap}
+.timeline-foot span{white-space:normal}
 .undated{background:transparent;border:0;padding-left:0}
 .context-panel{border-left:1px solid var(--line)}
 .section-heading{border-bottom:1px solid var(--line);margin-bottom:18px}
