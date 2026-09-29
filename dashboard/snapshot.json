@@ -99,6 +99,7 @@
     {
       "id": "0",
       "title": "Phase 0: Design",
+      "color": "#536878",
       "url": "https://app.notion.com/3c116a75378981f38f8dcaada14c7cb1",
       "status": "Done",
       "iterations": [
@@ -110,6 +111,7 @@
     {
       "id": "1",
       "title": "Phase 1: Approvals and amendments",
+      "color": "#9a6515",
       "url": "https://app.notion.com/3c116a75378981e59bd7ede8d0979c9f",
       "status": "Backlog",
       "iterations": [
@@ -121,6 +123,7 @@
     {
       "id": "2",
       "title": "Phase 2: The validation harness",
+      "color": "#4169a1",
       "url": "https://app.notion.com/3c116a7537898144a8dfc35c5a4fc76b",
       "status": "Done",
       "iterations": [
@@ -134,6 +137,7 @@
     {
       "id": "3",
       "title": "Phase 3: Spatial representation",
+      "color": "#9b4d87",
       "url": "https://app.notion.com/3c116a75378981f49523d18a20753057",
       "status": "Backlog",
       "iterations": [
@@ -145,6 +149,7 @@
     {
       "id": "4",
       "title": "Phase 4: The per-dataset writer",
+      "color": "#207a63",
       "url": "https://app.notion.com/3c116a7537898163801bfb63c1479310",
       "status": "In Progress",
       "iterations": [
@@ -160,6 +165,7 @@
     {
       "id": "5",
       "title": "Phase 5: The catalog",
+      "color": "#b25432",
       "url": "https://app.notion.com/3c116a75378981fcac74c6718cd20db9",
       "status": "Backlog",
       "iterations": [
@@ -173,6 +179,7 @@
     {
       "id": "6",
       "title": "Phase 6: The v2 Python SDK",
+      "color": "#7254a3",
       "url": "https://app.notion.com/3c116a75378981b8b046ceb75bbc5209",
       "status": "In Progress",
       "iterations": [
@@ -188,6 +195,7 @@
     {
       "id": "7",
       "title": "Phase 7: The identity proof",
+      "color": "#34768e",
       "url": "https://app.notion.com/3c116a75378981d18484fe99c15df7bf",
       "status": "Backlog",
       "iterations": [
@@ -199,6 +207,7 @@
     {
       "id": "8",
       "title": "Phase 8: Backfill ingestion",
+      "color": "#89642f",
       "url": "https://app.notion.com/3c116a7537898104a246c124afa4d08b",
       "status": "Backlog",
       "iterations": [
@@ -210,6 +219,7 @@
     {
       "id": "9",
       "title": "Phase 9: Ongoing ingestion",
+      "color": "#a94f68",
       "url": "https://app.notion.com/3c116a7537898157b527c25c60b34ea5",
       "status": "In Progress",
       "iterations": [
@@ -222,6 +232,7 @@
     {
       "id": "10",
       "title": "Phase 10: Publish",
+      "color": "#647c30",
       "url": "https://app.notion.com/3c116a753789815485ccf5cbbde45a7e",
       "status": "Backlog",
       "iterations": [
@@ -234,6 +245,7 @@
     {
       "id": "11",
       "title": "Phase 11: Private datasets",
+      "color": "#276f9d",
       "url": "https://app.notion.com/3c116a7537898130a7b7e73ac355292e",
       "status": "Backlog",
       "iterations": [
@@ -245,6 +257,7 @@
     {
       "id": "12",
       "title": "Phase 12: Migrate the ecosystem",
+      "color": "#806350",
       "url": "https://app.notion.com/3c116a753789816ba627f165ba5ca10c",
       "status": "Backlog",
       "iterations": [
@@ -257,6 +270,7 @@
     {
       "id": "13",
       "title": "Phase 13: R parity",
+      "color": "#89518f",
       "url": "https://app.notion.com/3c116a75378981a3a4e7c8585e808558",
       "status": "Backlog",
       "iterations": [
@@ -268,6 +282,7 @@
     {
       "id": "14",
       "title": "Phase 14: Compaction (optional)",
+      "color": "#347f7b",
       "url": "https://app.notion.com/3c116a75378981d5bf1ad02bcf7cebda",
       "status": "Backlog",
       "iterations": [
@@ -279,6 +294,7 @@
     {
       "id": "15",
       "title": "Phase 15: Cutover",
+      "color": "#636a9e",
       "url": "https://app.notion.com/3c116a75378981049f61d42b56047602",
       "status": "Backlog",
       "iterations": [

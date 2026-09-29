@@ -15,6 +15,7 @@ const unique = (items) => {
 };
 const iterations = unique(data.iterations);
 const epics = unique(data.epics);
+assert.equal(new Set(data.epics.map((epic) => epic.color.toLowerCase())).size, data.epics.length, 'Epic colours must be unique');
 unique(data.tasks);
 const safeLink = (value) => {
   const url = new URL(value);
@@ -26,6 +27,7 @@ for (const iteration of data.iterations) {
   assert.ok(iteration.date === null || /^\d{4}-\d{2}-\d{2}$/.test(iteration.date));
 }
 for (const epic of data.epics) {
+  assert.match(epic.color, /^#[0-9a-f]{6}$/i);
   safeLink(epic.url);
   assert.ok(epic.iterations.every((id) => iterations.has(id)));
 }
