@@ -24,14 +24,16 @@ and phase number for traceability. Dashboard labels do not rename records in Not
 
 ## Build
 
-Run this command from the repository root. It needs Node.js 18 or later.
+Run these commands from the repository root. They need Node.js 18 or later.
 
 ```sh
 node dashboard/build.mjs
+node --test dashboard/build.test.mjs
 ```
 
 The build validates the snapshot and writes `dashboard/index.html`. Commit the generated file
 with the source files so the preview opens without a build step.
+Page links must use `https://app.notion.com/p/<page-id>`. The build rejects URLs without `/p/`.
 
 ## Sources and dates
 

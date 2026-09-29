@@ -28,6 +28,7 @@ jobs:
       - name: Validate and build the dashboard
         run: |
           node --check dashboard/app.js
+          node --test dashboard/build.test.mjs
           node dashboard/build.mjs
           git diff --exit-code -- dashboard/index.html
           mkdir _site

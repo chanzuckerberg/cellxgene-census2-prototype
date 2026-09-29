@@ -26,9 +26,7 @@ for (const palette of Object.values(palettes)) {
 assert.equal(new Set(data.epics.map((epic) => epic.color.toLowerCase())).size, data.epics.length, 'Epic colours must be unique');
 unique(data.tasks);
 const safeLink = (value) => {
-  const url = new URL(value);
-  assert.equal(url.protocol, 'https:');
-  assert.ok(['app.notion.com', 'www.notion.so'].includes(url.hostname));
+  assert.match(value, /^https:\/\/app\.notion\.com\/p\/[0-9a-f]{32}$/i, 'Use the Notion page URL: https://app.notion.com/p/<page-id>');
 };
 Object.values(data.sources).forEach(safeLink);
 for (const iteration of data.iterations) {
