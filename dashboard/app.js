@@ -66,7 +66,7 @@
       } catch { /* The selection still applies without browser history. */ }
     }
   }
-  selectTheme(hasTheme(requestedTheme) ? requestedTheme : hasTheme(savedTheme) ? savedTheme : 'system',false);
+  selectTheme(hasTheme(requestedTheme) ? requestedTheme : hasTheme(savedTheme) ? savedTheme : 'midnight',false);
 
   $('source-links').innerHTML = link(data.sources.outline, 'Presentation outline') + link(data.sources.project, 'Project') + link(data.sources.tracker, 'Tracker');
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;

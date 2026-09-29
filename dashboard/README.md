@@ -41,6 +41,8 @@ The dashboard labels this mapping for review. It does not change the tracker.
 Each epic has an original colour in `snapshot.json`. Phase numbers identify the chart bands.
 The bands do not assign separate epic dates.
 
+Midnight is the default theme. A saved choice or URL theme takes precedence.
+The theme and epic colour pickers start closed. Click the colour-settings icon to open them.
 The dashboard theme selector offers Slate, Sand, and Midnight. System uses the original green theme
 and follows the device's light or dark setting. The browser saves the choice when storage is
 available. A URL with `?theme=slate`, `?theme=sand`, or `?theme=midnight` opens that theme.

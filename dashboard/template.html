@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="midnight">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -18,11 +18,16 @@
       <div><p class="eyebrow">PROJECT DELIVERY / SEPTEMBER 2026 TO JANUARY 2027</p><h1>From prototype to first release.</h1><p class="lede">Follow the iteration gates. Open an iteration to see its deliverables, epics, and tasks.</p></div>
       <div class="snapshot"><span class="snapshot-dot"></span><div><strong id="snapshot-date"></strong><small id="snapshot-age">The dashboard uses a saved Notion snapshot.</small></div></div>
     </section>
-    <div class="theme-toolbar"><div class="palette-controls" role="group" aria-label="Dashboard theme"><span class="palette-label">Dashboard theme</span><div id="theme-options"></div></div><p id="theme-description" aria-live="polite"></p></div>
+    <details class="appearance-settings">
+      <summary aria-label="Colour settings" title="Colour settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.6-3.2 1.5 1.5 0 0 1 1.2-2.4H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3Z"/><circle cx="7.5" cy="10" r="1"/><circle cx="11" cy="7" r="1"/><circle cx="15.5" cy="8.5" r="1"/></svg></summary>
+      <div class="appearance-controls">
+        <div class="theme-toolbar"><div class="palette-controls" role="group" aria-label="Dashboard theme"><span class="palette-label">Dashboard theme</span><div id="theme-options"></div></div><p id="theme-description" aria-live="polite"></p></div>
+        <div class="palette-toolbar"><div class="palette-controls" role="group" aria-label="Epic colours"><span class="palette-label">Epic colours</span><div id="palette-options"></div></div><p id="palette-description" aria-live="polite"></p></div>
+      </div>
+    </details>
     <div class="summary" id="summary"></div>
     <section class="timeline-panel" aria-labelledby="timeline-heading">
       <div class="section-heading"><div><p class="eyebrow">DELIVERY SEQUENCE</p><h2 id="timeline-heading">Iteration timeline</h2></div><div class="legend"><span><i class="dot done"></i>Done</span><span><i class="dot current"></i>In progress</span><span><i class="diamond"></i>Proposed gate</span></div></div>
-      <div class="palette-toolbar"><div class="palette-controls" role="group" aria-label="Epic colours"><span class="palette-label">Epic colours</span><div id="palette-options"></div></div><p id="palette-description" aria-live="polite"></p></div>
       <div class="timeline-scroll"><div class="timeline" id="timeline"></div></div>
       <div class="timeline-foot"><p id="schedule-note"></p><span>Statuses come from the outline.</span></div>
       <div class="epic-key"><h3>Epic colours</h3><p>Each colour identifies one epic. The bands show related epics within an iteration, with no separate epic dates.</p><div id="epic-legend" class="epic-legend" aria-label="Epic colour legend"></div></div>
