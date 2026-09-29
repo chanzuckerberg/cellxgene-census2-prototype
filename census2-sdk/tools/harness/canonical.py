@@ -5,7 +5,9 @@ rules:
 
 - `obs` rows are ordered by identity, `(dataset_id, observation_joinid)`, and `var`
   rows by `feature_id`. Position plays no part.
-- A categorical column is decoded to its values. Codes do not leave the stack.
+- A categorical column is decoded to its values. The values keep their dtype when it
+  has a NumPy form and no value is null. In every other case they become strings.
+  Codes do not leave the stack.
 - Each X layer is reordered to the sorted obs x sorted var coordinate space, as CSR
   with duplicate coordinates summed, explicit zeros removed, and sorted indices, dtype
   preserved. Raw counts are exact.
@@ -48,14 +50,13 @@ def _string_arrays(values: Iterable[Any]) -> Arrays:
 
 
 def _column_arrays(name: str, col: pd.Series) -> Arrays:
+    if isinstance(col.dtype, pd.CategoricalDtype):
+        # decode to the categories' dtype, so a numeric categorical stays numeric
+        cats = col.cat.categories.dtype
+        col = col.astype(object if col.isna().any() else cats)
     dtype = str(col.dtype)
-    if (
-        isinstance(col.dtype, pd.CategoricalDtype)
-        or col.dtype == object
-        or dtype in ("string", "str")
-    ):
-        parts = _string_arrays(col.astype(str))
-        return {f"{name}.offsets": parts["offsets"], f"{name}.bytes": parts["bytes"]}
+    if col.dtype == object or dtype in ("string", "str"):
+        return _string_column(name, col)
     if dtype.startswith(
         ("Int", "UInt", "Float", "boolean")
     ):  # nullable extension dtypes
@@ -63,7 +64,17 @@ def _column_arrays(name: str, col: pd.Series) -> Arrays:
             f"column {name} has nulls; a null policy must be decided"
         )
         col = col.astype(cast("Any", dtype.lower()))
-    return {name: np.ascontiguousarray(col.to_numpy())}
+    arr = np.ascontiguousarray(col.to_numpy())
+    if (
+        arr.dtype == object
+    ):  # an extension dtype with no NumPy form, such as tz datetimes
+        return _string_column(name, col)
+    return {name: arr}
+
+
+def _string_column(name: str, col: pd.Series) -> Arrays:
+    parts = _string_arrays(col.astype(str))
+    return {f"{name}.offsets": parts["offsets"], f"{name}.bytes": parts["bytes"]}
 
 
 def frame_arrays(kind: str, frame: pd.DataFrame) -> Arrays:
@@ -96,11 +107,17 @@ def decode_strings(offsets: np.ndarray, data: np.ndarray) -> list[str]:
 
 
 def load_result(result_dir: pathlib.Path) -> Arrays:
-    """Load a serialized result back into its arrays."""
-    return {
-        p.name.removesuffix(".npy"): np.load(p, allow_pickle=False)
-        for p in sorted(result_dir.glob("*.npy"))
-    }
+    """Load a serialized result back into its arrays.
+
+    Only the files the manifest lists are loaded, so a rewrite that dropped a column
+    does not read the stale `.npy` left behind.
+    """
+    manifest = result_dir / "manifest.json"
+    if manifest.exists():
+        names = sorted(json.loads(manifest.read_text())["files"])
+    else:
+        names = sorted(p.name.removesuffix(".npy") for p in result_dir.glob("*.npy"))
+    return {n: np.load(result_dir / f"{n}.npy", allow_pickle=False) for n in names}
 
 
 def result_digest(arrays: Arrays) -> str:
@@ -159,7 +176,7 @@ def canonicalize_anndata(adata: anndata.AnnData) -> Arrays:
         arrays.update(layer_arrays(first_layer, x))
     for lname, layer in adata.layers.items():
         # anndata 0.13 exposes X itself under the key None; it is serialized above.
-        if lname is None or lname == first_layer:
+        if lname is None or (lname == first_layer and adata.X is not None):
             continue
         arrays.update(
             layer_arrays(lname, sparse.csr_matrix(layer)[obs_order][:, var_order])

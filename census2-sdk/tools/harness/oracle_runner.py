@@ -5,9 +5,10 @@ The runner executes each corpus query through the Census 1 SDK surface (`get_ann
 serializes each result in the canonical form (`canonical.py`). Two runs of one query
 against one release give the same `result_digest`. `--verify` checks that.
 
-The top-level SDK accessors do not reach the spatial experiments, so a spatial query
-runs through `experiment.axis_query` on the same census handle. That is the code path
-`get_anndata` reaches internally (evidence 11.2). Each result records which path ran.
+The top-level SDK accessors do not reach the spatial experiments. A spatial
+`get_anndata` query runs through `experiment.axis_query` on the same census handle,
+the code path `get_anndata` reaches internally (evidence 11.2). Spatial `obs`, `var`,
+and presence queries read the SOMA objects directly. Each result records which path ran.
 
 The snapshot is bounded. An obs-filtered query is clamped to the N smallest datasets
 of each experiment (`snapshot_manifest.json`, built once from each experiment's obs).
@@ -163,7 +164,6 @@ def run_query(census, q, sample):
             "obs", order.drop(columns=["soma_joinid"], errors="ignore")
         ), path
 
-    # get_anndata
     first, *rest = q.layers
     if q.modality == "census_data":
         adata = cellxgene_census.get_anndata(

@@ -73,10 +73,8 @@ class Entry:
 
 
 CORPUS: tuple[Entry, ...] = (
-    # ---- documented-usage anchors (evidence 11.2: the baseline the no-regression
-    # threshold is set against). Filters verbatim from the Census 1 notebooks, so they
-    # bind to label columns with inline values and are scoped to human, where the
-    # documented usage lives.
+    # ---- documented-usage anchors: the baseline of the no-regression threshold (evidence 11.2).
+    # Filters verbatim from the Census 1 notebooks, so they bind to label columns, human only.
     Entry(
         key="documented_narrow",
         accessor="get_anndata",
@@ -160,8 +158,8 @@ CORPUS: tuple[Entry, ...] = (
         genes="subset",
         pair="column_locality",
     ),
-    # ---- silent-failure traps (evidence 11.2: these fail by returning a plausible
-    # subset and raising nothing)
+    # ---- silent-failure traps: a wrong stack returns a plausible subset and raises nothing
+    # (evidence 11.2)
     Entry(
         key="multivalued_disease",
         accessor="get_anndata",

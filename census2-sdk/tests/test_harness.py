@@ -5,6 +5,8 @@ that is how a broken stack presents it. Every test asserts that the comparator f
 the corruption and that the report names the right thing.
 """
 
+import json
+import pathlib
 from typing import Any, cast
 
 import anndata as ad
@@ -12,7 +14,14 @@ import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
-from harness.canonical import canonicalize_anndata, frame_arrays, layer_arrays
+from harness.canonical import (
+    canonicalize_anndata,
+    frame_arrays,
+    layer_arrays,
+    load_result,
+    result_digest,
+    write_result,
+)
 from harness.comparator import Finding, compare
 
 RNG = np.random.default_rng(7)  # fixed seed: the fixture must be reproducible
@@ -219,3 +228,39 @@ def test_large_integers_compare_exactly() -> None:
     right = frame_arrays("obs", ids.assign(n=np.array([big + 1], dtype=np.int64)))
     findings = compare(left, right)
     assert [f.where for f in findings] == ["obs.n"]
+
+
+def test_numeric_categorical_decodes_to_its_dtype(truth: ad.AnnData) -> None:
+    coded = truth.copy()
+    coded.obs["n_genes"] = pd.Categorical(coded.obs["n_genes"])
+    assert compare(canonicalize_anndata(truth), canonicalize_anndata(coded)) == []
+
+
+def test_layer_named_as_x_survives_without_x(truth: ad.AnnData) -> None:
+    only_layer = ad.AnnData(
+        obs=cast("pd.DataFrame", truth.obs), var=cast("pd.DataFrame", truth.var)
+    )
+    only_layer.layers["raw"] = x_of(truth)
+    only_layer.uns["x_layer_name"] = "raw"
+    assert "X.raw.data" in canonicalize_anndata(only_layer)
+
+
+def test_load_result_ignores_stale_files(tmp_path: pathlib.Path) -> None:
+    wide = frame_arrays("obs", pd.DataFrame({"a": [1, 2], "b": [3, 4]}))
+    narrow = frame_arrays("obs", pd.DataFrame({"a": [1, 2]}))
+    write_result(tmp_path, wide, {})
+    digest = write_result(tmp_path, narrow, {})
+    loaded = load_result(tmp_path)
+    assert set(loaded) == set(narrow)
+    assert result_digest(loaded) == digest
+    assert (
+        json.loads((tmp_path / "manifest.json").read_text())["result_digest"] == digest
+    )
+
+
+def test_extension_dtype_categorical_serializes_as_strings() -> None:
+    stamps = pd.to_datetime(["2026-01-01", "2026-01-02"]).tz_localize("UTC")
+    frame = pd.DataFrame({"when": pd.Categorical(stamps)})
+    arrays = frame_arrays("obs", frame)
+    assert set(arrays) == {"obs.when.offsets", "obs.when.bytes"}
+    assert result_digest(arrays)  # np.save with allow_pickle=False accepts every array
