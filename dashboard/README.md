@@ -12,6 +12,9 @@ Open `index.html` in a browser. The file also works as an HTML attachment in Not
 It contains its data, styles, and script. It makes no API requests and needs no credentials.
 The build embeds `favicon.svg` as the browser tab icon. The header links to the current design
 record, Meg's 2-pager, the slides, the presentation outline, the project, and the tracker.
+Click the Census 2 header to return home. This closes the drawer, selects iteration 1, clears
+task filters, closes the colour settings, and returns the page and tables to their start positions.
+The selected theme and workstream colours stay unchanged.
 
 Click a workstream band to highlight that workstream across the timeline. A right-side drawer shows its
 saved status, related iterations, linked tasks, and an explicit link to the epic in Notion.

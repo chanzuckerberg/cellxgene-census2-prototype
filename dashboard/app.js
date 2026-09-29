@@ -20,7 +20,8 @@
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
-  let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1';
+  const defaultIteration = '1';
+  let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : defaultIteration;
   let selectedEpic = null;
   let workstreamTrigger = null;
   const drawer = $('workstream-drawer');
@@ -238,7 +239,29 @@
   $('search').addEventListener('input',renderTasks);
   $('status').addEventListener('change',renderTasks);
   $('scope').addEventListener('change',renderTasks);
-  $('reset').addEventListener('click',() => { $('search').value=''; $('status').value='all'; $('scope').value='selection'; renderTasks(); });
+  function clearTaskFilters() {
+    $('search').value = '';
+    $('status').value = 'all';
+    $('scope').value = 'selection';
+  }
+  $('reset').addEventListener('click',() => { clearTaskFilters(); renderTasks(); });
+  $('dashboard-home').addEventListener('click',(event) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    clearTaskFilters();
+    selectIteration(defaultIteration,false);
+    workstreamTrigger = null;
+    document.querySelector('.appearance-settings').open = false;
+    document.querySelector('.source-note').open = true;
+    document.querySelectorAll('.timeline-scroll,.table-scroll').forEach((element) => element.scrollTo({left:0,top:0,behavior:'instant'}));
+    try {
+      const url = new URL(location.href);
+      url.hash = '';
+      history.replaceState(null,'',url);
+    } catch { /* The view still resets without browser history. */ }
+    $('dashboard-home').focus({preventScroll:true});
+    window.scrollTo({left:0,top:0,behavior:'instant'});
+  });
   function selectFromHash() {
     const workstream = location.hash.startsWith('#workstream-') && data.epics.find((epic) => epic.id === location.hash.slice(12));
     if (workstream) {
@@ -246,7 +269,7 @@
       workstreamTrigger = document.querySelector(`.iteration-row[data-iteration="${selected}"] [data-workstream="${workstream.id}"]`);
       selectEpic(workstream.id,false);
     }
-    else selectIteration(data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : '1',false);
+    else selectIteration(data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : defaultIteration,false);
   }
   window.addEventListener('hashchange',selectFromHash);
   selectFromHash();

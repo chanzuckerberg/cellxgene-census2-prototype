@@ -97,6 +97,8 @@
 .metric strong{font-variant-numeric:tabular-nums;font-size:27px;letter-spacing:-1px}
 .metric:first-child{padding-left:0}
 .brand-mark{font-family:var(--mono);font-size:16px;letter-spacing:-1px}
+.brand,.brand:hover{color:var(--ink);text-decoration:none}
+.brand:hover .brand-mark{outline:1px solid var(--teal);outline-offset:3px}
 .topbar{flex-wrap:wrap}
 .topbar nav{flex-wrap:wrap;row-gap:10px}
 .topbar nav a{white-space:nowrap}
