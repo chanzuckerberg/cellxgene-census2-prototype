@@ -11,6 +11,12 @@ also holds the original HTML snapshot.
 Open `index.html` in a browser. The file also works as an HTML attachment in Notion.
 It contains its data, styles, and script. It makes no API requests and needs no credentials.
 
+Click a phase band to highlight that phase across the timeline. The detail panel shows its saved
+status, related iterations, and an explicit link to the epic in Notion. The task table shows its
+linked tasks across all mapped iterations. Search and status filters still apply.
+Click an iteration label or the Back button to return to the iteration view.
+A URL with `#phase-4` opens phase 4. Phase selection does not open Notion automatically.
+
 ## Build
 
 Run this command from the repository root. It needs Node.js 18 or later.

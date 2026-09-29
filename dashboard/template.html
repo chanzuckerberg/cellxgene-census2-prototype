@@ -15,7 +15,7 @@
   </header>
   <main>
     <section class="intro">
-      <div><p class="eyebrow">PROJECT DELIVERY / SEPTEMBER 2026 TO JANUARY 2027</p><h1>From prototype to first release.</h1><p class="lede">Follow the iteration gates. Open an iteration to see its deliverables, epics, and tasks.</p></div>
+      <div><p class="eyebrow">PROJECT DELIVERY / SEPTEMBER 2026 TO JANUARY 2027</p><h1>From prototype to first release.</h1><p class="lede">Select an iteration for its deliverables, or a phase for its status and linked tasks.</p></div>
       <div class="snapshot"><span class="snapshot-dot"></span><div><strong id="snapshot-date"></strong><small id="snapshot-age">The dashboard uses a saved Notion snapshot.</small></div></div>
     </section>
     <details class="appearance-settings">
@@ -45,7 +45,7 @@
     </div>
     <section class="task-panel" aria-labelledby="tasks-heading">
       <div class="section-heading"><div><p class="eyebrow">NOTION TRACKER</p><h2 id="tasks-heading">Tasks in this iteration</h2></div><span id="task-count" class="count" aria-live="polite"></span></div>
-      <div class="filters"><label class="search">Search tasks<input type="search" id="search" placeholder="Task name, number, or owner"></label><label>Status<select id="status"><option value="all">All statuses</option><option>Done</option><option>In Progress</option><option>In Review</option><option>Backlog</option></select></label><label>Scope<select id="scope"><option value="iteration">Selected iteration</option><option value="all">All iterations</option></select></label><button type="button" id="reset">Reset filters</button></div>
+      <div class="filters"><label class="search">Search tasks<input type="search" id="search" placeholder="Task name, number, or owner"></label><label>Status<select id="status"><option value="all">All statuses</option><option>Done</option><option>In Progress</option><option>In Review</option><option>Backlog</option></select></label><label>Scope<select id="scope"><option value="selection">Selected iteration</option><option value="all">All iterations</option></select></label><button type="button" id="reset">Reset filters</button></div>
       <div class="table-scroll"><table><thead><tr><th scope="col">Task</th><th scope="col">Epic</th><th scope="col">Iteration</th><th scope="col">Owner / assignee</th><th scope="col">Tracker status</th></tr></thead><tbody id="tasks"></tbody></table></div>
       <p id="empty" class="empty" hidden>No tasks match these filters.</p>
     </section>
