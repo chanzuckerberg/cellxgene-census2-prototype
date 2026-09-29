@@ -41,14 +41,23 @@ packages = ["src/census2_sdk"]
 src = ["src"]
 
 [tool.pytest.ini_options]
-# The tests import tools/build_catalog.py, the Iteration 1 catalog builder.
+# The tests import tools/build_catalog.py, the Iteration 1 catalog builder, and the
+# tools/harness package.
 pythonpath = ["tools"]
 
 [tool.mypy]
 # Strict, because this package is a published API and its types are part of the
 # contract. Run mypy from this directory; see the root CLAUDE.md.
 strict = true
-# tools/build_catalog.py is checked as well, because the tests import it. The
-# Census 1 comparison script is not: cellxgene-census ships no type information.
-files = ["src", "tests", "tools/build_catalog.py"]
+# tools/build_catalog.py and the harness modules that the tests import are checked
+# as well. The Census 1 comparison script and the oracle runner are not:
+# cellxgene-census ships no type information.
+files = [
+    "src",
+    "tests",
+    "tools/build_catalog.py",
+    "tools/harness/corpus.py",
+    "tools/harness/canonical.py",
+    "tools/harness/comparator.py",
+]
 mypy_path = ["tools"]

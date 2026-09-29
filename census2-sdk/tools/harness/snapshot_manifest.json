@@ -1,0 +1,57 @@
+{
+ "census_data/callithrix_jacchus": {
+  "cells": 13722,
+  "dataset_ids": [
+   "19c78a83-561e-4a3f-bc9a-dab8ca018520",
+   "31b985c0-db79-49db-aad0-376f38e5386d",
+   "787138a6-a421-444e-8ae5-537c1842e70c"
+  ]
+ },
+ "census_data/homo_sapiens": {
+  "cells": 715,
+  "dataset_ids": [
+   "04557650-a691-4306-a56c-232fbfeb236c",
+   "0895c838-e550-48a3-a777-dbcd35d30272",
+   "149b2c3f-ee11-47a7-984b-923570280bd7"
+  ]
+ },
+ "census_data/macaca_mulatta": {
+  "cells": 11672,
+  "dataset_ids": [
+   "1f59341c-a913-4ca3-b8af-1ea33df0e8d8",
+   "885d325f-b478-408b-b184-510b4db4f85f",
+   "def3f8fe-44d3-4baa-ba90-1245e1fcfcbf"
+  ]
+ },
+ "census_data/mus_musculus": {
+  "cells": 2758,
+  "dataset_ids": [
+   "0380ddce-c31b-422a-88fe-34a1945bd949",
+   "389b1fd4-2b65-4f60-baba-feeb17507665",
+   "653c66ca-527b-4cb2-a023-a63764c1289a"
+  ]
+ },
+ "census_data/pan_troglodytes": {
+  "cells": 158099,
+  "dataset_ids": [
+   "070b36c0-773a-45d7-ac44-92f690aee9ca"
+  ]
+ },
+ "census_spatial_sequencing/homo_sapiens": {
+  "cells": 12942,
+  "dataset_ids": [
+   "001b01fe-5c70-4bda-a3aa-ee09b7899b14",
+   "00ba8341-48ec-4e4e-bb56-be0dd2dd7913",
+   "e2824739-ea79-4efd-9434-3bec079b55d3"
+  ]
+ },
+ "census_spatial_sequencing/mus_musculus": {
+  "cells": 2538,
+  "dataset_ids": [
+   "6c0f2e18-3793-4d90-88b5-12d9d6f0f4e2",
+   "c233842b-9430-41b8-8ec6-4342428e43f3",
+   "e545cafe-80f4-494e-bbb1-e95c86955756"
+  ]
+ },
+ "datasets_per_experiment": 3
+}
