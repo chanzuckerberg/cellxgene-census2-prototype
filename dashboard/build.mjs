@@ -35,6 +35,9 @@ assert.match(data.sources.twoPager, /^https:\/\/docs\.google\.com\/document\/d\/
 assert.match(data.sources.slides, /^https:\/\/docs\.google\.com\/presentation\/d\/[\w-]+\/edit(?:\?usp=sharing)?$/, 'Use a Google Slides presentation URL');
 for (const iteration of data.iterations) {
   assert.ok(iteration.date === null || /^\d{4}-\d{2}-\d{2}$/.test(iteration.date));
+  assert.ok(typeof iteration.demo === 'string' && iteration.demo.trim(), 'Each iteration needs a demo or release summary');
+  assert.ok(Array.isArray(iteration.deliverables) && iteration.deliverables.length > 0, 'Each iteration needs deliverables');
+  assert.ok(iteration.deliverables.every((text) => typeof text === 'string' && text.trim()), 'Deliverables must contain nonempty text');
 }
 for (const epic of data.epics) {
   assert.ok(typeof epic.workstream === 'string' && epic.workstream.trim(), 'Each epic needs a workstream name');

@@ -136,6 +136,7 @@
   const months = [['2026-09-01','Sep 2026'],['2026-10-01','Oct'],['2026-11-01','Nov'],['2026-12-01','Dec'],['2027-01-01','Jan 2027']];
   const grid = months.map(([value]) => `transparent ${position(value)}%, var(--line) ${position(value)}%, var(--line) calc(${position(value)}% + 1px), transparent calc(${position(value)}% + 1px)`).join(', ');
   let prior = 0;
+  const demoLabel = (item) => item.id === '0' ? 'Review' : item.id === 'later' ? 'Future deliverables' : item.id === '5' ? 'Proposed release' : 'Proposed demo';
   $('timeline').innerHTML = `<div class="axis"><span>Iteration / outline status</span><div class="months">${months.map(([value,label]) => `<span style="position:absolute;left:${position(value)}%">${label}</span>`).join('')}</div></div>` + data.iterations.map((item) => {
     const epics = data.epics.filter((epic) => epic.iterations.includes(item.id));
     let track;
@@ -146,7 +147,7 @@
     } else {
       track = `<span class="undated-group"><span class="undated">${item.id === '0' ? '<i class="dot done"></i> Design and measurement complete' : 'No proposed date'}</span><span class="undated-epics">${epicBands(epics)}</span></span>`;
     }
-    return `<div class="iteration-row" data-iteration="${item.id}" style="min-height:${item.date ? 48 + epics.length * 35 : 90}px"><button type="button" class="row-label" data-iteration="${item.id}" aria-pressed="false" aria-controls="iteration-detail" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta"><i class="dot ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"></i>${esc(item.status)}</span></span></button><div class="track" style="background:linear-gradient(to right,${grid})">${track}</div></div>`;
+    return `<div class="iteration-row" data-iteration="${item.id}" style="min-height:${item.date ? 48 + epics.length * 35 : 90}px"><button type="button" class="row-label" data-iteration="${item.id}" aria-pressed="false" aria-controls="iteration-detail" aria-describedby="demo-${item.id}" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta"><i class="dot ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"></i>${esc(item.status)}</span><span class="row-deliverable" id="demo-${item.id}"><span class="deliverable-label">${demoLabel(item)}</span>${esc(item.demo)}</span></span></button><div class="track" style="background:linear-gradient(to right,${grid})">${track}</div></div>`;
   }).join('');
 
   function renderTasks() {
@@ -181,6 +182,7 @@
     const completed = tasks.filter((task) => task.status === 'Done').length;
     const epics = data.epics.filter((epic) => epic.iterations.includes(id));
     $('iteration-detail').innerHTML = `<div class="detail-top"><p class="eyebrow">${id === 'later' ? 'DEFERRED WORK' : `ITERATION ${id}`} / PROPOSED MAPPING</p>${badge(item.status)}</div><h2 id="detail-title">${esc(item.title)}</h2><p class="delivery">${esc(item.delivery)}</p><div class="gate-box"><span class="gate-icon" aria-hidden="true">◇</span><div><p class="eyebrow">GATE SUMMARY${item.date ? ` / PROPOSED ${date(item.date,{year:'numeric'}).toUpperCase()}` : ''}</p><p>${esc(item.gate)}</p></div></div><div class="epic-heading"><h3>Related workstreams</h3><small>Each link opens Notion</small></div><div class="epic-list">${epics.map((epic) => epicLink(epic)).join('')}</div><div class="detail-notes"><h3>Source notes and open work</h3><ul>${item.notes.map((note) => `<li>${esc(note)}</li>`).join('')}</ul></div><div class="detail-bottom"><span>${tasks.length ? `${completed} of ${tasks.length} mapped tasks are marked Done.` : 'No child tasks are mapped yet.'}</span>${link(data.sources.outline,'Read the outline')}</div>`;
+    $('iteration-detail').querySelector('.delivery').insertAdjacentHTML('afterend', `<section class="iteration-deliverables" aria-labelledby="deliverables-title"><h3 id="deliverables-title">${item.id === '0' ? 'Deliverables' : 'Planned deliverables'}</h3><ul>${item.deliverables.map((text) => `<li>${esc(text)}</li>`).join('')}</ul><p class="demo-summary"><span class="deliverable-label">${demoLabel(item)}</span>${esc(item.demo)}</p></section>`);
     renderTasks();
   }
 

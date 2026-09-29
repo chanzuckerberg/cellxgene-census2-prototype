@@ -40,6 +40,13 @@ for (const [key, invalid] of [
   });
 }
 
+for (const [field, invalid] of [['demo', ''], ['deliverables', []], ['deliverables', [' ']]]) {
+  test(`the build rejects an iteration with invalid ${field}: ${JSON.stringify(invalid)}`, async (t) => {
+    const result = await buildFixture(t, (data) => { data.iterations[0][field] = invalid; });
+    assert.notEqual(result.status, 0);
+  });
+}
+
 for (const kind of ['epic', 'task', 'source']) {
   test(`the build rejects ${kind} links without /p/`, async (t) => {
     const result = await buildFixture(t, (data) => {

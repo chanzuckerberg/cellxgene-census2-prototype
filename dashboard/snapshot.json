@@ -21,6 +21,11 @@
       "date": null,
       "status": "Done",
       "delivery": "The design record, the evidence, and the plan.",
+      "demo": "Review the design record, measurements, and implementation plan.",
+      "deliverables": [
+        "The design record and implementation plan.",
+        "Measurements from the layout spike, differential harness, and catalog prototype."
+      ],
       "gate": "The design and measurement work is complete.",
       "notes": [
         "The layout spike, differential harness, and catalog prototype provide the starting evidence."
@@ -32,6 +37,12 @@
       "date": "2026-09-30",
       "status": "In progress",
       "delivery": "The writer, bulk ingestion, catalog, SDK, and one comparison with Census 1.",
+      "demo": "Run one SDK query end to end and compare its result with Census 1 on one dataset.",
+      "deliverables": [
+        "The writer and bulk ingestion pipeline produce stores for the skeleton.",
+        "The catalog and SDK return one AnnData from those stores.",
+        "One comparison checks the query result against Census 1 on one dataset."
+      ],
       "gate": "One query runs through the system and matches Census 1 on the dataset under comparison.",
       "notes": [
         "The tracker marks SDK task 6.1 Done. The outline still says the SDK is in review.",
@@ -44,6 +55,12 @@
       "date": "2026-10-30",
       "status": "Not started",
       "delivery": "Stores match Census 1 cell for cell and value for value. The team defines the retained obs columns, including perturbation fields.",
+      "demo": "Show Census 1 parity on the current store set, cell for cell and value for value.",
+      "deliverables": [
+        "Harmonized stores match Census 1 on the current store set.",
+        "The harness reports no difference against Census 1 on that set.",
+        "The retained obs columns are defined, including perturbation fields."
+      ],
       "gate": "The harness reports no difference against Census 1 on the current store set.",
       "notes": [
         "Task 6.2, the harness run through the SDK, is still a draft outside the tracker.",
@@ -56,6 +73,12 @@
       "date": "2026-11-27",
       "status": "Not started",
       "delivery": "The full corpus, a selected store layout, and the release builder provide a preview.",
+      "demo": "Query the full corpus through the catalog and SDK in a development bucket.",
+      "deliverables": [
+        "The full corpus is readable through the catalog and SDK.",
+        "The store layout is selected and the release builder is available.",
+        "A preview runs in a development bucket without production sign-off."
+      ],
       "gate": "The full corpus is readable through the catalog and SDK in a development bucket.",
       "notes": [
         "The preview has no production sign-off.",
@@ -68,6 +91,12 @@
       "date": "2026-12-18",
       "status": "Not started",
       "delivery": "The curation pipeline step, private catalogs, the filter interface, and a beta use the preview.",
+      "demo": "Show continuous ingestion and query public and authorized private data together.",
+      "deliverables": [
+        "The curation pipeline step supports continuous ingestion.",
+        "Private catalogs let authorized readers query public and private sources together.",
+        "The filter interface uses the retained obs columns, with a beta on the preview."
+      ],
       "gate": "The system supports continuous ingestion and public and private sources in one query.",
       "notes": [
         "The filter interface depends on the retained obs columns.",
@@ -80,6 +109,12 @@
       "date": "2027-01-29",
       "status": "Not started",
       "delivery": "Sign-off, identity mapping, retention agreement, the published SDK, documentation, and the first release.",
+      "demo": "Publish the first release and documented SDK after the required approvals and agreements.",
+      "deliverables": [
+        "Design sign-off, retention, and Discover artifact registration agreements.",
+        "Identity mapping and migration documentation.",
+        "The first release and the published SDK with documentation."
+      ],
       "gate": "The release and SDK are published after the required approvals and agreements.",
       "notes": [
         "Retention, Discover artifact registration, and design sign-off need agreements outside the team.",
@@ -92,6 +127,12 @@
       "date": null,
       "status": "Not started",
       "delivery": "The R client, spatial support, ecosystem migration, optional compaction, and cutover.",
+      "demo": "R, spatial support, ecosystem migration, optional compaction, and cutover; no target date yet.",
+      "deliverables": [
+        "The R client and spatial support.",
+        "Broader ecosystem migration and cutover.",
+        "Optional compaction, with a separate completion condition in the plan."
+      ],
       "gate": "Each deferred workstream has its own completion condition in the plan.",
       "notes": [
         "The outline assigns no gate date to this work."

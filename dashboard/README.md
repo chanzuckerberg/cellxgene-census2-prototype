@@ -20,6 +20,9 @@ Close it with the close button or Escape. Focus returns to the workstream band.
 The task table also shows the workstream's linked tasks. Its search and status filters still apply.
 Click an iteration label or the Back button to close the drawer and show the iteration.
 A URL with `#workstream-4` opens Writer. Workstream selection does not open Notion automatically.
+Each timeline row shows a proposed demo or release summary. Select the iteration to read its
+deliverable list and gate. These summaries come from the outline and are for team review.
+They do not establish completion or change the proposed gate dates.
 Workstreams span iterations. Each maps to one tracker epic. The `workstream` field in the snapshot
 holds its short display name, such as SDK or Catalog. The drawer retains the original epic title
 and phase number for traceability. Dashboard labels do not rename records in Notion.
