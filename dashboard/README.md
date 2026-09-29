@@ -49,6 +49,9 @@ The dashboard labels this mapping for review. It does not change the tracker.
 Each epic has an original colour in `snapshot.json`. Phase numbers identify the chart bands.
 Each band shows the epic's saved tracker status. The status applies to the whole epic, not its
 completion within each iteration. The bands do not assign separate epic dates.
+Phase bars use status icons: a circled check for Done, a half-filled circle for In Progress,
+an empty circle for Backlog, and an eye for In Review. The legend identifies the displayed icons.
+Tooltips, accessible labels, the drawer, and task tables retain the full status text.
 
 Midnight is the default theme. A saved choice or URL theme takes precedence.
 The theme and epic colour pickers start closed. Click the colour-settings icon to open them.

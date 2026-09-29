@@ -9,7 +9,14 @@
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
   const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
-  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="phase-drawer" aria-haspopup="dialog" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span><span class="epic-status">${esc(epic.status)}</span></button>`).join('');
+  const statusIcons = {
+    'Done':'<circle cx="10" cy="10" r="7"/><path d="m6.5 10 2.3 2.3 4.7-4.8"/>',
+    'In Progress':'<circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 0 14Z" fill="currentColor" stroke="none"/>',
+    'Backlog':'<circle cx="10" cy="10" r="7"/>',
+    'In Review':'<path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z"/><circle cx="10" cy="10" r="2"/>',
+  };
+  const statusIcon = (status) => `<svg class="status-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${Object.hasOwn(statusIcons,status) ? statusIcons[status] : '<circle cx="10" cy="10" r="7"/><path d="M8 7a2 2 0 1 1 3 1.7c-1 .5-1 1.3-1 1.8M10 13h0"/>'}</svg>`;
+  const epicBands = (epics) => epics.map((epic) => `<button type="button" class="epic-band" data-phase="${epic.id}" aria-pressed="false" aria-controls="phase-drawer" aria-haspopup="dialog" aria-label="${esc(epic.title)}; tracker status: ${esc(epic.status)}. Show phase details" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span>${statusIcon(epic.status)}</button>`).join('');
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
@@ -118,6 +125,7 @@
   $('schedule-note').textContent = data.scheduleNote;
   $('mapping-note').textContent = data.mappingNote;
   $('epic-legend').innerHTML = data.epics.map((epic) => epicLink(epic)).join('');
+  $('phase-status-key').innerHTML = '<span class="phase-status-label">Phase status</span>' + [...new Set(data.epics.map((epic) => epic.status))].map((status) => `<span>${statusIcon(status)}${esc(status)}</span>`).join('');
 
   const rangeStart = Date.parse('2026-09-01T00:00:00Z');
   const rangeEnd = Date.parse('2027-02-01T00:00:00Z');
