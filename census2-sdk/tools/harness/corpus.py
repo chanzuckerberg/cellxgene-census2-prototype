@@ -10,9 +10,9 @@ Each entry names a Census 1 SDK accessor (`get_anndata`, `get_obs`, `get_var`,
 vacuously, so no value is written inline.
 
 The filters are TileDB-SOMA `value_filter` strings, the language the oracle speaks. A
-stack under test translates them. The Census 2 SDK has no filter interface yet (design
-section 8), so its adapter answers the entries it can express and reports the rest as
-unsupported.
+stack under test translates them. The Census 2 SDK takes a mapping of indexed column to
+values, and its grammar is open (design section 8), so its adapter answers the entries it
+can express and reports the rest as unsupported.
 """
 
 from __future__ import annotations

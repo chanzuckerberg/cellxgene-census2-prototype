@@ -30,8 +30,9 @@ Iteration 3.
 | Query corpus | v1.0, 16 entries, 74 bound queries | `corpus.py` |
 | Snapshot bound | 3 smallest datasets per experiment | `snapshot_manifest.json` |
 
-Every serialized result embeds this record in its `manifest.json`, so a snapshot names
-the oracle that produced it (evidence 11.1).
+Every serialized result records the release, its URI, the package versions, and the
+corpus version in its `manifest.json`. A result thus names the oracle that produced it
+(evidence 11.1).
 
 ## Produce the oracle snapshot
 
@@ -50,15 +51,16 @@ The snapshot is not committed. Steps 3 and 4 gave 74 of 74 identical digests on
 2026-08-24 from a clean environment on one host. That run proves the steps and the
 pins on that host.
 
-`snapshot_manifest.json` is committed. A change to the dataset sample changes every
-digest, so regenerate it (`oracle_runner build-manifest`) only with a corpus version
-bump.
+`snapshot_manifest.json` is committed. A change to the dataset sample can change the digest
+of every clamped query, so regenerate it (`oracle_runner build-manifest`) only with a
+corpus version bump.
 
 ## Scope limits
 
-- The top-level SDK accessors do not reach the spatial experiments, so a spatial query
-  runs through `experiment.axis_query` on the same handle. Each `manifest.json`
-  records which path ran.
+- The top-level SDK accessors do not reach the spatial experiments. A spatial
+  `get_anndata` query runs through `experiment.axis_query` on the same handle, and a
+  spatial `obs`, `var`, or presence read goes to the SOMA object directly. Each
+  `manifest.json` records which path ran.
 - An obs-filtered query is clamped to the manifest's datasets. A full-corpus X read is
   the benchmark rig's subject (task 2.5).
 - The deferred corpus entries (identity coordinates, spatial scenes) have no oracle
