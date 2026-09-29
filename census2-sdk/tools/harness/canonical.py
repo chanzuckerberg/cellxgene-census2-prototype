@@ -16,8 +16,6 @@ rules:
   over the sorted file digests. Two runs agree when their result digests agree.
 """
 
-from __future__ import annotations
-
 import hashlib
 import io
 import json

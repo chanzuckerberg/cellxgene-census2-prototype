@@ -22,8 +22,6 @@ Run from `census2-sdk/tools/` in the oracle environment (see README.md):
     python -m harness.oracle_runner run --verify     # second pass, compares result digests
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import pathlib
