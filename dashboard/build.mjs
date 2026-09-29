@@ -35,6 +35,7 @@ for (const iteration of data.iterations) {
 }
 for (const epic of data.epics) {
   assert.match(epic.color, /^#[0-9a-f]{6}$/i);
+  assert.ok(typeof epic.status === 'string' && epic.status.trim(), 'Each epic needs a tracker status');
   safeLink(epic.url);
   assert.ok(epic.iterations.every((id) => iterations.has(id)));
 }

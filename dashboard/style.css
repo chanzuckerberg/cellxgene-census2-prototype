@@ -7,7 +7,8 @@
 .gate-band::after{top:7px;background:var(--ink)}
 .gate-label{position:static;display:block;padding:0 7px 6px;color:var(--ink)}
 .epic-bands{display:grid;gap:3px}
-.epic-band{display:block;background:var(--epic-color);border-radius:3px;height:16px;color:var(--epic-ink,#fff);font-size:9px;line-height:16px;padding:0 6px;white-space:nowrap;text-align:left}
+.epic-band{display:flex;flex-wrap:wrap;align-items:center;align-content:center;justify-content:space-between;column-gap:6px;background:var(--epic-color);border-radius:3px;height:32px;color:var(--epic-ink,#fff);font-size:9px;line-height:13px;padding:3px 6px;white-space:nowrap;text-align:left}
+.epic-status{font-weight:600}
 .undated-group{display:grid;gap:8px;padding:12px 10px}
 .undated-group .undated{margin:0;width:fit-content}
 .undated-epics{display:flex;flex-wrap:wrap;gap:4px}

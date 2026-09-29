@@ -39,7 +39,8 @@ An epic can support several iterations. Each child task has one proposed iterati
 The dashboard labels this mapping for review. It does not change the tracker.
 
 Each epic has an original colour in `snapshot.json`. Phase numbers identify the chart bands.
-The bands do not assign separate epic dates.
+Each band shows the epic's saved tracker status. The status applies to the whole epic, not its
+completion within each iteration. The bands do not assign separate epic dates.
 
 Midnight is the default theme. A saved choice or URL theme takes precedence.
 The theme and epic colour pickers start closed. Click the colour-settings icon to open them.

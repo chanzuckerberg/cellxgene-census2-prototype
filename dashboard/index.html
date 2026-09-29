@@ -14,7 +14,8 @@
 .gate-band::after{top:7px;background:var(--ink)}
 .gate-label{position:static;display:block;padding:0 7px 6px;color:var(--ink)}
 .epic-bands{display:grid;gap:3px}
-.epic-band{display:block;background:var(--epic-color);border-radius:3px;height:16px;color:var(--epic-ink,#fff);font-size:9px;line-height:16px;padding:0 6px;white-space:nowrap;text-align:left}
+.epic-band{display:flex;flex-wrap:wrap;align-items:center;align-content:center;justify-content:space-between;column-gap:6px;background:var(--epic-color);border-radius:3px;height:32px;color:var(--epic-ink,#fff);font-size:9px;line-height:13px;padding:3px 6px;white-space:nowrap;text-align:left}
+.epic-status{font-weight:600}
 .undated-group{display:grid;gap:8px;padding:12px 10px}
 .undated-group .undated{margin:0;width:fit-content}
 .undated-epics{display:flex;flex-wrap:wrap;gap:4px}
@@ -93,8 +94,8 @@
     <section class="timeline-panel" aria-labelledby="timeline-heading">
       <div class="section-heading"><div><p class="eyebrow">DELIVERY SEQUENCE</p><h2 id="timeline-heading">Iteration timeline</h2></div><div class="legend"><span><i class="dot done"></i>Done</span><span><i class="dot current"></i>In progress</span><span><i class="diamond"></i>Proposed gate</span></div></div>
       <div class="timeline-scroll"><div class="timeline" id="timeline"></div></div>
-      <div class="timeline-foot"><p id="schedule-note"></p><span>Statuses come from the outline.</span></div>
-      <div class="epic-key"><h3>Epic colours</h3><p>Each colour identifies one epic. The bands show related epics within an iteration, with no separate epic dates.</p><div id="epic-legend" class="epic-legend" aria-label="Epic colour legend"></div></div>
+      <div class="timeline-foot"><p id="schedule-note"></p><span>Iteration status: outline. Phase status: tracker snapshot.</span></div>
+      <div class="epic-key"><h3>Epic colours</h3><p>Each colour identifies one epic. Each band shows the epic's saved tracker status, not its completion within that iteration. The bands assign no separate epic dates.</p><div id="epic-legend" class="epic-legend" aria-label="Epic colour legend"></div></div>
     </section>
     <div class="workspace">
       <section class="detail-panel" id="iteration-detail" tabindex="-1" aria-labelledby="detail-title"></section>
@@ -129,7 +130,7 @@
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
   const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(compact ? `Phase ${epic.id}` : epic.title)} <span aria-hidden="true">↗</span></a>`;
-  const epicBands = (epics) => epics.map((epic) => `<span class="epic-band" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)}"><span>Phase ${esc(epic.id)}</span></span>`).join('');
+  const epicBands = (epics) => epics.map((epic) => `<span class="epic-band" style="--epic-color:var(--epic-${epic.id})" title="${esc(epic.title)} — Tracker status: ${esc(epic.status)}"><span>Phase ${esc(epic.id)}</span><span class="epic-status">${esc(epic.status)}</span></span>`).join('');
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
@@ -219,7 +220,7 @@
     } else {
       track = `<span class="undated-group"><span class="undated">${item.id === '0' ? '<i class="dot done"></i> Design and measurement complete' : 'No proposed date'}</span><span class="undated-epics">${epicBands(epics)}</span></span>`;
     }
-    return `<button type="button" class="iteration-row" data-iteration="${item.id}" style="min-height:${item.date ? 48 + epics.length * 19 : 90}px" aria-pressed="false" aria-controls="iteration-detail" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}; related phases ${epics.map((epic) => esc(epic.id)).join(', ')}"><span class="row-label"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta"><i class="dot ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"></i>${esc(item.status)}</span></span></span><span class="track" style="background:linear-gradient(to right,${grid})">${track}</span></button>`;
+    return `<button type="button" class="iteration-row" data-iteration="${item.id}" style="min-height:${item.date ? 48 + epics.length * 35 : 90}px" aria-pressed="false" aria-controls="iteration-detail" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}; related phases and tracker statuses: ${epics.map((epic) => `${esc(epic.id)}: ${esc(epic.status)}`).join(', ')}"><span class="row-label"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta"><i class="dot ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"></i>${esc(item.status)}</span></span></span><span class="track" style="background:linear-gradient(to right,${grid})">${track}</span></button>`;
   }).join('');
 
   function renderTasks() {
