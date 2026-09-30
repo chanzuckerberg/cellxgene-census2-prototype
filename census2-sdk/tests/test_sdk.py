@@ -302,6 +302,55 @@ def test_absent_column_selects_no_cells(corpus: dict[str, Path]) -> None:
     assert census.get_anndata("homo_sapiens", {"tissue_general": "lung"}) is None
 
 
+def test_catalog_without_a_column_keeps_the_dataset(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """A catalog that lacks an indexed column proves nothing about it (design 2.2).
+
+    Alone, and mixed with a catalog that has the column, the dataset stays in and
+    the read decides. An unrecorded `spatial` value refuses a result of two or
+    more stores. An unrecorded `gene_reference_version` refuses the row.
+    """
+    frame = catalog.load(corpus["catalog"])
+    full = frame[frame["dataset_id"] != "ds-c"]
+    partial = frame[frame["dataset_id"] == "ds-c"]
+    full.to_parquet(tmp_path / "full.parquet", index=False)
+    partial.drop(columns=["tissue"]).to_parquet(
+        tmp_path / "no-tissue.parquet", index=False
+    )
+    partial.drop(columns=["spatial"]).to_parquet(
+        tmp_path / "no-spatial.parquet", index=False
+    )
+    partial.drop(columns=["gene_reference_version"]).to_parquet(
+        tmp_path / "no-version.parquet", index=False
+    )
+
+    # The catalog keeps the store; its cells hold no lung, so the result is None.
+    alone = census2_sdk.open_census([tmp_path / "no-tissue.parquet"])
+    lung = catalog.normalize({"tissue": "lung"})
+    assert len(catalog.exclude(alone.catalog, "homo_sapiens", lung)) == 1
+    assert alone.get_anndata("homo_sapiens", {"tissue": "lung"}) is None
+
+    mixed = census2_sdk.open_census(
+        [tmp_path / "full.parquet", tmp_path / "no-tissue.parquet"]
+    )
+    result = query(mixed, {"tissue": "lung"})
+    assert result.uns["census2"]["stores_opened"] == 3
+    assert result.n_obs == expected(corpus, {"tissue": "lung"}).n_obs
+    assert query(mixed, {"tissue": "kidney"}).n_obs == 20
+
+    unknown = census2_sdk.open_census(
+        [tmp_path / "full.parquet", tmp_path / "no-spatial.parquet"]
+    )
+    assert query(unknown, {"tissue": "kidney"}).n_obs == 20
+    with pytest.raises(census2_sdk.SourceConflict, match=r"no spatial.*ds-c"):
+        unknown.get_anndata("homo_sapiens", {"dataset_id": ["ds-a", "ds-c"]})
+
+    unpinned = census2_sdk.open_census([tmp_path / "no-version.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match=r"no gene_reference.*ds-c"):
+        unpinned.get_anndata("homo_sapiens", {"tissue": "kidney"})
+
+
 def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     generator = (t for t in ["lung", "kidney"])
@@ -328,6 +377,19 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     census = census2_sdk.open_census([path])
     assert census.get_anndata("homo_sapiens", {"tissue": "nan"}) is None
     assert query(census, {"tissue": "lung"}).n_obs == 4
+
+
+def test_mask_by_category_equals_mask_by_cell() -> None:
+    """The categorical path and the per-cell fallback apply the same rule."""
+    disease = ["normal || flu", "flu", None, "normal", "cold"]
+    obs = pd.DataFrame({"disease": pd.Categorical(disease)})
+    wanted = {"disease": frozenset({"flu"})}
+    expected = np.array([True, True, False, False, False])
+    assert (census2_sdk._mask(obs, wanted) == expected).all()
+    obs["disease"] = obs["disease"].astype(object)
+    assert (census2_sdk._mask(obs, wanted) == expected).all()
+    empty = pd.DataFrame({"disease": pd.Categorical([None, None])})
+    assert not census2_sdk._mask(empty, wanted).any()
 
 
 def test_recorded_reference_must_match_the_pin(

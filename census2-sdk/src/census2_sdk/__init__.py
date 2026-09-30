@@ -38,7 +38,7 @@ import zarr
 from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
-from census2_sdk.catalog import Filter, Normalized, members, open_store
+from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
 from census2_sdk.gene_reference import ORGANISMS
 
 __all__ = [
@@ -114,22 +114,43 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
 
     Every row must record the `gene_reference_version` that this SDK pins for the
     organism. The SDK does not remap a store onto another reference. A row that
-    records none has no receipt that names the reference of its store.
+    records none has no receipt that names the reference of its store. A catalog
+    without the column records none.
+
+    Spatial and non-spatial stores do not compose. A row that records no
+    `spatial` value cannot prove that its store composes with another, so a
+    result of two or more stores refuses it. One store always composes with
+    itself. A catalog without the column records no value.
     """
-    if not len(rows):
-        return
-    recorded = rows["gene_reference_version"]
-    if bool(recorded.isna().any()):
-        missing = sorted(rows.loc[recorded.isna(), "dataset_id"].astype(str))
+    recorded = _recorded(rows, "gene_reference_version")
+    missing = sorted(
+        str(d) for d, v in zip(rows["dataset_id"], recorded, strict=True) if v is None
+    )
+    if missing:
         raise SourceConflict(f"no gene_reference_version recorded for {missing}")
-    versions = sorted(set(recorded.astype(str)))
-    if versions != [pinned]:
+    versions = sorted({str(v) for v in recorded})
+    if versions and versions != [pinned]:
         raise SourceConflict(
             f"gene_reference_version {versions} differs from the pinned {pinned!r}"
         )
-    spatial = sorted(set(rows["spatial"].astype(bool)))
-    if len(spatial) > 1:
+    if len(rows) < 2:
+        return
+    spatial = _recorded(rows, "spatial")
+    unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
+    if unknown:
+        raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
+    if len({bool(v) for v in spatial}) > 1:
         raise SourceConflict("spatial and non-spatial stores in one result")
+
+
+def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
+    """One entry per row: the recorded value, or None when the row records none.
+
+    A catalog without the column records none. `unrecorded` gives the rule.
+    """
+    if column not in rows.columns:
+        return [None] * len(rows)
+    return [None if unrecorded(v) else v for v in rows[column]]
 
 
 def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
@@ -140,13 +161,21 @@ def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
             continue  # the catalog answered it; the store holds the dataset whole
         if column not in obs.columns:
             return np.zeros(len(obs), dtype=bool)  # the catalog kept an unproven store
-        # A null matches no value, and it is not the string "nan".
-        hit = [
-            not pd.isna(value) and bool(wanted & set(members(str(value), column)))
-            for value in obs[column]
-        ]
-        mask &= np.asarray(hit, dtype=bool)
+        col = obs[column]
+        if isinstance(col.dtype, pd.CategoricalDtype):
+            # Apply the rule once for each category, then index by the codes. A
+            # null has code -1, which indexes the False at the end.
+            by_category = [_hit(c, column, wanted) for c in col.cat.categories]
+            hit = np.array(by_category + [False], dtype=bool)[col.cat.codes.to_numpy()]
+        else:
+            hit = np.fromiter((_hit(v, column, wanted) for v in col), bool, len(col))
+        mask &= hit
     return mask
+
+
+def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
+    """True when one cell's value holds a wanted member. A null holds none."""
+    return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
 def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
