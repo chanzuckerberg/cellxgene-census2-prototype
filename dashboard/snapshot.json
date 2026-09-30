@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-29T19:53:16Z",
+  "capturedAt": "2026-09-30T16:18:54Z",
   "sources": {
     "design": "https://app.notion.com/p/3d816a75378981f18f55c2bae3256a54",
     "twoPager": "https://docs.google.com/document/d/14krJ7viYnLn98sYCpiPURT7chmniOUDZ4bM0gbNyBWc/edit?usp=sharing",
@@ -20,15 +20,16 @@
       "title": "Design and measurement",
       "date": null,
       "status": "Done",
-      "delivery": "The design record, the evidence, and the plan.",
+      "delivery": "The design record, the evidence, the plan.",
       "demo": "Review the design record, measurements, and implementation plan.",
       "deliverables": [
-        "The design record and implementation plan.",
-        "Measurements from the layout spike, differential harness, and catalog prototype."
+        "The design record.",
+        "The evidence: the layout spike, the differential harness, and the catalog prototype.",
+        "The plan."
       ],
       "gate": "The design and measurement work is complete.",
       "notes": [
-        "The layout spike, differential harness, and catalog prototype provide the starting evidence."
+        "Iteration 0 is complete."
       ]
     },
     {
@@ -36,17 +37,20 @@
       "title": "End-to-end skeleton",
       "date": "2026-09-30",
       "status": "In progress",
-      "delivery": "The writer, bulk ingestion, catalog, SDK, and one comparison with Census 1.",
+      "delivery": "Writer, bulk ingestion, catalog, SDK, one check against Census 1.",
       "demo": "Run one SDK query end to end and compare its result with Census 1 on one dataset.",
       "deliverables": [
-        "The writer and bulk ingestion pipeline produce stores for the skeleton.",
-        "The catalog and SDK return one AnnData from those stores.",
-        "One comparison checks the query result against Census 1 on one dataset."
+        "The census dataset writer (PR #2, merged).",
+        "Bulk ingestion: the reconciliation job on HealthOmics (PR #2, merged). One run converted 100 datasets in one hour of wall time and produced 96 stores.",
+        "The catalog: the Iteration 1 catalog builder and the exclusion rule (PR #4, merged 2026-09-29).",
+        "The SDK skeleton: one query over the 96 stores returns one AnnData (PR #4, merged 2026-09-29).",
+        "One check against Census 1: one dataset, 4,778 cells, zero of 9,424,345 nonzeros differ."
       ],
       "gate": "One query runs through the system and matches Census 1 on the dataset under comparison.",
       "notes": [
-        "The tracker marks SDK task 6.1 Done. The outline still says the SDK is in review.",
-        "The tracker marks task 9.1 In Review. PR #2 is merged. The gate status needs a team decision."
+        "PR #2 and PR #4 are merged, and tracker task 6.1 is Done. The outline still lists PR #4 as open.",
+        "The gate condition holds on the one dataset compared. The team confirms the gate on 2026-09-30.",
+        "Harmonization is a stub. A multi-store query returns the obs columns that every selected store holds."
       ]
     },
     {
@@ -54,17 +58,18 @@
       "title": "Full harmonization",
       "date": "2026-10-30",
       "status": "Not started",
-      "delivery": "Stores match Census 1 cell for cell and value for value. The team defines the retained obs columns, including perturbation fields.",
+      "delivery": "Stores that match Census 1 cell for cell and value for value, and the obs columns a store keeps (perturbation fields included).",
       "demo": "Show Census 1 parity on the current store set, cell for cell and value for value.",
       "deliverables": [
-        "Harmonized stores match Census 1 on the current store set.",
-        "The harness reports no difference against Census 1 on that set.",
-        "The retained obs columns are defined, including perturbation fields."
+        "Stores that match Census 1 cell for cell and value for value.",
+        "The obs columns a store keeps, the perturbation fields included.",
+        "The harness query corpus run through the SDK against Census 1 (task 6.2). Its findings are the harmonization worklist, and an empty list is the gate."
       ],
       "gate": "The harness reports no difference against Census 1 on the current store set.",
       "notes": [
-        "Task 6.2, the harness run through the SDK, is still a draft outside the tracker.",
-        "Corpus v1.1 corrections are follow-ups on tasks 2.1 and 2.2. Their Done status does not close those follow-ups."
+        "Built so far: the gene projection module (task 4.2, in progress) and the harness pieces ported to census2-sdk (PR #10, draft).",
+        "Task 6.2, the harness run through the SDK, is drafted and not yet in the tracker.",
+        "Corpus v1.1 (tasks 2.1, 2.2) repins two vacuous queries and regenerates the oracle snapshot."
       ]
     },
     {
@@ -72,17 +77,19 @@
       "title": "Scale and layout",
       "date": "2026-11-27",
       "status": "Not started",
-      "delivery": "The full corpus, a selected store layout, and the release builder provide a preview.",
+      "delivery": "Preview-ready: the full corpus, the store layout decided, the release builder.",
       "demo": "Query the full corpus through the catalog and SDK in a development bucket.",
       "deliverables": [
-        "The full corpus is readable through the catalog and SDK.",
-        "The store layout is selected and the release builder is available.",
-        "A preview runs in a development bucket without production sign-off."
+        "The full corpus, readable through the catalog and the SDK in a development bucket.",
+        "The store layout decided, the X encoding included.",
+        "The release builder.",
+        "Scale measurements from the benchmark rig: data volume, request count, elapsed time, and concurrency for the wide filters."
       ],
       "gate": "The full corpus is readable through the catalog and SDK in a development bucket.",
       "notes": [
-        "The preview has no production sign-off.",
-        "The X encoding decision needs the scverse collaboration."
+        "Built so far: the layout measurements and the backfill inventory.",
+        "The X encoding decision is with scverse.",
+        "The preview has no production sign-off."
       ]
     },
     {
@@ -90,17 +97,19 @@
       "title": "Continuous ingestion and private data",
       "date": "2026-12-18",
       "status": "Not started",
-      "delivery": "The curation pipeline step, private catalogs, the filter interface, and a beta use the preview.",
+      "delivery": "The curation pipeline step, private catalogs, the filter interface over the kept obs columns, a beta on the preview.",
       "demo": "Show continuous ingestion and query public and authorized private data together.",
       "deliverables": [
-        "The curation pipeline step supports continuous ingestion.",
-        "Private catalogs let authorized readers query public and private sources together.",
-        "The filter interface uses the retained obs columns, with a beta on the preview."
+        "The curation pipeline step, on Step Functions.",
+        "Private catalogs, queried together with public data in one call.",
+        "The filter interface over the kept obs columns.",
+        "A beta on the preview."
       ],
       "gate": "The system supports continuous ingestion and public and private sources in one query.",
       "notes": [
-        "The filter interface depends on the retained obs columns.",
-        "The production runtime and artifact registration remain open decisions."
+        "Nothing is built yet. The design exists.",
+        "Where the writer runs in production and artifact registration in Discover are open decisions.",
+        "The curation pipeline step brings monitoring and alerting."
       ]
     },
     {
@@ -108,17 +117,19 @@
       "title": "Approvals and first release",
       "date": "2027-01-29",
       "status": "Not started",
-      "delivery": "Sign-off, identity mapping, retention agreement, the published SDK, documentation, and the first release.",
+      "delivery": "Sign-off, identity mapping, retention agreement, the SDK published with documentation, first release.",
       "demo": "Publish the first release and documented SDK after the required approvals and agreements.",
       "deliverables": [
-        "Design sign-off, retention, and Discover artifact registration agreements.",
-        "Identity mapping and migration documentation.",
-        "The first release and the published SDK with documentation."
+        "Formal sign-off on the design decisions.",
+        "The identity mapping from soma_joinid to (dataset_id, observation_joinid), derived from the last TileDB release.",
+        "The retention agreement with the bucket owners.",
+        "The SDK published with documentation and a migration guide.",
+        "The first release: a manifest over immutable stores plus a catalog snapshot."
       ],
       "gate": "The release and SDK are published after the required approvals and agreements.",
       "notes": [
-        "Retention, Discover artifact registration, and design sign-off need agreements outside the team.",
-        "Migration documentation belongs here. Broader ecosystem migration continues after the first release."
+        "Retention, Discover registration, design sign-off, and the store format need agreements outside the team. None has an owner yet.",
+        "Broader ecosystem migration continues after the first release."
       ]
     },
     {
@@ -126,16 +137,18 @@
       "title": "After the first release",
       "date": null,
       "status": "Not started",
-      "delivery": "The R client, spatial support, ecosystem migration, optional compaction, and cutover.",
+      "delivery": "R client, spatial, compaction, cutover.",
       "demo": "R, spatial support, ecosystem migration, optional compaction, and cutover; no target date yet.",
       "deliverables": [
-        "The R client and spatial support.",
-        "Broader ecosystem migration and cutover.",
-        "Optional compaction, with a separate completion condition in the plan."
+        "The R client, once the R stack reads sharded Zarr.",
+        "Spatial: the SpatialData representation with scenes and images. The expression data of spatial datasets is in the first release, as in Census 1.",
+        "Compaction, optional, when wide-query cost calls for it.",
+        "Cutover: retirement of the TileDB corpus and the 1.x package, inside the five-year commitment."
       ],
       "gate": "Each deferred workstream has its own completion condition in the plan.",
       "notes": [
-        "The outline assigns no gate date to this work."
+        "The outline assigns no date. Cutover follows the first release and R reading Zarr, and the last TileDB release stays supported until November 2030.",
+        "Built so far: one failed R read test."
       ]
     }
   ],
