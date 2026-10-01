@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Census 2 storage layout",
+    "output": "census-storage-layout.html",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "pipeline",
+      "type": "backend",
+      "label": "Curation pipeline step",
+      "sublabel": "ingestion caller",
+      "pos": [
+        40,
+        120
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "recon",
+      "type": "backend",
+      "label": "Reconciliation job",
+      "sublabel": "Nextflow, backfill and repair",
+      "pos": [
+        40,
+        280
+      ],
+      "size": [
+        170,
+        64
+      ]
+    },
+    {
+      "id": "writer",
+      "type": "backend",
+      "label": "Census writer",
+      "sublabel": "one shared library",
+      "pos": [
+        270,
+        200
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "h5ad",
+      "type": "database",
+      "label": ".h5ad and .rds artifacts",
+      "sublabel": "published version",
+      "pos": [
+        470,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "AnnData-Zarr store",
+      "sublabel": "one per dataset",
+      "pos": [
+        470,
+        200
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "tag": "immutable"
+    },
+    {
+      "id": "aggregates",
+      "type": "database",
+      "label": "Per-dataset aggregates",
+      "sublabel": "count files beside the store",
+      "pos": [
+        470,
+        340
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "api",
+      "type": "external",
+      "label": "Discover curation API",
+      "sublabel": "/curation/v1/datasets",
+      "pos": [
+        720,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "builder",
+      "type": "backend",
+      "label": "Catalog builder",
+      "sublabel": "one atomic write",
+      "pos": [
+        720,
+        200
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "tag": "only writer under Census prefix"
+    },
+    {
+      "id": "catalog",
+      "type": "database",
+      "label": "Live catalog",
+      "sublabel": "current.parquet + dictionary",
+      "pos": [
+        980,
+        130
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "release",
+      "type": "database",
+      "label": "Release",
+      "sublabel": "manifest, snapshot, presence",
+      "pos": [
+        980,
+        300
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "tag": "immutable"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Discover asset buckets, keyed by dataset_version_id",
+      "wraps": [
+        "h5ad",
+        "store",
+        "aggregates"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Census prefix",
+      "wraps": [
+        "catalog",
+        "release"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "pipeline-calls-writer",
+      "from": "pipeline",
+      "to": "writer",
+      "label": "calls"
+    },
+    {
+      "id": "recon-calls-writer",
+      "from": "recon",
+      "to": "writer",
+      "label": "calls"
+    },
+    {
+      "id": "writer-reads-h5ad",
+      "from": "h5ad",
+      "to": "writer",
+      "label": "source .h5ad",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "top"
+    },
+    {
+      "id": "writer-writes-store",
+      "from": "writer",
+      "to": "store",
+      "label": "writes",
+      "variant": "emphasis"
+    },
+    {
+      "id": "writer-writes-aggregates",
+      "from": "writer",
+      "to": "aggregates",
+      "label": "writes"
+    },
+    {
+      "id": "store-summary-to-builder",
+      "from": "store",
+      "to": "builder",
+      "label": "summary record",
+      "labelDy": -19
+    },
+    {
+      "id": "aggregates-to-builder",
+      "from": "aggregates",
+      "to": "builder",
+      "label": "release assembly reads",
+      "variant": "dashed"
+    },
+    {
+      "id": "api-to-builder",
+      "from": "api",
+      "to": "builder",
+      "label": "dataset metadata, artifact list",
+      "labelDy": 24
+    },
+    {
+      "id": "builder-writes-catalog",
+      "from": "builder",
+      "to": "catalog",
+      "label": "atomic write",
+      "variant": "emphasis"
+    },
+    {
+      "id": "catalog-snapshot-release",
+      "from": "catalog",
+      "to": "release",
+      "label": "snapshot",
+      "labelDy": 24
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Writers",
+      "items": [
+        "One census-writer library, two callers",
+        "Both callers must produce byte-identical stores",
+        "Both end at the catalog builder"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Discover asset buckets",
+      "items": [
+        "The store is another artifact of the dataset version",
+        "Address from dataset_version_id and artifact_revision",
+        "Aggregate files sit beside the store, outside it"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Census prefix",
+      "items": [
+        "Only the catalog builder writes here",
+        "The live catalog is rewritten after each ingestion",
+        "A release is an immutable snapshot plus presence and aggregates"
+      ]
+    }
+  ]
+}

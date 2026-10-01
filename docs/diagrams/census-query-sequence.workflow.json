@@ -1,0 +1,273 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Census 2 query sequence",
+    "output": "census-query-sequence.html",
+    "quality_profile": "showcase",
+    "legend": {
+      "entries": {
+        "frontend": {
+          "label": "SDK entry and result"
+        },
+        "backend": {
+          "label": "SDK step"
+        },
+        "security": {
+          "label": "Refusal"
+        },
+        "database": {
+          "label": "Stored object"
+        }
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "sdk",
+      "label": "SDK, on the user's machine"
+    },
+    {
+      "id": "census",
+      "label": "Census prefix"
+    },
+    {
+      "id": "stores",
+      "label": "Dataset stores, public and private buckets"
+    },
+    {
+      "id": "refused",
+      "label": "Query refused",
+      "variant": "exception"
+    }
+  ],
+  "phases": [
+    {
+      "id": "plan",
+      "label": "Plan from metadata",
+      "fromCol": 0,
+      "toCol": 2
+    },
+    {
+      "id": "read",
+      "label": "Object reads only",
+      "fromCol": 3,
+      "toCol": 4,
+      "variant": "emphasis"
+    },
+    {
+      "id": "result",
+      "label": "Result",
+      "fromCol": 5,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "resolve",
+    "prune",
+    "check",
+    "open",
+    "read",
+    "concat"
+  ],
+  "nodes": [
+    {
+      "id": "resolve",
+      "lane": "sdk",
+      "col": 0,
+      "type": "frontend",
+      "label": "Resolve sources",
+      "sublabel": "catalogs, manifests",
+      "width": 150
+    },
+    {
+      "id": "prune",
+      "lane": "sdk",
+      "col": 1,
+      "type": "backend",
+      "label": "Prune datasets",
+      "sublabel": "bitmaps and ranges",
+      "width": 150
+    },
+    {
+      "id": "check",
+      "lane": "sdk",
+      "col": 2,
+      "type": "backend",
+      "label": "Check compatibility",
+      "sublabel": "organism, gene reference",
+      "tag": "gate",
+      "width": 150
+    },
+    {
+      "id": "open",
+      "lane": "sdk",
+      "col": 3,
+      "type": "backend",
+      "label": "Open stores",
+      "sublabel": "anonymous or by grant",
+      "width": 150
+    },
+    {
+      "id": "read",
+      "lane": "sdk",
+      "col": 4,
+      "type": "backend",
+      "label": "Read in store",
+      "sublabel": "index and gene bands",
+      "width": 150
+    },
+    {
+      "id": "concat",
+      "lane": "sdk",
+      "col": 5,
+      "type": "frontend",
+      "label": "Concatenate",
+      "sublabel": "one AnnData",
+      "width": 150
+    },
+    {
+      "id": "catalog",
+      "lane": "census",
+      "col": 1,
+      "type": "database",
+      "label": "Catalog",
+      "sublabel": "live or release snapshot",
+      "width": 150
+    },
+    {
+      "id": "selected",
+      "lane": "stores",
+      "col": 3,
+      "type": "database",
+      "label": "Selected stores",
+      "sublabel": "50 kB metadata each",
+      "width": 150
+    },
+    {
+      "id": "celltable",
+      "lane": "stores",
+      "col": 4,
+      "type": "database",
+      "label": "Cell table, X bands",
+      "sublabel": "index skips chunks",
+      "width": 150
+    },
+    {
+      "id": "dup",
+      "lane": "refused",
+      "col": 0,
+      "type": "security",
+      "label": "Duplicate dataset",
+      "sublabel": "collision named",
+      "width": 150
+    },
+    {
+      "id": "incompat",
+      "lane": "refused",
+      "col": 2,
+      "type": "security",
+      "label": "Incompatible",
+      "sublabel": "versions named",
+      "width": 150
+    },
+    {
+      "id": "unreachable",
+      "lane": "refused",
+      "col": 3,
+      "type": "security",
+      "label": "Unreachable store",
+      "sublabel": "source named",
+      "width": 150
+    }
+  ],
+  "edges": [
+    {
+      "from": "resolve",
+      "to": "prune"
+    },
+    {
+      "from": "prune",
+      "to": "check"
+    },
+    {
+      "from": "check",
+      "to": "open",
+      "label": "stores that can match",
+      "variant": "emphasis"
+    },
+    {
+      "from": "open",
+      "to": "read"
+    },
+    {
+      "from": "read",
+      "to": "concat"
+    },
+    {
+      "from": "catalog",
+      "to": "prune",
+      "label": "read",
+      "role": "branch"
+    },
+    {
+      "from": "open",
+      "to": "selected",
+      "label": "open",
+      "role": "branch"
+    },
+    {
+      "from": "read",
+      "to": "celltable",
+      "label": "fetch",
+      "role": "branch"
+    },
+    {
+      "from": "resolve",
+      "to": "dup",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "check",
+      "to": "incompat",
+      "variant": "security",
+      "role": "error"
+    },
+    {
+      "from": "selected",
+      "to": "unreachable",
+      "variant": "security",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Prune before open",
+      "items": [
+        "The catalog excludes whole datasets",
+        "The per-chunk index excludes chunks inside each open store",
+        "A one-dataset query reads 2.6 percent of cell-table chunks"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Access",
+      "items": [
+        "Public stores open with anonymous reads",
+        "A private store opens with the caller's credentials",
+        "Object storage enforces the grant"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Refusals",
+      "items": [
+        "A dataset_id in two sources",
+        "Stores with different gene references",
+        "A store the caller cannot reach"
+      ]
+    }
+  ]
+}
