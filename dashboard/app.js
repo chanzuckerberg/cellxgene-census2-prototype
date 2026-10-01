@@ -126,7 +126,7 @@
     [data.iterations.filter((item) => item.id !== 'later').length,'Iterations',`${count(data.iterations,'done')} done, ${count(data.iterations,'in progress')} in progress, plus work after the first release`],
     [data.epics.length,'Linked epics',`${count(data.epics,'done')} done, ${count(data.epics,'in progress')} in progress in the tracker`],
     [data.tasks.length,'Linked tasks',`${count(data.tasks,'done')} done, ${count(data.tasks,'in review')} in review, ${count(data.tasks,'in progress')} in progress`],
-    [date(nextGate.date),'Next proposed gate',nextGate.title],
+    [date(nextGate.date),'Next gate',`${nextGate.title}, proposed`],
   ].map(([n,title,sub]) => `<div class="metric"><div><p class="metric-label">${esc(title)}</p><small>${esc(sub)}</small></div><strong>${esc(n)}</strong></div>`).join('');
   $('schedule-note').textContent = data.scheduleNote;
   $('mapping-note').textContent = data.mappingNote;
@@ -150,7 +150,7 @@
     } else {
       track = `<span class="undated-group"><span class="undated">${item.id === '0' ? '<i class="dot done"></i> Design and measurement complete' : 'No proposed date'}</span><span class="undated-epics">${epicBands(epics)}</span></span>`;
     }
-    return `<div class="iteration-row" data-iteration="${item.id}" style="min-height:${item.date ? 48 + epics.length * 35 : 90}px"><button type="button" class="row-label" data-iteration="${item.id}" aria-pressed="false" aria-controls="iteration-detail" aria-describedby="demo-${item.id}" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta"><i class="dot ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"></i>${esc(item.status)}</span><span class="row-deliverable" id="demo-${item.id}"><span class="deliverable-label">Delivers</span>${esc(item.delivery)}</span></span></button><div class="track" style="background:linear-gradient(to right,${grid})">${track}</div></div>`;
+    return `<div class="iteration-row" data-iteration="${item.id}" style="min-height:${item.date ? 48 + epics.length * 35 : 90}px"><button type="button" class="row-label" data-iteration="${item.id}" aria-pressed="false" aria-controls="iteration-detail" aria-describedby="demo-${item.id}" aria-label="${esc(item.id === 'later' ? 'Later' : `Iteration ${item.id}`)}: ${esc(item.title)}${item.date ? `, proposed gate ${date(item.date,{year:'numeric'})}` : ''}"><span class="iteration-number">${item.id === 'later' ? '+' : `0${item.id}`}</span><span><span class="row-title">${esc(item.title)}</span><span class="row-meta ${item.status === 'Done' ? 'done' : item.status === 'In progress' ? 'current' : ''}"><i class="dot"></i>${esc(item.status)}</span><span class="row-deliverable" id="demo-${item.id}"><span class="deliverable-label">Delivers</span>${esc(item.delivery)}</span></span></button><div class="track" style="background:linear-gradient(to right,${grid})">${track}</div></div>`;
   }).join('');
 
   function renderTasks() {
