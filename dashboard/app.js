@@ -119,12 +119,14 @@
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
   const age = Math.floor((Date.now() - Date.parse(data.capturedAt)) / 86400000);
   $('snapshot-age').textContent = age > 0 ? `Captured ${age} day${age === 1 ? '' : 's'} ago. Task status does not refresh automatically.` : 'Task status does not refresh automatically.';
-  const done = data.tasks.filter((task) => task.status === 'Done').length;
+  const count = (items, status) => items.filter((item) => item.status.toLowerCase() === status).length;
+  const dated = data.iterations.filter((item) => item.date);
+  const nextGate = dated.find((item) => item.status !== 'Done') || dated[dated.length - 1];
   $('summary').innerHTML = [
-    ['6','Iterations','plus work after the first release'],
-    [data.epics.length,'Linked epics','from the project tracker'],
-    [data.tasks.length,'Linked tasks',`${done} marked Done in the tracker`],
-    ['30 Sep','First proposed gate','End-to-end skeleton'],
+    [data.iterations.filter((item) => item.id !== 'later').length,'Iterations',`${count(data.iterations,'done')} done, ${count(data.iterations,'in progress')} in progress, plus work after the first release`],
+    [data.epics.length,'Linked epics',`${count(data.epics,'done')} done, ${count(data.epics,'in progress')} in progress in the tracker`],
+    [data.tasks.length,'Linked tasks',`${count(data.tasks,'done')} done, ${count(data.tasks,'in review')} in review, ${count(data.tasks,'in progress')} in progress`],
+    [date(nextGate.date),'Next proposed gate',nextGate.title],
   ].map(([n,title,sub]) => `<div class="metric"><div><p class="metric-label">${esc(title)}</p><small>${esc(sub)}</small></div><strong>${esc(n)}</strong></div>`).join('');
   $('schedule-note').textContent = data.scheduleNote;
   $('mapping-note').textContent = data.mappingNote;
