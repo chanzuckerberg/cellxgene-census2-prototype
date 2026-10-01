@@ -10,6 +10,8 @@ on:
     paths:
       - "dashboard/**"
       - ".github/workflows/dashboard.yml"
+  schedule:
+    - cron: "17 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -18,17 +20,34 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
-          persist-credentials: false
+          persist-credentials: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
+      - name: Refresh the snapshot from Notion
+        if: >-
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/project-dashboard')
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        run: |
+          node dashboard/fetch-snapshot.mjs
+          node dashboard/build.mjs
+          if ! git diff --quiet -- dashboard/snapshot.json dashboard/index.html; then
+            git config user.name github-actions
+            git config user.email github-actions@github.com
+            git commit -am "Refresh the dashboard snapshot from the tracker"
+            git push
+          fi
       - name: Validate and build the dashboard
         run: |
           node --check dashboard/app.js
-          node --test dashboard/build.test.mjs
+          node --test dashboard/build.test.mjs dashboard/fetch-snapshot.test.mjs
           node dashboard/build.mjs
           git diff --exit-code -- dashboard/index.html
           mkdir _site

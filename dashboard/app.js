@@ -118,7 +118,7 @@
   ].map(([key, label]) => link(data.sources[key], label)).join('');
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
   const age = Math.floor((Date.now() - Date.parse(data.capturedAt)) / 86400000);
-  $('snapshot-age').textContent = age > 0 ? `Captured ${age} day${age === 1 ? '' : 's'} ago. Task status does not refresh automatically.` : 'Task status does not refresh automatically.';
+  $('snapshot-age').textContent = age > 0 ? `Captured ${age} day${age === 1 ? '' : 's'} ago. Tracker fields refresh every six hours.` : 'Tracker fields refresh every six hours.';
   const count = (items, status) => items.filter((item) => item.status.toLowerCase() === status).length;
   const dated = data.iterations.filter((item) => item.date);
   const nextGate = dated.find((item) => item.status !== 'Done') || dated[dated.length - 1];

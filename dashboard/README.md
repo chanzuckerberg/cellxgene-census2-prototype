@@ -87,17 +87,22 @@ The source notes identify differences between the outline and the tracker.
 
 ## Refresh
 
-The published HTML does not refresh automatically.
+The Project dashboard workflow refreshes the tracker fields every six hours and on manual dispatch.
+`fetch-snapshot.mjs` queries the tracker data source through the Notion API, replaces the epics
+and tasks in `snapshot.json` (titles, statuses, owners, dates, URLs), sets `capturedAt`, rebuilds
+`index.html`, and commits both files when they changed. The iterations, the workstream names and
+colours, and the proposed iteration mapping stay as the snapshot holds them. A new task takes the
+first iteration of its epic.
 
-1. Fetch the outline and the project page through the Notion connector.
-2. Fetch the tracker schema for data source `b0816a75-3789-82f1-91e3-87989b8c7954`.
-3. Query the project's epics and their child tasks by the parent relation.
-4. Update the source fields in `snapshot.json` and its `capturedAt` timestamp.
-5. Review the proposed iteration mapping and the source notes.
-6. Run the build command.
-7. Open the preview and check the iteration selection, task filters, and links.
-8. Commit the updated source and generated HTML.
-9. Push the deployment branch and check the Project dashboard workflow.
+The workflow needs the repository secret `NOTION_TOKEN`: the secret of an internal Notion
+integration that has access to the tracker database. To refresh locally:
+
+```sh
+NOTION_TOKEN=... node dashboard/fetch-snapshot.mjs && node dashboard/build.mjs
+```
+
+Iteration statuses, notes, and dates come from the presentation outline. Edit them by hand in
+`snapshot.json` when the outline changes, and set `outlineEditedAt` to the outline's edit time.
 
 The Notion attachment is a separate snapshot. To update it, upload the generated HTML through
 the Notion connector and replace the page's embed with the returned `file-upload://` source.
