@@ -2,6 +2,7 @@
 // Refresh the tracker fields of snapshot.json from the Notion API.
 // Needs NOTION_TOKEN from an internal integration connected to the tracker database.
 // Keeps the dashboard's own fields (iterations, workstream names, colours, the iteration mapping).
+// The workflow runs it before the build on the schedule; the committed snapshot is the baseline.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -34,7 +35,11 @@ export async function queryAll(filter, token, fetchImpl = fetch) {
 }
 
 const text = (property) => (property?.title ?? property?.rich_text ?? []).map((part) => part.plain_text).join('');
-const person = (page, fallback) => (page.properties.Owner?.people?.[0] ?? page.properties.Assignee?.people?.[0])?.name ?? fallback ?? 'Unassigned';
+const person = (page, fallback) => {
+  // A people value can be a partial user object without a name; keep the prior owner only then.
+  const people = page.properties.Owner?.people?.length ? page.properties.Owner.people : page.properties.Assignee?.people ?? [];
+  return people.length ? people[0].name ?? fallback ?? 'Unassigned' : 'Unassigned';
+};
 const pageUrl = (page) => `https://app.notion.com/p/${page.id.replaceAll('-', '')}`;
 const numericId = (title) => title.match(/^(?:Phase\s+)?(\d+(?:\.\d+)?)/)?.[1];
 const byId = (a, b) => a.id.split('.').map(Number).reduce((cmp, n, i) => cmp || n - Number(b.id.split('.')[i] ?? -1), 0);

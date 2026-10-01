@@ -87,15 +87,17 @@ The source notes identify differences between the outline and the tracker.
 
 ## Refresh
 
-The Project dashboard workflow refreshes the tracker fields every six hours and on manual dispatch.
-`fetch-snapshot.mjs` queries the tracker data source through the Notion API, replaces the epics
-and tasks in `snapshot.json` (titles, statuses, owners, dates, URLs), sets `capturedAt`, rebuilds
-`index.html`, and commits both files when they changed. The iterations, the workstream names and
-colours, and the proposed iteration mapping stay as the snapshot holds them. A new task takes the
-first iteration of its epic.
+The Project dashboard workflow refreshes the tracker fields every six hours and on manual dispatch
+from `main`. `fetch-snapshot.mjs` queries the tracker data source through the Notion API and
+replaces the epics and tasks in `snapshot.json` (titles, statuses, owners, dates, URLs) on the
+runner. The workflow then builds and deploys from that refreshed copy. Nothing is committed: the
+committed snapshot is the hand-edited baseline, and the published page shows the tracker as of the
+last run. A failed API call or a snapshot that fails validation stops the run, and the published
+page keeps its last deployment. The iterations, the workstream names and colours, and the proposed
+iteration mapping stay as the snapshot holds them. A new task takes the first iteration of its epic.
 
-The workflow needs the repository secret `NOTION_TOKEN`: the secret of an internal Notion
-integration that has access to the tracker database. To refresh locally:
+The workflow needs the repository secret `NOTION_TOKEN`: a Notion token that can read the tracker
+database. To refresh the committed baseline locally:
 
 ```sh
 NOTION_TOKEN=... node dashboard/fetch-snapshot.mjs && node dashboard/build.mjs
