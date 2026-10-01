@@ -113,7 +113,7 @@
   selectTheme(hasTheme(requestedTheme) ? requestedTheme : hasTheme(savedTheme) ? savedTheme : 'midnight',false);
 
   $('source-links').innerHTML = [
-    ['design', 'Design doc'], ['twoPager', 'Meg’s 2-pager'], ['slides', 'Slides'],
+    ['design', 'Design doc'], ['queryDiagram', 'Query diagram'], ['twoPager', 'Meg’s 2-pager'], ['slides', 'Slides'],
     ['outline', 'Presentation outline'], ['project', 'Project'], ['tracker', 'Tracker'],
   ].map(([key, label]) => link(data.sources[key], label)).join('');
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;

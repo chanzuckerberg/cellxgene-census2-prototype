@@ -10,6 +10,15 @@ It opens the stores that remain and returns one AnnData. A release pins the exac
 and a catalog snapshot. The [design record](docs/census_zarr_design_v3_ste100.md) states the
 design in full.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/census-query-sequence.dark.png">
+  <img alt="The Census 2 query sequence, from the catalog read to one AnnData" src="docs/diagrams/census-query-sequence.light.png">
+</picture>
+
+Source: `docs/diagrams/census-query-sequence.workflow.json`. The
+[interactive diagram](https://scaling-dollop-pzyy6pk.pages.github.io/census-query-sequence.html) is
+on the dashboard site and follows the light or dark setting of the browser.
+
 ## Components
 
 | Directory | What it is |

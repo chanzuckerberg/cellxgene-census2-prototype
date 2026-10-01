@@ -5,10 +5,12 @@ on:
     branches: [main, feat/project-dashboard]
     paths:
       - "dashboard/**"
+      - "docs/diagrams/*.html"
       - ".github/workflows/dashboard.yml"
   pull_request:
     paths:
       - "dashboard/**"
+      - "docs/diagrams/*.html"
       - ".github/workflows/dashboard.yml"
   schedule:
     - cron: "17 */6 * * *"
@@ -42,6 +44,7 @@ jobs:
           if [ "$REFRESH" != "true" ]; then git diff --exit-code -- dashboard/index.html; fi
           mkdir _site
           cp dashboard/index.html _site/index.html
+          cp docs/diagrams/census-query-sequence.html _site/census-query-sequence.html
       - name: Upload the site
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5

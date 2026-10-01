@@ -33,6 +33,7 @@ for (const [key, invalid] of [
   ['twoPager', 'https://docs.google.com.evil.example/document/d/test/edit'],
   ['slides', 'javascript:alert(1)'],
   ['twoPager', 'https://docs.google.com/presentation/d/test/edit'],
+  ['queryDiagram', 'https://scaling-dollop-pzyy6pk.pages.github.io.evil.example/census-query-sequence.html'],
 ]) {
   test(`the build rejects an invalid ${key} link: ${invalid}`, async (t) => {
     const result = await buildFixture(t, (data) => { data.sources[key] = invalid; });

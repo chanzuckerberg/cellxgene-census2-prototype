@@ -33,6 +33,7 @@ for (const key of ['design', 'outline', 'project', 'plan', 'tracker', 'iteration
 }
 assert.match(data.sources.twoPager, /^https:\/\/docs\.google\.com\/document\/d\/[\w-]+\/edit(?:\?usp=sharing)?$/, 'Use a Google Docs document URL');
 assert.match(data.sources.slides, /^https:\/\/docs\.google\.com\/presentation\/d\/[\w-]+\/edit(?:\?usp=sharing)?$/, 'Use a Google Slides presentation URL');
+assert.match(data.sources.queryDiagram, /^https:\/\/scaling-dollop-pzyy6pk\.pages\.github\.io\/[\w-]+\.html$/, 'Use a page that the dashboard workflow publishes next to index.html');
 for (const iteration of data.iterations) {
   assert.ok(iteration.date === null || /^\d{4}-\d{2}-\d{2}$/.test(iteration.date));
   assert.ok(typeof iteration.demo === 'string' && iteration.demo.trim(), 'Each iteration needs a demo or release summary');

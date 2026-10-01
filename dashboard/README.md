@@ -11,7 +11,8 @@ also holds the original HTML snapshot.
 Open `index.html` in a browser. The file also works as an HTML attachment in Notion.
 It contains its data, styles, and script. It makes no API requests and needs no credentials.
 The build embeds `favicon.svg` as the browser tab icon. The header links to the current design
-record, Meg's 2-pager, the slides, the presentation outline, the project, and the tracker.
+record, the query diagram, Meg's 2-pager, the slides, the presentation outline, the project, and
+the tracker.
 Click the Census 2 header to return home. This closes the drawer, selects the iteration in progress, clears
 task filters, closes the colour settings, and returns the page and tables to their start positions.
 The selected theme and workstream colours stay unchanged.
@@ -111,8 +112,9 @@ the Notion connector and replace the page's embed with the returned `file-upload
 
 ## GitHub Pages
 
-The Project dashboard workflow builds the site and publishes only `index.html`.
-It checks that Pages has private access before each deployment. GitHub sign-in and repository
+The Project dashboard workflow builds the site and publishes `index.html` and the query sequence
+diagram, `docs/diagrams/census-query-sequence.html`, as a second page. The diagram is an Archify
+viewer with a light and dark theme. It checks that Pages has private access before each deployment. GitHub sign-in and repository
 read access are required. The internal repository grants read access to enterprise members.
 
 The workflow deploys dashboard changes from `feat/project-dashboard` and `main`.
