@@ -20,7 +20,7 @@
   const date = (value, options = {}) => new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'short', timeZone:'UTC', ...options}).format(new Date(value));
   const statusClass = (value) => value.toLowerCase() === 'done' ? 'done' : value.toLowerCase() === 'in progress' ? 'active' : value.toLowerCase() === 'in review' ? 'review' : '';
   const badge = (status) => `<span class="badge ${statusClass(status)}">${esc(status)}</span>`;
-  const defaultIteration = '1';
+  const defaultIteration = (data.iterations.find((item) => item.status === 'In progress') || data.iterations[0]).id;
   let selected = data.iterations.some((item) => `#iteration-${item.id}` === location.hash) ? location.hash.slice(11) : defaultIteration;
   let selectedEpic = null;
   let workstreamTrigger = null;

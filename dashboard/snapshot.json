@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-09-30T16:18:54Z",
+  "capturedAt": "2026-10-01T17:15:16Z",
   "sources": {
     "design": "https://app.notion.com/p/3d816a75378981f18f55c2bae3256a54",
     "twoPager": "https://docs.google.com/document/d/14krJ7viYnLn98sYCpiPURT7chmniOUDZ4bM0gbNyBWc/edit?usp=sharing",
@@ -36,7 +36,7 @@
       "id": "1",
       "title": "End-to-end skeleton",
       "date": "2026-09-30",
-      "status": "In progress",
+      "status": "Done",
       "delivery": "Writer, bulk ingestion, catalog, SDK, one check against Census 1.",
       "demo": "Run one SDK query end to end and compare its result with Census 1 on one dataset.",
       "deliverables": [
@@ -48,16 +48,16 @@
       ],
       "gate": "One query runs through the system and matches Census 1 on the dataset under comparison.",
       "notes": [
-        "PR #2 and PR #4 are merged, and tracker task 6.1 is Done. The outline still lists PR #4 as open.",
-        "The gate condition holds on the one dataset compared. The team confirms the gate on 2026-09-30.",
-        "Harmonization is a stub. A multi-store query returns the obs columns that every selected store holds."
+        "Iteration 1 is complete. The team confirmed the gate on 2026-09-30.",
+        "PR #2 and PR #4 are merged, and tracker task 6.1 is Done.",
+        "Harmonization is a stub. A multi-store query returns the obs columns that every selected store holds. Iteration 2 replaces the stub."
       ]
     },
     {
       "id": "2",
       "title": "Full harmonization",
       "date": "2026-10-30",
-      "status": "Not started",
+      "status": "In progress",
       "delivery": "Stores that match Census 1 cell for cell and value for value, and the obs columns a store keeps (perturbation fields included).",
       "demo": "Show Census 1 parity on the current store set, cell for cell and value for value.",
       "deliverables": [
