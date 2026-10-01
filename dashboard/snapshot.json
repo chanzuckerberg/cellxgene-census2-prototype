@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-10-01T17:25:50Z",
+  "capturedAt": "2026-10-01T17:27:31Z",
   "sources": {
     "design": "https://app.notion.com/p/3d816a75378981f18f55c2bae3256a54",
     "twoPager": "https://docs.google.com/document/d/14krJ7viYnLn98sYCpiPURT7chmniOUDZ4bM0gbNyBWc/edit?usp=sharing",
@@ -67,7 +67,7 @@
       ],
       "gate": "The harness reports no difference against Census 1 on the current store set.",
       "notes": [
-        "Built so far: the gene projection module (task 4.2, in progress) and the harness pieces ported to census2-sdk (PR #10, draft).",
+        "Built so far: the gene projection module (task 4.2, PR #7 in review) and the harness pieces ported to census2-sdk (PR #10, draft).",
         "Task 6.2, the harness run through the SDK, is drafted and not yet in the tracker.",
         "Corpus v1.1 (tasks 2.1, 2.2) repins two vacuous queries and regenerates the oracle snapshot."
       ]
@@ -448,7 +448,7 @@
       "id": "4.2",
       "title": "4.2 Build the gene-reference projection module",
       "url": "https://app.notion.com/p/3c116a75378981429cc1c76307369ee5",
-      "status": "In Progress",
+      "status": "In Review",
       "epic": "4",
       "iteration": "2",
       "owner": "Unassigned",
