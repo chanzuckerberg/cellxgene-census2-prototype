@@ -12,11 +12,13 @@ repository, branch `spike/validation-harness`, `tools/validation_harness/`.
 | `oracle_runner.py`, `requirements-oracle.lock`, `snapshot_manifest.json` | 2.2 | Records the Census 1 answers in the canonical form |
 | `canonical.py` | 2.3 | The canonical result form: rows by identity, decoded categoricals, sorted CSR, `.npy` parts, a digest |
 | `comparator.py` | 2.3 | The diff between two canonical results. Its corruption suite is `tests/test_harness.py` |
+| `sdk_adapter.py` | 6.2 | Answers a bound query through the Census 2 SDK, or names why the SDK cannot |
+| `compare_stacks.py` | 6.2 | Runs the corpus through the SDK, compares with the recorded Census 1 answers, and names the task that owns each finding |
 
 Not ported: the fixture reader over converted TileDB data (`zarr_adapter.py`,
-`make_fixtures.py`, `compare_stacks.py`), the benchmark rig (2.5), and the catalog
-prototype. The writer's stores and the SDK replace the first group. The rig returns in
-Iteration 3.
+`make_fixtures.py`, and the fixture driver of the same name as `compare_stacks.py`), the
+benchmark rig (2.5), and the catalog prototype. The writer's stores and the SDK replace the
+first group. The rig returns in Iteration 3.
 
 ## The pins
 
@@ -92,6 +94,40 @@ colliding feature name) keep their v1.0 values.
 No dataset of the 73 holds vasculature cells, so `documented_narrow` selects no cells on
 either stack. The steps of the previous section produce the whole v1.1 snapshot, 74
 results. To regenerate the human results only, add `--only census_data/homo_sapiens`.
+
+## Run the SDK against Census 1
+
+`compare_stacks.py` reads the catalog of the stores under test and the oracle snapshot.
+`obstore` reads S3 credentials from the environment. From `census2-sdk/tools/`:
+
+```sh
+eval "$(aws configure export-credentials --profile single-cell-dev --format env)"
+export AWS_REGION=us-west-2
+../.venv/bin/python -m harness.compare_stacks CATALOG --out results/sdk_vs_census1.json
+```
+
+The driver prints one line for each query:
+
+| Status | Meaning |
+| --- | --- |
+| `pass` | No finding, other than the genes that only one side holds |
+| `fail` | At least one finding. The first five follow the line. |
+| `vacuous` | Neither side holds a cell. The findings stay on record. |
+| `unsupported` | The SDK cannot express the query. The line names the reason. |
+| `skip` | The catalog holds no store of the experiment's clamp sample |
+
+The adapter translates equality and membership clauses into the SDK's filter mapping and
+adds the clamp as a `dataset_id` filter. The SDK has no var filter, so a `feature_id`
+filter selects genes from the result after the read. A numeric or `!=` clause, a column
+that the catalog does not index, and the `get_obs`, `get_var`, and presence accessors are
+unsupported.
+
+The SDK's `var` is the whole pinned reference, and the comparator compares no X value
+while the gene sets differ. The driver thus restricts both sides to the shared genes and
+records the genes of one side only as a finding of their own. Each finding names the task
+that removes it (the `OWNERS` table in `compare_stacks.py`). A label difference whose term
+ID agrees goes to "re-curation", because the stores hold later dataset versions than
+release 2025-11-08.
 
 ## Scope limits
 

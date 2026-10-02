@@ -1,0 +1,1785 @@
+{
+ "catalog": {
+  "file": "catalog.parquet",
+  "sha256": "354adcf42fde75a09de1b11b881c95f57c72e4c62664156808cbeec7e8acd8a5",
+  "stores": 96,
+  "store_prefix": "s3://mlin-census-scratch/census2-ingest-100-v2/out/"
+ },
+ "summary": {
+  "status": {
+   "vacuous": 1,
+   "fail": 8,
+   "unsupported": 5,
+   "skip": 60
+  },
+  "by_owner": {
+   "4.2": {
+    "column-set var.feature_version": 9,
+    "row-set var genes": 7
+   },
+   "4.4": {
+    "column-set obs.Bcell_UCell": 1,
+    "column-set obs.CD4Prolif_UCell": 1,
+    "column-set obs.CD4T_UCell": 1,
+    "column-set obs.CD56bright_UCell": 1,
+    "column-set obs.CD56dim_UCell": 1,
+    "column-set obs.CD8Prolif_UCell": 1,
+    "column-set obs.CD8T_UCell": 1,
+    "column-set obs.CTaa": 1,
+    "column-set obs.CTgene": 1,
+    "column-set obs.CTnt": 1,
+    "column-set obs.CTstrict": 1,
+    "column-set obs.Epithelial_UCell": 1,
+    "column-set obs.Erythrocyte_UCell": 1,
+    "column-set obs.Erythrocytes_UCell": 1,
+    "column-set obs.Frequency": 1,
+    "column-set obs.G2M_score": 1,
+    "column-set obs.HSPC_UCell": 1,
+    "column-set obs.Immune_UCell": 1,
+    "column-set obs.Lymphoid_UCell": 1,
+    "column-set obs.MoMacDC_UCell": 1,
+    "column-set obs.Myeloid_UCell": 1,
+    "column-set obs.NK_UCell": 1,
+    "column-set obs.Neutrophils_UCell": 1,
+    "column-set obs.Plasma_cell_UCell": 1,
+    "column-set obs.Platelets_UCell": 1,
+    "column-set obs.Prolif_UCell": 1,
+    "column-set obs.RNA_snn_res.0.55": 1,
+    "column-set obs.S_score": 1,
+    "column-set obs.Stromal_UCell": 1,
+    "column-set obs.Talphabeta_UCell": 1,
+    "column-set obs.Tcell_UCell": 1,
+    "column-set obs.Tgammadelta_UCell": 1,
+    "column-set obs.Treg_UCell": 1,
+    "column-set obs.aahigh": 1,
+    "column-set obs.age_range": 1,
+    "column-set obs.batch": 1,
+    "column-set obs.batch_id": 1,
+    "column-set obs.chemistry": 1,
+    "column-set obs.cloneType": 1,
+    "column-set obs.cluster": 1,
+    "column-set obs.dg_tt": 1,
+    "column-set obs.dg_tt_patient": 1,
+    "column-set obs.disease_group": 1,
+    "column-set obs.dissection": 1,
+    "column-set obs.final.ident": 1,
+    "column-set obs.group": 1,
+    "column-set obs.highlight": 1,
+    "column-set obs.is.pure": 1,
+    "column-set obs.is.pure.level1": 1,
+    "column-set obs.is.pure.level2": 1,
+    "column-set obs.is.pure.level3": 1,
+    "column-set obs.is.pure.level4": 1,
+    "column-set obs.is.pure.level5": 1,
+    "column-set obs.leiden": 1,
+    "column-set obs.mapping.score": 1,
+    "column-set obs.nCount_RNA": 1,
+    "column-set obs.nFeature_RNA": 1,
+    "column-set obs.n_counts": 1,
+    "column-set obs.n_genes": 1,
+    "column-set obs.new_celltype": 1,
+    "column-set obs.noProlif_UCell": 1,
+    "column-set obs.orig.ident": 1,
+    "column-set obs.percent.mt": 1,
+    "column-set obs.percent.rb": 1,
+    "column-set obs.percent_mito": 1,
+    "column-set obs.phase": 1,
+    "column-set obs.predicted.celltype.l2": 1,
+    "column-set obs.predicted.celltype.l2.score": 1,
+    "column-set obs.sampletype": 1,
+    "column-set obs.seurat_clusters": 1,
+    "column-set obs.stashed.ident": 1,
+    "column-set obs.treatment_timepoint": 1
+   },
+   "4.5": {
+    "column-set X.normalized": 1,
+    "column-set obs.n_measured_vars": 7,
+    "column-set obs.nnz": 7,
+    "column-set obs.raw_mean_nnz": 7,
+    "column-set obs.raw_sum": 7,
+    "column-set obs.raw_variance_nnz": 7,
+    "column-set obs.tissue_general": 7,
+    "column-set obs.tissue_general_ontology_term_id": 7,
+    "column-set var.n_measured_obs": 9,
+    "column-set var.nnz": 9,
+    "strict-subset obs": 2
+   },
+   "re-curation": {
+    "value obs.cell_type": 2
+   }
+  }
+ },
+ "queries": [
+  {
+   "query": "documented_narrow:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 36.7,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "vacuous"
+  },
+  {
+   "query": "documented_wide:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 34.9,
+   "notes": [],
+   "cells": {
+    "census1": 10277,
+    "sdk": 0
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "strict-subset",
+     "where": "obs",
+     "detail": "right is a strict subset: 10277 rows missing, first missing identity np.str_('62315937-e268-4fa5-a032-8f7d776f3a3f|!!)}MmGN@{')",
+     "owner": "4.5",
+     "reason": "the filter names tissue_general, which the stores lack"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "wmg_production:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "status": "unsupported",
+   "reason": "the SDK filter takes equality and membership only: 'nnz >= 500'"
+  },
+  {
+   "query": "cell_type_slice:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 30.3,
+   "notes": [],
+   "cells": {
+    "census1": 3575,
+    "sdk": 3575
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "dataset_slice:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 11.8,
+   "notes": [],
+   "cells": {
+    "census1": 4778,
+    "sdk": 4778
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.G2M_score",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.S_score",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.batch",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.chemistry",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.dissection",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.leiden",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_counts",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_genes",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.new_celltype",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.percent_mito",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.phase",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "tissue_slice:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 34.4,
+   "notes": [],
+   "cells": {
+    "census1": 10277,
+    "sdk": 0
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "strict-subset",
+     "where": "obs",
+     "detail": "right is a strict subset: 10277 rows missing, first missing identity np.str_('62315937-e268-4fa5-a032-8f7d776f3a3f|!!)}MmGN@{')",
+     "owner": "4.5",
+     "reason": "the filter names tissue_general, which the stores lack"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "single_gene_all_cells:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 43.8,
+   "notes": [
+    "genes selected after the read; the SDK has no var filter"
+   ],
+   "cells": {
+    "census1": 23099,
+    "sdk": 23099
+   },
+   "findings": [
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "value",
+     "where": "obs.cell_type",
+     "detail": "identity np.str_('5b25a46f-f1cf-4caa-9e10-6ab81dfe9174|!+2P*FHCFw'): left 'mucosal invariant T cell' vs right 'mucosal-associated invariant T cell'",
+     "owner": "re-curation",
+     "reason": "the term ID agrees; the store's dataset version names it differently"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "cell_type_gene_subset:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 59.6,
+   "notes": [
+    "genes selected after the read; the SDK has no var filter"
+   ],
+   "cells": {
+    "census1": 3575,
+    "sdk": 3575
+   },
+   "findings": [
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "multivalued_disease:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 22.4,
+   "notes": [],
+   "cells": {
+    "census1": 12822,
+    "sdk": 12822
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Bcell_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CD4Prolif_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CD4T_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CD56bright_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CD56dim_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CD8Prolif_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CD8T_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CTaa",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CTgene",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CTnt",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.CTstrict",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Epithelial_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Erythrocyte_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Erythrocytes_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Frequency",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.HSPC_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Immune_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Lymphoid_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.MoMacDC_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Myeloid_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.NK_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Neutrophils_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Plasma_cell_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Platelets_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Prolif_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.RNA_snn_res.0.55",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Stromal_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Talphabeta_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Tcell_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Tgammadelta_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.Treg_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.aahigh",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.age_range",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.batch_id",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.cloneType",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.cluster",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.dg_tt",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.dg_tt_patient",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.disease_group",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.final.ident",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.group",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.highlight",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.is.pure",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.is.pure.level1",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.is.pure.level2",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.is.pure.level3",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.is.pure.level4",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.is.pure.level5",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.mapping.score",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nCount_RNA",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nFeature_RNA",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.noProlif_UCell",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.orig.ident",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.percent.mt",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.percent.rb",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.predicted.celltype.l2",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.predicted.celltype.l2.score",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.sampletype",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.seurat_clusters",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.stashed.ident",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.treatment_timepoint",
+     "detail": "present on right only",
+     "owner": "4.4",
+     "reason": "the obs columns that a store keeps"
+    },
+    {
+     "kind": "value",
+     "where": "obs.cell_type",
+     "detail": "identity np.str_('5b25a46f-f1cf-4caa-9e10-6ab81dfe9174|!+2P*FHCFw'): left 'mucosal invariant T cell' vs right 'mucosal-associated invariant T cell'",
+     "owner": "re-curation",
+     "reason": "the term ID agrees; the store's dataset version names it differently"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "var_symbol_collision:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "status": "unsupported",
+   "reason": "the SDK has no get_var accessor"
+  },
+  {
+   "query": "both_layers:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "seconds": 29.3,
+   "notes": [
+    "the SDK returns the raw layer only; asked for ('raw', 'normalized')"
+   ],
+   "cells": {
+    "census1": 3575,
+    "sdk": 3575
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes",
+     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference against the genes of the build"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.n_measured_vars",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_mean_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_sum",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.raw_variance_nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "per-cell statistics that the writer computes"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "obs.tissue_general_ontology_term_id",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "tissue_general, which the writer derives"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops"
+    },
+    {
+     "kind": "column-set",
+     "where": "X.normalized",
+     "detail": "present on left only",
+     "owner": "4.5",
+     "reason": "the normalized layer that the writer computes"
+    }
+   ],
+   "status": "fail"
+  },
+  {
+   "query": "obs_metadata_only:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "status": "unsupported",
+   "reason": "the SDK has no get_obs accessor"
+  },
+  {
+   "query": "var_all_genes:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "status": "unsupported",
+   "reason": "the SDK has no get_var accessor"
+  },
+  {
+   "query": "presence_matrix:census_data/homo_sapiens",
+   "oracle": {
+    "corpus_version": "1.1",
+    "clamp": [
+     "5b25a46f-f1cf-4caa-9e10-6ab81dfe9174",
+     "62315937-e268-4fa5-a032-8f7d776f3a3f",
+     "6e00ccf7-0749-46ef-a999-dba785630d52"
+    ]
+   },
+   "status": "unsupported",
+   "reason": "the SDK has no get_presence_matrix accessor"
+  },
+  {
+   "query": "wmg_production:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_slice:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "dataset_slice:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "tissue_slice:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "single_gene_all_cells:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_gene_subset:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_symbol_collision:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "both_layers:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "obs_metadata_only:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_all_genes:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "presence_matrix:census_data/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "wmg_production:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_slice:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "dataset_slice:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "tissue_slice:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "single_gene_all_cells:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_gene_subset:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_symbol_collision:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "both_layers:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "obs_metadata_only:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_all_genes:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "presence_matrix:census_data/macaca_mulatta",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "wmg_production:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_slice:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "dataset_slice:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "tissue_slice:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "single_gene_all_cells:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_gene_subset:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_symbol_collision:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "both_layers:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "obs_metadata_only:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_all_genes:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "presence_matrix:census_data/callithrix_jacchus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "wmg_production:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_slice:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "dataset_slice:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "tissue_slice:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "single_gene_all_cells:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_gene_subset:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_symbol_collision:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "both_layers:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "obs_metadata_only:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_all_genes:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "presence_matrix:census_data/pan_troglodytes",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_slice:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "dataset_slice:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "tissue_slice:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_gene_subset:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "spatial_cell_type:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "obs_metadata_only:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_all_genes:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "presence_matrix:census_spatial_sequencing/homo_sapiens",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_slice:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "dataset_slice:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "tissue_slice:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "cell_type_gene_subset:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "spatial_cell_type:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "obs_metadata_only:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "var_all_genes:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  },
+  {
+   "query": "presence_matrix:census_spatial_sequencing/mus_musculus",
+   "status": "skip",
+   "reason": "the catalog holds no store of the clamp sample"
+  }
+ ]
+}
