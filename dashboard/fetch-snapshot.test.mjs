@@ -83,3 +83,14 @@ test('fetchProject retries a Linear rate limit reported as HTTP 400', async () =
   const badRequest = async () => ({ ok: false, status: 400, headers: headers({}), text: async () => 'Bad request' });
   await assert.rejects(fetchProject('key', badRequest), /Linear 400: Bad request/);
 });
+
+test('fetchProject waits for a near rate-limit reset and fails fast on a far one', async () => {
+  const page = { project: { projectMilestones: { nodes: [] }, issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{ identifier: 'AIP-1' }] } } };
+  const limited = (reset) => ({ ok: false, status: 400, headers: { get: (name) => (name === 'x-ratelimit-requests-reset' ? String(reset) : null) }, text: async () => 'RATELIMITED' });
+  let calls = 0;
+  const near = async () => (++calls === 1 ? limited(Date.now() + 20) : { ok: true, json: async () => ({ data: page }) });
+  assert.deepEqual((await fetchProject('key', near)).issues.map((item) => item.identifier), ['AIP-1']);
+  assert.equal(calls, 2);
+  const far = async () => limited(Date.now() + 30 * 60_000);
+  await assert.rejects(fetchProject('key', far), /rate limit resets in 30 min/);
+});

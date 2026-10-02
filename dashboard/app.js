@@ -116,6 +116,11 @@
     ['design', 'Design doc'], ['twoPager', 'Meg’s 2-pager'], ['slides', 'Slides'],
     ['outline', 'Presentation outline'], ['project', 'Project'], ['tracker', 'Tracker'],
   ].map(([key, label]) => link(data.sources[key], label)).join('');
+  // The checkpoint dates follow the Linear milestones, as the timeline does.
+  document.querySelectorAll('.checkpoint-date[data-iteration]').forEach((element) => {
+    const iteration = data.iterations.find((item) => item.id === element.dataset.iteration);
+    element.textContent = iteration?.date ? date(iteration.date).toUpperCase() : 'NO DATE';
+  });
   $('snapshot-date').textContent = `Snapshot · ${date(data.capturedAt, {year:'numeric'})}`;
   const age = Math.floor((Date.now() - Date.parse(data.capturedAt)) / 86400000);
   $('snapshot-age').textContent = age > 0 ? `Captured ${age} day${age === 1 ? '' : 's'} ago. Tracker fields refresh every six hours.` : 'Tracker fields refresh every six hours.';

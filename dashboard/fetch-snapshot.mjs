@@ -10,6 +10,8 @@ import { dirname, join } from 'node:path';
 const here = dirname(fileURLToPath(import.meta.url));
 const snapshotPath = join(here, 'snapshot.json');
 const PROJECT = '95fcb2ae-ebee-4e80-8bae-a348e4e1899d'; // Census on Zarr, P-AIP-165
+// A longer rate-limit wait fails the run; the next scheduled run retries, and the site keeps its deployment.
+const MAX_WAIT_MS = 15 * 60_000;
 const QUERY = `query Project($id: String!, $after: String) {
   project(id: $id) {
     projectMilestones { nodes { name targetDate } }
@@ -40,7 +42,8 @@ export async function fetchProject(token, fetchImpl = fetch) {
       const retryAfter = response.headers.get('retry-after');
       const reset = Number(response.headers.get('x-ratelimit-requests-reset'));
       const wait = retryAfter !== null ? 1000 * Number(retryAfter)
-        : reset > Date.now() ? Math.min(reset - Date.now(), 60_000) : 1000 * 2 ** attempt;
+        : reset > Date.now() ? reset - Date.now() : 1000 * 2 ** attempt;
+      if (wait > MAX_WAIT_MS) throw new Error(`Linear rate limit resets in ${Math.ceil(wait / 60_000)} min: ${body}`);
       await new Promise((resolve) => setTimeout(resolve, wait));
     }
     const { data, errors } = await response.json();
