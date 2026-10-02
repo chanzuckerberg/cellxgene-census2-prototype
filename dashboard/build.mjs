@@ -25,11 +25,17 @@ for (const palette of Object.values(palettes)) {
 }
 assert.equal(new Set(data.epics.map((epic) => epic.color.toLowerCase())).size, data.epics.length, 'Epic colours must be unique');
 unique(data.tasks);
-const safeLink = (value) => {
+const notionLink = (value) => {
   assert.match(value, /^https:\/\/app\.notion\.com\/p\/[0-9a-f]{32}$/i, 'Use the Notion page URL: https://app.notion.com/p/<page-id>');
 };
-for (const key of ['design', 'outline', 'project', 'plan', 'tracker', 'iterationProposal']) {
-  safeLink(data.sources[key]);
+const linearLink = (value) => {
+  assert.match(value, /^https:\/\/linear\.app\/biohub\/(?:issue\/AIP-\d+(?:\/[a-z0-9-]+)?|project\/[a-z0-9-]+(?:\/issues)?)$/, 'Use a Linear issue or project URL: https://linear.app/biohub/...');
+};
+for (const key of ['design', 'outline', 'plan', 'iterationProposal']) {
+  notionLink(data.sources[key]);
+}
+for (const key of ['project', 'tracker']) {
+  linearLink(data.sources[key]);
 }
 assert.match(data.sources.twoPager, /^https:\/\/docs\.google\.com\/document\/d\/[\w-]+\/edit(?:\?usp=sharing)?$/, 'Use a Google Docs document URL');
 assert.match(data.sources.slides, /^https:\/\/docs\.google\.com\/presentation\/d\/[\w-]+\/edit(?:\?usp=sharing)?$/, 'Use a Google Slides presentation URL');
@@ -43,11 +49,11 @@ for (const epic of data.epics) {
   assert.ok(typeof epic.workstream === 'string' && epic.workstream.trim(), 'Each epic needs a workstream name');
   assert.match(epic.color, /^#[0-9a-f]{6}$/i);
   assert.ok(typeof epic.status === 'string' && epic.status.trim(), 'Each epic needs a tracker status');
-  safeLink(epic.url);
+  linearLink(epic.url);
   assert.ok(epic.iterations.every((id) => iterations.has(id)));
 }
 for (const task of data.tasks) {
-  safeLink(task.url);
+  linearLink(task.url);
   assert.ok(epics.has(task.epic));
   assert.ok(iterations.has(task.iteration));
   assert.ok(data.epics.find((epic) => epic.id === task.epic).iterations.includes(task.iteration));
