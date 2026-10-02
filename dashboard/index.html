@@ -190,7 +190,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (text) => String(text).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const link = (url, title, cls = '') => `<a class="${cls}" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(title)} <span aria-hidden="true">↗</span></a>`;
-  const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" title="${esc(epic.title)}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${epic.id})"><i class="epic-swatch" aria-hidden="true"></i>${esc(epic.workstream)} <span aria-hidden="true">↗</span></a>`;
+  const epicLink = (epic, compact = false) => `<a class="epic-link${compact ? ' compact' : ''}" title="${esc(epic.title)}" href="${esc(epic.url)}" target="_blank" rel="noopener noreferrer" style="--epic-color:var(--epic-${esc(epic.id)})"><i class="epic-swatch" aria-hidden="true"></i>${esc(epic.workstream)} <span aria-hidden="true">↗</span></a>`;
   const statusIcons = {
     'Done':'<circle cx="10" cy="10" r="7"/><path d="m6.5 10 2.3 2.3 4.7-4.8"/>',
     'In Progress':'<circle cx="10" cy="10" r="7"/><path d="M10 3a7 7 0 0 1 0 14Z" fill="currentColor" stroke="none"/>',
