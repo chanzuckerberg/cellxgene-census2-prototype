@@ -32,7 +32,7 @@ jobs:
       - name: Refresh the snapshot from the tracker
         if: env.REFRESH == 'true'
         env:
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: node dashboard/fetch-snapshot.mjs
       - name: Validate and build the dashboard
         run: |
