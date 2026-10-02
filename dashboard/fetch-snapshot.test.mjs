@@ -40,7 +40,7 @@ test('Linear issues replace the tracker fields and keep the dashboard fields', a
   }]);
   assert.deepEqual(next.tasks.map((task) => [task.id, task.status, task.iteration, task.owner]), [
     ['5.3', 'In Progress', '3', 'Ronen Kalo'],
-    // 5.5 has no milestone in Linear, so it takes the epic's first iteration, not its committed one.
+    // No milestone: the epic's first iteration, not the committed one.
     ['5.5', 'Backlog', prior.iterations[0], 'Unassigned'],
     ['5.6', 'Backlog', '0', 'Mike Lin'],
     ['5.9', 'Backlog', prior.iterations[0], 'Unassigned'],

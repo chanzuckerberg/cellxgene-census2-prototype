@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 // Refresh the tracker fields of snapshot.json from the Linear API.
 // Needs LINEAR_API_KEY: a personal API key with read access to the AI Products team.
-// Linear supplies the phases (epics), their child tasks, each task's iteration milestone,
-// and each iteration's gate date. The dashboard keeps its own fields: the iteration texts and
-// statuses, the workstream names and colours, and the proposed epic-to-iteration links.
+// Keeps the dashboard's own fields (iteration texts and statuses, workstream names, colours).
 // The workflow runs it before the build on the schedule; the committed snapshot is the baseline.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -102,7 +100,7 @@ export function mergeSnapshot(snapshot, { milestones, issues }) {
       trackerEnd: issue.dueDate ?? null,
     };
   }).filter(Boolean).sort(byId);
-  // A workstream spans its proposed iterations and every iteration that holds one of its tasks.
+  // The build requires each task's iteration among its epic's iterations.
   for (const task of tasks) {
     const epic = epics.find((item) => item.id === task.epic);
     if (!epic.iterations.includes(task.iteration)) epic.iterations.push(task.iteration);
