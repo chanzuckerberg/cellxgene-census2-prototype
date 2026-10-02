@@ -21,7 +21,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-CORPUS_VERSION = "1.0"
+CORPUS_VERSION = "1.1"
 VALUES_PATH = pathlib.Path(__file__).parent / "query_values.json"
 
 NON_SPATIAL = (
@@ -165,9 +165,11 @@ CORPUS: tuple[Entry, ...] = (
         accessor="get_anndata",
         exercises="disease fields hold ' || '-joined values, so equality is membership; "
         "a translator doing string equality returns a subset silently (schema 2.4.0 "
-        "made disease_ontology_term_id multi-valued too)",
+        "made disease_ontology_term_id multi-valued too). The pin is one term. Census 1 "
+        "compares strings, so its filter lists the joined values that hold the term. "
+        "A stack with membership semantics takes the bare term",
         relied_on_by=("6",),
-        obs_filter="disease_ontology_term_id == '{disease_ontology_term_id}'",
+        obs_filter="disease_ontology_term_id in {disease_ontology_term_id_matches}",
         scope="non_spatial",
     ),
     Entry(
@@ -266,6 +268,26 @@ class BoundQuery:
 def load_values(path: pathlib.Path = VALUES_PATH) -> dict[str, Any]:
     values: dict[str, Any] = json.loads(path.read_text())
     return values
+
+
+def parse_picks(items: Iterable[str], size: int) -> dict[str, list[str]]:
+    """The `--pick EXPERIMENT=ID,ID,...` items of `oracle_runner build-manifest`.
+
+    Each item names one experiment once and exactly `size` distinct dataset IDs. A
+    malformed item raises `ValueError`, so a typo cannot fall back to the default sample.
+    """
+    picks: dict[str, list[str]] = {}
+    for item in items:
+        key, sep, ids = item.partition("=")
+        if not sep or "/" not in key:
+            raise ValueError(f"--pick takes EXPERIMENT=ID,ID,...: {item!r}")
+        if key in picks:
+            raise ValueError(f"--pick names {key} more than once")
+        chosen = [d.strip() for d in ids.split(",")]
+        if not all(chosen) or len(set(chosen)) != size or len(chosen) != size:
+            raise ValueError(f"--pick {key} needs {size} distinct dataset IDs: {ids!r}")
+        picks[key] = sorted(chosen)
+    return picks
 
 
 def clamp_filter(obs_filter: str | None, dataset_ids: Iterable[str]) -> str:
