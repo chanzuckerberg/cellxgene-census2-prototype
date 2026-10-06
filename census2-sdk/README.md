@@ -81,6 +81,14 @@ uv run --python 3.12 --with cellxgene-census==1.18.0 --with './census2-sdk[s3]' 
 
 `--out` writes the figures as JSON. `tools/results/` holds the runs that a pull request cites.
 
+## Validation harness
+
+`tools/harness/` holds the pieces of the Phase 2 validation harness that the SDK's
+differential run needs. They are the fixed query corpus, the canonical result form, the
+comparator, and the oracle runner that records Census 1's answers.
+`tools/harness/README.md` has the pins and the steps. The SDK's adapter to the harness
+is tracker task 6.2.
+
 ## Develop
 
 ```bash
