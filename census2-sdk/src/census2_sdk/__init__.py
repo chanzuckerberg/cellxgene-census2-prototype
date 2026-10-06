@@ -88,14 +88,18 @@ class Census:
             _read_store(row, normalized)
             for row in cast("list[dict[str, Any]]", rows.to_dict("records"))
         ]
-        _check_var(parts, list(rows["store_uri"].astype(str)))
+        uris = list(rows["store_uri"].astype(str))
+        _check_var(parts, uris)
         if not sum(part.n_obs for part in parts):
             return None
         # Zero-row parts stay in, so the obs schema is the columns that all
         # opened stores hold.
-        result = anndata.concat(parts, join="inner", merge="same")
+        result = anndata.concat(parts, join="inner")
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
+        # Each part carries only the var index. The stores record one reference
+        # version and one index, so the first store supplies the var columns.
+        result.var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
@@ -179,13 +183,20 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
 
 
 def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
-    """The selected cells of one store. `X` holds the counts on the reference genes."""
+    """The selected cells of one store. `X` holds the counts on the reference genes.
+
+    `var` holds only the index, the `feature_id`s, which is all that `_check_var`
+    compares. `get_anndata` reads the var columns from one store.
+    """
     group = open_store(row["store_uri"])
     obs = cast("pd.DataFrame", read_elem(group["obs"]))
     _check_cell_key(obs, str(row["store_uri"]))
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
-    var = cast("pd.DataFrame", read_elem(group["var"]))
+    var_group = group["var"]
+    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
+    index = read_elem(var_group[str(var_group.attrs["_index"])])
+    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _rows(group["X"], keep)
 
     # ponytail: the stores hold no dataset_id column; it comes from the writer
