@@ -386,6 +386,8 @@ def project_obs(
     keeps every column that Zarr can hold.
 
     `var` is not projected. The names seen with a `/` were all in `obs`.
+
+    This step consumes `adata`, as `harmonize` states.
     """
     # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
@@ -408,7 +410,8 @@ def select_counts(
     values, and in `X` when it has no `raw`. With `raw`, return a new AnnData
     whose `X` and `var` are `raw.X` and `raw.var`. `layers`, `varm`, and `varp`
     index the genes of the normalized `X`, so they are dropped. Without `raw`,
-    return `adata` unchanged. `X` stays lazy.
+    return `adata` unchanged. `X` stays lazy. This step consumes `adata`, as
+    `harmonize` states.
     """
     if adata.raw is None:
         return adata
@@ -440,7 +443,8 @@ def project_genes(
     rules.
 
     `gene_references` in `config` names the reference file for each organism.
-    The file must be staged in `refdata`.
+    The file must be staged in `refdata`. This step consumes `adata`, as
+    `harmonize` states.
     """
     config = DEFAULTS if config is None else config
     references = cast(
@@ -460,6 +464,12 @@ def harmonize(
     Harmonization changes values and annotations so that a query can combine
     stores from different datasets. The other steps are not specified yet.
     See the module docstring for the constraints on whatever lands here.
+
+    `harmonize` and each step consume the AnnData that they receive. A step can
+    change that object and return it, or return a new object that shares its
+    parts. Do not use the input after the call, and do not assume that the
+    result is the same object. A caller that needs the input afterwards passes a
+    copy.
     """
     adata = project_obs(adata, config, refdata)
     adata = select_counts(adata, config, refdata)
