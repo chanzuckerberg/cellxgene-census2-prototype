@@ -118,8 +118,8 @@ class VarProjection(NamedTuple):
 
     # One flag for each source `var` row. It is false for a feature that the
     # projection drops: a non-gene feature, such as an ERCC spike-in, or a gene
-    # of another organism. The Census 1 builder drops the same features. The
-    # flags apply only when `var` has `feature_biotype` and `feature_reference`.
+    # of another organism, as `feature_biotype` and `feature_reference` give. The
+    # Census 1 builder drops the same features.
     kept: np.ndarray
     # The reference position of each kept row, in source order.
     positions: np.ndarray
@@ -130,17 +130,20 @@ def locate(
 ) -> VarProjection:
     """Find the reference position of each gene in `var`, indexed by `feature_id`.
 
-    A kept gene that is not in the reference raises `GeneReferenceMismatch`.
+    `var` must have `feature_biotype` and `feature_reference`, which Discover adds
+    to every `var` and `raw.var`. A kept gene that is not in the reference raises
+    `GeneReferenceMismatch`.
     """
     ids = pd.Index(var.index.astype(str))
     if not ids.is_unique:
         raise ValueError("var has duplicate feature_ids")
+    for column in ("feature_biotype", "feature_reference"):
+        if column not in var.columns:
+            raise ValueError(f"var lacks {column}; a Discover dataset carries it")
 
-    kept = np.ones(len(var), dtype=bool)
-    if "feature_biotype" in var.columns:
-        kept &= (var["feature_biotype"].astype(str) == "gene").to_numpy()
-    if "feature_reference" in var.columns:
-        kept &= (var["feature_reference"].astype(str) == taxon).to_numpy()
+    kept = (var["feature_biotype"].astype(str) == "gene").to_numpy() & (
+        var["feature_reference"].astype(str) == taxon
+    ).to_numpy()
 
     positions = reference.index.get_indexer(ids[kept])
     missing = positions < 0

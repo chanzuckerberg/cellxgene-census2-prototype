@@ -241,6 +241,15 @@ def test_a_gene_outside_the_reference_is_refused(tmp_path: Path) -> None:
     assert not dest.exists()
 
 
+@pytest.mark.parametrize("column", ["feature_biotype", "feature_reference"])
+def test_a_var_without_a_feature_column_is_refused(refdata: Path, column: str) -> None:
+    adata = dataset(raw=False)
+    var: Any = adata.var  # the getter's union includes Dataset2D
+    adata.var = var.drop(columns=[column])
+    with pytest.raises(ValueError, match=f"var lacks {column}"):
+        census2_dataset_writer.harmonize(adata, refdata=refdata)
+
+
 def test_a_reference_with_another_digest_is_refused(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
