@@ -252,10 +252,12 @@ class StoreProvenance(TypedDict):
 class Receipt(StoreProvenance, total=False):
     """The JSON a pipeline writes beside a store.
 
-    A private log today, read only by the pipeline's own report step. The shape
-    lives here because the script that writes one and the script that reads one
-    cannot import each other, and because `provenance` fills the part that only
-    this package knows.
+    Two readers use it today: the pipeline's report step, and the prototype
+    catalog builder (`census2-sdk/tools/build_catalog.py`), which takes
+    `dataset_id` and `gene_reference_version` from it until a store summary
+    record exists. The shape lives here because the script that writes one and
+    the script that reads one cannot import each other, and because
+    `provenance` fills the part that only this package knows.
 
     The `StoreProvenance` keys are always present. The rest is what a writer
     knows about where the dataset came from and what it did, so it is optional
