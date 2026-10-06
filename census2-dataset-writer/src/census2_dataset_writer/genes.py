@@ -164,8 +164,10 @@ def _remap(
     out = sp.csr_matrix(
         (csr.data, positions[csr.indices], csr.indptr), shape=(csr.shape[0], n_genes)
     )
-    # The reference order is not the source order. sum_duplicates sorts the
-    # indices of each row, and merges nothing because the feature_ids are unique.
+    # The reference order is not the source order, so the indices of each row need
+    # sorting. sum_duplicates sorts them. It also merges the duplicate entries
+    # that a non-canonical source CSR can hold. The remap itself makes no
+    # duplicates, because the feature_ids are unique.
     out.sum_duplicates()
     return out
 
@@ -175,9 +177,12 @@ def project_matrix(
 ) -> da.Array | sp.csr_matrix:
     """`x` with its kept columns moved to reference positions. The result is CSR.
 
-    A dask array stays lazy. Each row block is remapped when anndata writes the
-    store, and it holds at most the stored values of its source block. A dense
-    source becomes sparse, because most reference genes are zero in one dataset.
+    A dask array stays lazy: each row block is remapped when anndata writes the
+    store. A block from a sparse source holds at most the stored values of its
+    source block. A dense source becomes CSR, because most reference genes are
+    zero in one dataset. Its CSR can take about twice the bytes of the dense block
+    when the block has few zeros, and `_remap` holds copies while it works, so its
+    peak is several times `BLOCK_BYTES`.
     """
     columns = np.flatnonzero(projection.kept)
     positions = projection.positions
