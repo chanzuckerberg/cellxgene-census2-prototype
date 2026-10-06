@@ -19,7 +19,7 @@ async function buildFixture(t, change = () => {}) {
   return result;
 }
 
-test('the snapshot builds with canonical Notion page URLs', async (t) => {
+test('the snapshot builds with canonical Linear and Notion URLs', async (t) => {
   const result = await buildFixture(t);
   assert.equal(result.status, 0, result.stderr);
   const icon = result.html.match(/<link rel="icon"[^>]+href="data:image\/svg\+xml,([^"]+)"/);
@@ -48,16 +48,17 @@ for (const [field, invalid] of [['demo', ''], ['deliverables', []], ['deliverabl
   });
 }
 
-for (const kind of ['epic', 'task', 'source']) {
-  test(`the build rejects ${kind} links without /p/`, async (t) => {
+for (const [kind, message] of [['epic', /Use a Linear issue or project URL/], ['task', /Use a Linear issue or project URL/], ['tracker', /Use a Linear issue or project URL/], ['outline', /Use the Notion page URL/]]) {
+  test(`the build rejects a malformed ${kind} link`, async (t) => {
     const result = await buildFixture(t, (data) => {
-      if (kind === 'source') data.sources.outline = data.sources.outline.replace('/p/', '/');
+      if (kind === 'outline') data.sources.outline = data.sources.outline.replace('/p/', '/');
+      else if (kind === 'tracker') data.sources.tracker = data.sources.tracker.replace('linear.app/', 'linear.app.evil.example/');
       else {
         const record = kind === 'epic' ? data.epics[0] : data.tasks[0];
-        record.url = record.url.replace('/p/', '/');
+        record.url = record.url.replace('/biohub/', '/other/');
       }
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /Use the Notion page URL/);
+    assert.match(result.stderr, message);
   });
 }
