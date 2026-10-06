@@ -232,8 +232,20 @@ def project(
     reference = load_reference(spec, refdata)
 
     projection = locate(adata.var, str(taxon), reference, spec["version"])
-    x = project_matrix(adata.X, projection, len(reference))
+    return with_gene_axis(
+        adata, project_matrix(adata.X, projection, len(reference)), reference
+    )
 
+
+def with_gene_axis(
+    adata: anndata.AnnData, x: Any, var: pd.DataFrame
+) -> anndata.AnnData:
+    """The cells of `adata` on another gene axis: a new AnnData with `x` and `var`.
+
+    `obs`, `uns`, `obsm`, and `obsp` carry over by reference, so nothing is copied
+    and a lazy `x` stays lazy. `layers`, `varm`, `varp`, and `raw` index the old
+    genes, so they are dropped.
+    """
     obsm: dict[str, Any] = {key: adata.obsm[key] for key in adata.obsm}
     obsp: dict[str, Any] = {key: adata.obsp[key] for key in adata.obsp}
     # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
@@ -241,7 +253,7 @@ def project(
     return anndata.AnnData(
         X=x,
         obs=cast("pd.DataFrame", adata.obs),
-        var=reference,
+        var=var,
         uns=dict(adata.uns),
         obsm=obsm,
         obsp=obsp,

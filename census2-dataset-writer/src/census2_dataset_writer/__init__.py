@@ -224,6 +224,15 @@ DEFAULTS: Config = {
 }
 
 
+def _gene_references(config: Config) -> dict[str, genes.Reference]:
+    """The `gene_references` of `config`, or the defaults when it names none."""
+    # A config value is Any by design, so name its shape where it is read.
+    return cast(
+        "dict[str, genes.Reference]",
+        config.get("gene_references", DEFAULTS["gene_references"]),
+    )
+
+
 def load_config(path: PathLike | None = None) -> Config:
     """Read ingestion configuration from `path`, over `DEFAULTS`.
 
@@ -358,10 +367,7 @@ def admit(
         present = sorted({str(t) for t in terms.unique()})
         return f"no cells on the assay allowlist: {', '.join(present[:3])}"
 
-    references = cast(
-        "dict[str, Any]",
-        config.get("gene_references", DEFAULTS["gene_references"]),
-    )
+    references = _gene_references(config)
     organism = adata.uns.get("organism_ontology_term_id")
     if organism is not None and str(organism) not in references:
         return f"no gene reference for organism {organism}"
@@ -417,18 +423,7 @@ def select_counts(
     """
     if adata.raw is None:
         return adata
-    obsm: dict[str, Any] = {key: adata.obsm[key] for key in adata.obsm}
-    obsp: dict[str, Any] = {key: adata.obsp[key] for key in adata.obsp}
-    # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
-    # `read_lazy` produces. `build` assembles obs with `read_elem`.
-    return anndata.AnnData(
-        X=adata.raw.X,
-        obs=cast("pd.DataFrame", adata.obs),
-        var=adata.raw.var,
-        uns=dict(adata.uns),
-        obsm=obsm,
-        obsp=obsp,
-    )
+    return genes.with_gene_axis(adata, adata.raw.X, adata.raw.var)
 
 
 def project_genes(
@@ -449,11 +444,7 @@ def project_genes(
     `harmonize` states.
     """
     config = DEFAULTS if config is None else config
-    references = cast(
-        "dict[str, genes.Reference]",
-        config.get("gene_references", DEFAULTS["gene_references"]),
-    )
-    return genes.project(adata, references, refdata)
+    return genes.project(adata, _gene_references(config), refdata)
 
 
 def harmonize(
@@ -582,11 +573,7 @@ def build(
     stored = set(adata.var.index.astype(str))
     # harmonize projects onto the reference that `gene_references` names for
     # the organism, which admission requires.
-    references = cast(
-        "dict[str, genes.Reference]",
-        config.get("gene_references", DEFAULTS["gene_references"]),
-    )
-    spec = references.get(str(adata.uns.get("organism_ontology_term_id")))
+    spec = _gene_references(config).get(str(adata.uns.get("organism_ontology_term_id")))
     return adata, {
         "admitted": True,
         "reason": None,
