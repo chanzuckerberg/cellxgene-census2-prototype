@@ -273,8 +273,7 @@ def load_values(path: pathlib.Path = VALUES_PATH) -> dict[str, Any]:
 def parse_picks(items: Iterable[str], size: int) -> dict[str, list[str]]:
     """The `--pick EXPERIMENT=ID,ID,...` items of `oracle_runner build-manifest`.
 
-    Each item names one experiment once and exactly `size` distinct dataset IDs. A
-    malformed item raises `ValueError`, so a typo cannot fall back to the default sample.
+    A malformed item raises `ValueError`, so a typo cannot fall back to the default sample.
     """
     picks: dict[str, list[str]] = {}
     for item in items:

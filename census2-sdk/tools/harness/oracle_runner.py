@@ -81,8 +81,7 @@ def env_record():
 def build_manifest(values, picks=None):
     """The N smallest datasets of each experiment, from the experiment's own obs.
 
-    `picks` maps an experiment key such as `census_data/homo_sapiens` to the dataset
-    IDs to use instead. The human sample of corpus v1.1 is such a pick (README).
+    `picks` overrides the sample of an experiment key (the v1.1 human sample, README).
     """
     picks = picks or {}
     manifest = {"datasets_per_experiment": DATASETS_PER_EXPERIMENT}
