@@ -1,6 +1,6 @@
 # Publish the Census as per-dataset AnnData-Zarr
 
-**Version 3. Status:** DRAFT, the current design record. **Last edited:** 2026-09-23.
+**Version 3. Status:** DRAFT, the current design record. **Last edited:** 2026-10-08.
 
 This document is the design record for Census 2. It follows ASD-STE100 and the
 [Census 2 documentation policy](https://github.com/chanzuckerberg/cellxgene-census2-prototype/blob/main/CLAUDE.md#documentation-policy).
@@ -24,7 +24,8 @@ The design has five primary parts:
 
 Each store is in a Discover asset bucket with the other dataset artifacts. Its
 address uses `dataset_version_id` and `writer_version`. The Census does not
-keep a second copy of the dataset data.
+keep a second copy of the dataset data. The optional materializations of
+section 6.8 are the only exception.
 
 The catalog is in Parquet format. The catalog contains the metadata that the SDK
 needs to exclude stores from a query. A release pins exact dataset versions and
@@ -659,7 +660,9 @@ grant can change when its embargo ends or it becomes public. A shared store
 then needs data copies between stores. Separate stores avoid these copies.
 
 The catalog reduces the opening cost. The SDK opens only stores that can contain
-matching cells.
+matching cells. Section 6.1 measures the cost that remains. Section 6.8 describes
+a second copy of the data, grouped for corpus-wide queries, next to the
+per-dataset stores.
 
 ### 5.2 Expression-matrix encodings
 
@@ -676,6 +679,26 @@ The store-layout measurements used organism-wide stores. Phase 6 must measure
 real per-dataset stores before design approval. The measures are store size,
 object count, transferred data, and request count for the four documented
 filters (evidence section 10.1). Elapsed time is measured inside `us-west-2`.
+
+The cost to open many stores is the main risk of the per-dataset design
+(section 5.1). Two measurements decide whether this cost is acceptable. Neither
+measurement needs a full ingest.
+
+1. Fan-out distribution. The test resolves a set of queries against a catalog
+   of all Discover datasets. It counts the stores that each query opens. The
+   query set includes the documented filters, the harness query corpus, and
+   Census 1 usage logs if they exist. The documented filters open 10, 45, 92,
+   and 447 human stores
+   ([evidence section 10.5](./census_zarr_design_evidence.md#105-one-store-uniform-obs-chunks-dataset-aligned-x-chunks)).
+2. Open cost as a function of store count. The test opens N stores from inside
+   `us-west-2` at several concurrency levels. It records elapsed time, request
+   count, transferred data, throttling, and errors. To open one store, the SDK
+   reads about 50 kB of consolidated metadata for any store size. Thus copies of
+   existing stores are valid inputs for this test.
+
+The team names an elapsed-time limit for an interactive query before the test.
+If common queries exceed this limit, the per-organism store of section 6.8 moves
+forward.
 
 ### 6.2 Per-cell `obs` frame
 
@@ -767,13 +790,31 @@ team must assign ownership for ingestion-time inference and model retraining. A
 retrained model creates a new version. Rows from different model versions do
 not join.
 
-### 6.8 Compaction
+### 6.8 Compaction and other materializations
 
-Compaction can combine stable datasets into per-organism stores. The design
-defers this work. Private data continues to use per-dataset stores, so the SDK
-must support the uncompacted path.
+A materialization is a second copy of data, grouped or encoded for one access
+pattern. It is next to the per-dataset stores and does not replace them. These
+are two examples:
 
-Wide-query cost is the input for a future compaction decision.
+- A per-organism store for corpus-wide queries. Compaction combines stable
+  datasets into this store. The measurements of section 6.1 are the input for
+  this decision.
+- A gene-major (CSC) copy of `X` for each dataset, for gene queries. Section
+  6.10 decides this copy together with the `X` encoding.
+
+The per-dataset stores stay the primary copy. Private data continues to use
+per-dataset stores, so the SDK must support the uncompacted path. The design
+defers this work.
+
+Continuous ingestion adds datasets after a materialization exists. The process
+that writes the materialization must then append the new datasets or rebuild the
+store. An append to a
+large sharded Zarr store under continuous ingestion is an open question.
+
+For model training, [annbatch](https://annbatch.readthedocs.io/) writes a
+pre-shuffled, sharded collection from AnnData files or Zarr groups. A user can
+write an SDK result to disk and then build this collection from it. The user
+owns this materialization, and the Census does not build it.
 
 ### 6.9 Multi-modal data
 
@@ -790,6 +831,13 @@ axis for a one-gene read and gains little on a scattered marker panel. See
 The Census 2 team decides the encoding with scverse, so that a plain anndata or
 anndataR reader can open the store. Every store written before the decision is
 rewritten at a new writer version.
+
+CSC is an anndata encoding. A CSC copy of `X` in a separate store next to the
+per-dataset store gives a gene axis. A plain anndata reader can open it. In
+the test matrix, the CSC store used 115.1 MB and the CSR store used 98.7 MB. A
+one-gene read transferred 4.65 MB from CSC and 98.71 MB from CSR. For the test
+matrix, CSR plus the CSC copy used approximately 2.17 times the storage of CSR
+alone (section 6.8).
 
 ## 7. Decisions
 

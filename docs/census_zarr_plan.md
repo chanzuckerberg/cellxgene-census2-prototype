@@ -1,6 +1,6 @@
 # Getting the Census onto AnnData-Zarr: a plan
 
-**Status:** draft, for discussion. **Last edited:** 2026-09-23.
+**Status:** draft, for discussion. **Last edited:** 2026-10-08.
 
 A delivery order in iterations is under discussion:
 [census2-iterative-plan-1pager](https://app.notion.com/p/68916a75378982a3908e018e928d7eb7). It keeps the design
@@ -27,7 +27,7 @@ Each assumption states what happens if it is wrong, so the cost of a revision is
 end of the central build and private access both require it. A single store cannot provide either.
 
 **B. Compaction is additive and deferred.** Everything is built as though per-dataset stores are the permanent
-arrangement. Private data cannot be compacted, so the uncompacted read path must exist ([design 6.8](./census_zarr_design_v3_ste100.md#68-compaction)).
+arrangement. Private data stays in per-dataset stores, so the uncompacted read path must exist ([design 6.8](./census_zarr_design_v3_ste100.md#68-compaction-and-other-materializations)).
 *If wrong:* nothing built earlier is wasted. Compaction becomes Phase 14 sooner.
 
 **C. `var` publishes the full pinned reference**, GENCODE v48 for human and M37 for mouse. Decided ([design
@@ -83,7 +83,7 @@ and gate nothing on the corpus path. Compaction hangs off the end.
 | 11  | Private datasets             | 5, 6                                  |
 | 12  | Migrate the ecosystem        | 10                                    |
 | 13  | R parity                     | Bioconductor tooling, 10              |
-| 14  | Compaction (optional)        | 8, and evidence it is needed          |
+| 14  | Compaction (optional)        | Evidence it is needed (design 6.1)    |
 | 15  | Cutover                      | Everything, and the support window    |
 
 ---
@@ -531,10 +531,15 @@ side gates.
 ## Phase 14: Compaction (optional)
 
 **Delivers** a background process that folds settled datasets into per-organism stores, and the catalog fields
-that point into them ([design 6.8](./census_zarr_design_v3_ste100.md#68-compaction)).
+that point into them ([design 6.8](./census_zarr_design_v3_ste100.md#68-compaction-and-other-materializations)).
+A gene-major (CSC) copy of `X` is a per-dataset materialization. It follows the `X` encoding decision ([design
+6.10](./census_zarr_design_v3_ste100.md#610-x-encoding), task 4.3) and does not wait for this phase.
 
-**Needs first** Phase 8, and evidence that it is needed: wide-query cost crossing a line that someone has
-named.
+**Needs first** evidence that it is needed. The two measurements of [design
+6.1](./census_zarr_design_v3_ste100.md#61-end-to-end-measurement) supply it: the fan-out distribution of real
+queries, and the open cost as a function of store count. The team names an elapsed-time limit for an
+interactive query. This phase starts when common queries exceed that limit. Neither measurement needs a full
+ingest, so this decision can come before Phase 8.
 
 **Done when** a compacted store returns results identical to the datasets it replaced. A query over hundreds
 of datasets then reads one store instead of hundreds.
@@ -546,7 +551,8 @@ per-dataset path in every case.
 
 **Watch for** the trigger being wide-query cost, measured and not assumed. Object count looked like a second
 trigger and does not survive inspection: that figure came from unsharded prototype stores, and this layout
-shards.
+shards. Also watch for continuous ingestion. Datasets arrive after a materialization exists, so this phase must
+define an append to a large sharded store or a rebuild.
 
 ---
 
@@ -592,5 +598,8 @@ These are not phases and gate nothing, but they need an owner.
 - Is spatial in the first published corpus, or deferred so that non-spatial ships sooner? Per-dataset
   publication makes a deferral cheap.
 - Does backfill need infrastructure that must be requested before Phase 8 starts?
+- Does a full-scale ingest run before tasks 4.3 and 4.4 land in the writer? The run measures the open cost
+  and the read cost on real stores, after the measurements of design 6.1. The writer rewrites these stores at
+  a new `writer_version` after those tasks.
 - Who owns each phase? The Census 2 team owns the curation pipeline step (9.2) and Mike owns the
   reconciliation job (9.1). The continuing ingestion operation and every other phase are unassigned.
