@@ -43,8 +43,9 @@ process INGEST {
 
     input:
     val meta
-    // Optional, and the same for every dataset. Reference data has to be staged
-    // as a workflow input, because a HealthOmics task cannot fetch it.
+    // The same for every dataset. The config is optional. Reference data holds
+    // the gene references and is required. It has to be staged as a workflow
+    // input, because a HealthOmics task cannot fetch it.
     path config
     path refdata
 
@@ -73,7 +74,6 @@ process INGEST {
     def all    = params.all_slots.toString().toBoolean() ? '--all-slots' : ''
     def chk    = params.check.toString().toBoolean()     ? '--check'     : ''
     def cfg    = config  ? "--config ${config}"   : ''
-    def ref    = refdata ? "--refdata ${refdata}" : ''
     // `task.cpus` is an integer, so it renders verbatim and needs no quoting,
     // unlike the strings above. dask otherwise sizes its thread pool from the
     // host's CPUs, because a CPU share sets no cgroup quota to read.
@@ -82,6 +82,7 @@ process INGEST {
         --record '${record}' \\
         --outdir '${outarg}' ${stage} \\
         --threads ${task.cpus} \\
-        ${cfg} ${ref} ${all} ${chk}
+        --refdata ${refdata} \\
+        ${cfg} ${all} ${chk}
     """
 }

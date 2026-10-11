@@ -8,9 +8,8 @@ alongside other stores and not merely the Discover h5ad in another container.
 
 This script owns the I/O: fetch the source, write the store, publish it, and
 record a receipt. The data model lives in the `census2_dataset_writer` package,
-which decides which slots a store carries and applies harmonization.
-Harmonization is a stub today, so a store holds the source values in whichever
-slots the slot policy keeps.
+which decides which slots a store carries and applies harmonization: it projects
+the counts onto the pinned gene reference staged in `--refdata`.
 
 Memory discipline: this script never calls `read_h5ad`. It hands the source path
 to `census2_dataset_writer.create`, which keeps the small slots in memory and
@@ -33,8 +32,10 @@ import time
 import census2_dataset_writer
 import h5py
 import numpy as np
+import pandas as pd
+import scipy.sparse as sp
 import zarr
-from anndata.io import read_elem
+from anndata.io import read_elem, sparse_dataset
 
 
 def log(msg: str) -> None:
@@ -68,19 +69,26 @@ def ingest(src: str, dest: str, *, config=None, refdata=None, threads=None) -> d
     )
 
 
-def check(src: str, dst: str, dropped_obs_columns=()) -> dict:
+def check(src: str, dst: str, written: dict) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
     `compared` lists what the comparison covered, so a check that silently
     covered nothing is visible in the receipt instead of reading as a pass.
 
-    `dropped_obs_columns` is what harmonization removed, from the result. The
-    obs columns are compared against the source minus exactly those names, so
+    `written` is the result of `census2_dataset_writer.create`. The obs columns
+    are compared against the source minus exactly the `dropped_obs_columns`, so
     a deliberate projection passes and an unreported drop still fails.
-    """
-    import hashlib
 
-    import pandas as pd
+    The store's `var` is the gene reference, so it is not compared with the
+    source `var`. The store's `X` must hold the source counts (`raw/X`, else
+    `X`) of every feature except the `dropped_var_features`, each at the
+    position of its `feature_id` in the store's `var`. The check reads the store
+    at those positions and compares the values with the source, one block of
+    rows at a time. The writer moves each source column to its position, and
+    the check reads each position back. Thus the check does not repeat the
+    writer's code. Equal nonzero counts per block show that no value is outside
+    those positions.
+    """
 
     result: dict = {"passed": True, "compared": []}
 
@@ -102,85 +110,80 @@ def check(src: str, dst: str, dropped_obs_columns=()) -> dict:
             node = node[part]
         return node
 
-    def digest(arr):
-        h = hashlib.sha256()
-        n = arr.shape[0]
-        step = max(1, census2_dataset_writer.BLOCK_BYTES // max(arr.dtype.itemsize, 1))
-        for i in range(0, n, step):
-            block = np.ascontiguousarray(arr[i : min(i + step, n)])
-            # The round trip widens sparse index arrays from int32 to int64, so
-            # a hash of the raw bytes reports a false difference. Integers
-            # therefore compare by value. Floats stay strict, because a change of
-            # precision in the data is worth reporting.
-            if block.dtype.kind in "iu":
-                block = block.astype(np.int64, copy=False)
-            h.update(block.tobytes())
-        return h.hexdigest()[:16]
-
     with h5py.File(src, "r") as f:
         # Route through as_store: a bare s3:// string makes zarr fall back to
         # fsspec, which needs s3fs.
         zroot = zarr.open_consolidated(census2_dataset_writer.as_store(dst), mode="r")
         result["consolidated"] = True
 
-        dropped = set(dropped_obs_columns)
-        for key in ("obs", "var"):
-            a, b = read_elem(f[key]), read_elem(zroot[key])
-            result["compared"].append(key)
-            if not a.index.equals(b.index):
-                fail(key, "index differs")
-            # Only `obs` is projected, and only by the names the writer
-            # reported. Everything else has to match exactly.
-            expected = [c for c in a.columns if key != "obs" or c not in dropped]
-            if list(b.columns) != expected:
-                fail(
-                    key,
-                    f"columns differ: expected {len(expected)}, got {len(b.columns)}",
-                )
-                # The loop below indexes the store by a source column name, so
-                # it cannot run against a frame that does not have them all.
-                continue
+        dropped = set(written["dropped_obs_columns"])
+        a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
+        result["compared"].append("obs")
+        expected = [c for c in a.columns if c not in dropped]
+        if not a.index.equals(b.index):
+            fail("obs", "index differs")
+        if list(b.columns) != expected:
+            fail(
+                "obs", f"columns differ: expected {len(expected)}, got {len(b.columns)}"
+            )
+        else:
             for col in expected:
                 if str(a[col].dtype) != str(b[col].dtype):
-                    fail(f"{key}.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
+                    fail(f"obs.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
                 elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
                     list(a[col].cat.categories) != list(b[col].cat.categories)
                 ):
-                    fail(f"{key}.{col}", "categories differ")
+                    fail(f"obs.{col}", "categories differ")
 
-        # An absent matrix is only acceptable when neither side has it. Skipping
-        # a present one would let the check pass having compared nothing.
-        for path in ("X", "raw/X"):
-            in_src, in_out = has(f, path), has(zroot, path)
-            if not in_src and not in_out:
-                continue
-            if not in_out:
-                fail(path, "missing from the store")
-                continue
-            if not in_src:
-                fail(path, "in the store but not in the source")
-                continue
+        var = read_elem(zroot["var"])
+        result["compared"].append("var")
+        if not var.index.is_unique:
+            fail("var", "feature_ids are not unique")
+        if list(var.columns) != census2_dataset_writer.genes.COLUMNS:
+            fail("var", f"columns {list(var.columns)} are not the reference columns")
+        # anndata writes an absent raw as a null-encoded element, not a missing key.
+        if has(zroot, "raw") and zroot["raw"].attrs.get("encoding-type") == "raw":
+            fail("raw", "the store holds raw; the counts belong in X")
 
-            h5o, zo = get(f, path), get(zroot, path)
-            if isinstance(h5o, h5py.Group):  # sparse
-                if h5o["data"].shape != zo["data"].shape:
-                    fail(path, f"nnz {h5o['data'].shape} != {zo['data'].shape}")
-                    continue
-                for part in ("data", "indices", "indptr"):
-                    if digest(h5o[part]) != digest(zo[part]):
-                        fail(
-                            f"{path}/{part}",
-                            f"values differ (h5ad {h5o[part].dtype}, zarr {zo[part].dtype})",
-                        )
-                result[f"{path}.nnz"] = int(h5o["data"].shape[0])
-            else:  # dense
-                if tuple(h5o.shape) != tuple(zo.shape):
-                    fail(path, f"shape {h5o.shape} != {zo.shape}")
-                    continue
-                if digest(h5o) != digest(zo):
-                    fail(path, "checksum differs")
-                result[f"{path}.shape"] = list(h5o.shape)
-            result["compared"].append(path)
+        counts = "raw/X" if has(f, "raw/X") else "X"
+        source_var = read_elem(
+            f["raw/var"] if counts == "raw/X" and has(f, "raw/var") else f["var"]
+        )
+        ids = source_var.index.astype(str)
+        kept = ~ids.isin(set(written["dropped_var_features"]))
+        columns = np.flatnonzero(kept)
+        positions = var.index.get_indexer(ids[kept])
+        h5o = get(f, counts)
+        source_x = sparse_dataset(h5o) if isinstance(h5o, h5py.Group) else h5o
+        n_rows = int(source_x.shape[0])
+        if (positions < 0).any():
+            missing = list(ids[kept][positions < 0][:5])
+            fail("X", f"{int((positions < 0).sum())} features not in var: {missing}")
+        elif not isinstance(zroot["X"], zarr.Group):
+            fail("X", "not a sparse matrix")
+        else:
+            store_x = sparse_dataset(zroot["X"])
+            if tuple(store_x.shape) != (n_rows, len(var)):
+                fail("X", f"shape {store_x.shape} != {(n_rows, len(var))}")
+            else:
+                step = census2_dataset_writer.row_chunk(h5o, n_rows)
+                nnz = 0
+                for i in range(0, n_rows, step):
+                    rows = slice(i, min(i + step, n_rows))
+                    want = sp.csr_matrix(source_x[rows])[:, columns]
+                    got = sp.csr_matrix(store_x[rows])
+                    nnz += got.count_nonzero()
+                    if got.dtype != want.dtype:
+                        fail("X", f"dtype {got.dtype} != source {want.dtype}")
+                        break
+                    if (got[:, positions] != want).nnz or (
+                        got.count_nonzero() != want.count_nonzero()
+                    ):
+                        fail("X", f"values differ in rows {rows.start}:{rows.stop}")
+                        break
+                result["X.nnz"] = int(nnz)
+                result["X.source"] = counts
+        result["compared"].append("X")
 
     return result
 
@@ -246,8 +249,9 @@ def main() -> int:
     )
     p.add_argument(
         "--refdata",
-        default=None,
-        help="directory of reference data, staged by the workflow (optional)",
+        required=True,
+        help="directory of reference data, staged by the workflow; holds the "
+        "gene reference files",
     )
     p.add_argument(
         "--check",
@@ -298,13 +302,12 @@ def main() -> int:
         "config_file": os.path.basename(args.config) if args.config else None,
         "config_sha256": _sha256(args.config) if args.config else None,
         "config_effective": config,
-        "refdata": os.path.basename(args.refdata.rstrip("/")) if args.refdata else None,
+        "refdata": os.path.basename(args.refdata.rstrip("/")),
     }
-    if args.config or args.refdata:
-        log(
-            f"config={config_provenance['config_file']} "
-            f"refdata={config_provenance['refdata']}"
-        )
+    log(
+        f"config={config_provenance['config_file']} "
+        f"refdata={config_provenance['refdata']}"
+    )
 
     # Where the store ends up, recorded in the receipt either way.
     store = store_uri(args.outdir, f"{version_id}.zarr")
@@ -341,10 +344,16 @@ def main() -> int:
         if result["dropped_obs_columns"]:
             dropped = result["dropped_obs_columns"]
             log(f"  dropped {len(dropped)} obs columns: {', '.join(dropped)}")
+        if result["dropped_var_features"]:
+            dropped = result["dropped_var_features"]
+            log(f"  dropped {len(dropped)} features that are not organism genes")
+        log(f"  genes projected onto {result['gene_reference_version']}")
         receipt.update(
             {
                 "slots_written": result["slots"],
                 "dropped_obs_columns": result["dropped_obs_columns"],
+                "dropped_var_features": result["dropped_var_features"],
+                "gene_reference_version": result["gene_reference_version"],
                 "store": store,
                 "output_bytes": store_bytes(dest),
                 "published_by": "workflow" if args.stage_local else "task",
@@ -354,7 +363,7 @@ def main() -> int:
             verify_written(dest)
         if args.check:
             log("check round trip")
-            receipt["check"] = check(src, dest, result["dropped_obs_columns"])
+            receipt["check"] = check(src, dest, result)
             if not receipt["check"]["passed"]:
                 for fmsg in receipt["check"].get("failures", []):
                     log(f"  FAIL {fmsg}")

@@ -39,6 +39,7 @@ def main() -> int:
     checked = [r for r in admitted if "check" in r]
     failed = [r for r in checked if not r["check"].get("passed")]
     dropped = [r for r in admitted if r.get("dropped_obs_columns")]
+    dropped_var = [r for r in admitted if r.get("dropped_var_features")]
 
     report = {
         "recipe": receipts[0]["recipe"] if receipts else None,
@@ -70,6 +71,14 @@ def main() -> int:
         "dropped_obs_columns": sorted(
             {c for r in dropped for c in r["dropped_obs_columns"]}
         ),
+        # More than one value means the stores do not concatenate by position.
+        "gene_reference_version": sorted(
+            {str(r.get("gene_reference_version")) for r in admitted}
+        ),
+        # The gene projection drops the features that are not organism genes,
+        # such as ERCC spike-ins. The report gives a count and not the list,
+        # because one dataset can drop many features.
+        "datasets_with_dropped_var_features": len(dropped_var),
         "receipts": receipts,
     }
 
@@ -101,6 +110,11 @@ def main() -> int:
         print(
             f"report: {len(dropped)} datasets had obs columns dropped: "
             f"{', '.join(report['dropped_obs_columns'])}",
+            file=sys.stderr,
+        )
+    if dropped_var:
+        print(
+            f"report: {len(dropped_var)} datasets had non-gene features dropped",
             file=sys.stderr,
         )
     for vid in report["check_failures"]:

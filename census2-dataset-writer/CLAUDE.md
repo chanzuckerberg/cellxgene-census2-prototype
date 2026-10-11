@@ -35,7 +35,13 @@ round-trip: anndata cannot write an AnnData whose `obs` is a `Dataset2D`, and `r
 until the store is written.
 
 The round trip widens the sparse index arrays of `X` from int32 to int64; the values do not
-change. `--check` therefore compares integer arrays by value and not by stored bytes.
+change. Compare index arrays by value and not by stored bytes.
+
+The gene projection remaps `X` with `map_blocks` over the dask row blocks. Thus it needs a matrix
+that is one block wide, as `lazy_matrix` gives. Each output block is a `csr_matrix`, and `meta`
+declares that. Without `meta`, dask calls the function on an empty array to find the block type.
+An output block has the rows of its source block and at most its stored values. The reference is
+wider than most sources, but that does not make a block from a sparse source larger.
 
 Writing computes the lazy matrix through the dask threaded scheduler, which sizes its pool from
 `dask.system.CPU_COUNT`. That function honours CPU affinity and a cgroup CPU *quota*, but a
@@ -71,6 +77,9 @@ caller must pass, and h5py is the only entry in the `ignore_missing_imports` ove
 only entry: adding a package there discards types we can have. Everything else is typed: dask,
 obstore, anndata, and zarr ship `py.typed`, and `pandas-stubs` and `scipy-stubs` are dev
 dependencies.
+
+dask types `Array.map_blocks` for a function of the blocks alone. `project_matrix` passes extra
+arguments, so it calls the method through `Any` and casts the result to `da.Array`.
 
 `Result` and `Receipt` are `TypedDict`s rather than named tuples, because both serialize into JSON
 and callers index them. A `TypedDict` is closed, which is why `Config` is not one: the config file

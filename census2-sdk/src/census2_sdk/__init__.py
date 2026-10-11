@@ -16,11 +16,14 @@ columns of design 2.2 and `dataset_id`. A filter grammar is open (design section
 The result carries counts in `X`, the pinned gene reference as `var`, the `obs` columns
 that all selected stores hold, and `uns["census2"]` with the sources and the store
 counts. The cell key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names`
-is `<dataset_id>_<observation_joinid>`.
+is `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns
+None.
 
-Iteration 1 scaffolding, marked `ponytail:` in the code: the SDK projects each store's
-`var` onto the reference because the stores carry the source `var`, and it reads
-`dataset_id` from the catalog because the stores do not hold the column.
+The writer projects each store onto the reference. Thus every selected store has
+the same `var`. The SDK checks this, and concatenates by position.
+
+Iteration 1 scaffolding, marked `ponytail:` in the code: the SDK reads `dataset_id`
+from the catalog because the stores do not hold the column.
 """
 
 import os
@@ -36,17 +39,10 @@ from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
 from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
-from census2_sdk.gene_reference import (
-    ORGANISMS,
-    ReferencePinMismatch,
-    load_reference,
-    project,
-    reference_var,
-)
+from census2_sdk.gene_reference import ORGANISMS
 
 __all__ = [
     "Census",
-    "ReferencePinMismatch",
     "SourceConflict",
     "open_census",
 ]
@@ -61,9 +57,8 @@ class SourceConflict(ValueError):
 class Census:
     """A set of sources, opened. `get_anndata` runs one query over them."""
 
-    def __init__(self, sources: Sequence[PathLike], refdata: PathLike | None) -> None:
+    def __init__(self, sources: Sequence[PathLike]) -> None:
         self.sources = [str(s) for s in sources]
-        self.refdata = refdata
         frames = []
         for source in self.sources:
             frame = _catalog.load(source)
@@ -79,34 +74,32 @@ class Census:
 
     def get_anndata(
         self, organism: str, obs_filter: Filter | None = None
-    ) -> anndata.AnnData:
-        """Return the selected cells of `organism` as one AnnData."""
+    ) -> anndata.AnnData | None:
+        """Return the selected cells of `organism` as one AnnData.
+
+        Return None when no cell matches, whether or not the catalog excluded
+        every store.
+        """
         normalized = _catalog.normalize(obs_filter)
         rows = _catalog.exclude(self.catalog, organism, normalized)
         _check_composition(rows, ORGANISMS[organism]["version"])
-        reference = load_reference(organism, self.refdata)
-        var = reference_var(reference)
 
         parts = [
-            _read_store(row, organism, normalized, reference, var)
+            _read_store(row, normalized)
             for row in cast("list[dict[str, Any]]", rows.to_dict("records"))
         ]
-        if parts:
-            # Zero-row parts stay in, so the obs schema is the columns that all
-            # opened stores hold even when no cell matched.
-            result = anndata.concat(parts, join="inner", merge="same")
-            if not result.obs_names.is_unique:
-                raise SourceConflict("the cell key is not unique across the result")
-        else:
-            empty = pd.DataFrame(
-                {
-                    "dataset_id": pd.Series([], dtype=str),
-                    "observation_joinid": pd.Series([], dtype=str),
-                }
-            )
-            result = anndata.AnnData(
-                X=sp.csr_matrix((0, len(var)), dtype=np.float32), obs=empty, var=var
-            )
+        uris = list(rows["store_uri"].astype(str))
+        _check_var(parts, uris)
+        if not sum(part.n_obs for part in parts):
+            return None
+        # Zero-row parts stay in, so the obs schema is the columns that all
+        # opened stores hold.
+        result = anndata.concat(parts, join="inner")
+        if not result.obs_names.is_unique:
+            raise SourceConflict("the cell key is not unique across the result")
+        # Each part carries only the var index. The stores record one reference
+        # version and one index, so the first store supplies the var columns.
+        result.var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
@@ -115,29 +108,31 @@ class Census:
         return result
 
 
-def open_census(
-    sources: Sequence[PathLike], *, refdata: PathLike | None = None
-) -> Census:
-    """Open catalogs. `refdata` is a directory that holds the pinned gene references."""
-    return Census(sources, refdata)
+def open_census(sources: Sequence[PathLike]) -> Census:
+    """Open catalogs."""
+    return Census(sources)
 
 
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     """Design 4.3: the checks before concatenation. Name the conflicting values.
 
-    A row that records a `gene_reference_version` must record the one that this
-    SDK pins for the organism. The SDK does not remap a store onto another
-    reference. A row that records none passes: the Iteration 1 stores have no
-    summary record.
+    Every row must record the `gene_reference_version` that this SDK pins for the
+    organism. The SDK does not remap a store onto another reference. A row that
+    records none has no receipt that names the reference of its store. A catalog
+    without the column records none.
 
     Spatial and non-spatial stores do not compose. A row that records no
     `spatial` value cannot prove that its store composes with another, so a
     result of two or more stores refuses it. One store always composes with
     itself. A catalog without the column records no value.
     """
-    versions = sorted(
-        {str(v) for v in _recorded(rows, "gene_reference_version") if v is not None}
+    recorded = _recorded(rows, "gene_reference_version")
+    missing = sorted(
+        str(d) for d, v in zip(rows["dataset_id"], recorded, strict=True) if v is None
     )
+    if missing:
+        raise SourceConflict(f"no gene_reference_version recorded for {missing}")
+    versions = sorted({str(v) for v in recorded})
     if versions and versions != [pinned]:
         raise SourceConflict(
             f"gene_reference_version {versions} differs from the pinned {pinned!r}"
@@ -187,29 +182,25 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
     return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
-def _read_store(
-    row: dict[str, Any],
-    organism: str,
-    obs_filter: Normalized,
-    reference: pd.DataFrame,
-    var: pd.DataFrame,
-) -> anndata.AnnData:
+def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
+    """The selected cells of one store. `X` holds the counts on the reference genes.
+
+    `var` holds only the index, the `feature_id`s, which is all that `_check_var`
+    compares. `get_anndata` reads the var columns from one store.
+    """
     group = open_store(row["store_uri"])
     obs = cast("pd.DataFrame", read_elem(group["obs"]))
     _check_cell_key(obs, str(row["store_uri"]))
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
+    var_group = group["var"]
+    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
+    index = read_elem(var_group[str(var_group.attrs["_index"])])
+    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
+    x = _rows(group["X"], keep)
 
-    # Disposition row 8: raw/X holds the counts when a raw group exists. anndata
-    # writes an absent raw as a null-encoded array, so test the encoding.
-    has_raw = "raw" in group and group["raw"].attrs.get("encoding-type") == "raw"
-    x_group, var_group = ("raw/X", "raw/var") if has_raw else ("X", "var")
-    store_var = cast("pd.DataFrame", read_elem(group[var_group]))
-    x = _rows(group[x_group], keep)
-    x = _align_genes(x, store_var, organism, reference)
-
-    # ponytail: the stores carry the source var and no dataset_id column; both
-    # come from the writer once disposition rows 12 to 24 land in harmonize.
+    # ponytail: the stores hold no dataset_id column; it comes from the writer
+    # once disposition row 13 lands in harmonize.
     dataset_id = str(row["dataset_id"])
     obs.insert(
         0,
@@ -229,6 +220,19 @@ def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
         raise ValueError(f"{store_uri}: observation_joinid is null or not unique")
 
 
+def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
+    """Concatenation by position needs one `var`: every store's genes, in one order."""
+    if not parts:
+        return
+    first = parts[0].var_names
+    for part, store_uri in zip(parts[1:], store_uris[1:], strict=True):
+        if not part.var_names.equals(first):
+            raise SourceConflict(
+                f"{store_uri}: var differs from {store_uris[0]}; the stores are not "
+                "on one gene reference"
+            )
+
+
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
     """The selected rows of a CSR matrix, read without loading the rest."""
     assert isinstance(node, zarr.Group), "X must be an encoded sparse matrix"
@@ -236,19 +240,3 @@ def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix
     if not len(keep):
         return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)
     return sp.csr_matrix(cast("sp.csr_matrix", dataset[keep]))
-
-
-def _align_genes(
-    x: sp.csr_matrix, store_var: pd.DataFrame, organism: str, reference: pd.DataFrame
-) -> sp.csr_matrix:
-    """Move the columns of `x` to their positions in the pinned reference."""
-    projection = project(store_var, organism, reference)
-    x = sp.csr_matrix(x[:, np.flatnonzero(projection.kept)])
-    aligned = sp.csr_matrix(
-        (x.data, projection.positions[x.indices], x.indptr),
-        shape=(x.shape[0], len(reference)),
-    )
-    # A non-canonical source CSR can hold two entries for one cell and gene.
-    # sum_duplicates merges them and sorts the indices.
-    aligned.sum_duplicates()
-    return aligned

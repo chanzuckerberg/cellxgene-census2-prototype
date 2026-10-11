@@ -25,12 +25,18 @@ The `s3` extra is unnecessary for a local conversion.
 import census2_dataset_writer
 
 # build and write in one call; writes nothing if the dataset is not admitted
-result = census2_dataset_writer.create("dataset.h5ad", "store.zarr")
+result = census2_dataset_writer.create("dataset.h5ad", "store.zarr", refdata="refdata/")
 if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
 
 `build` and `write` can also be called separately; the module docstring covers that.
+
+`refdata` is a directory that holds the pinned gene reference files, `genes_homo_sapiens.csv.gz`
+and `genes_mus_musculus.csv.gz` from the `single-cell-curation` tag `v7.0.0`. The writer does not
+download them. Stage them once with
+[`bulk-ingest-nf/tools/stage-refdata.py`](../bulk-ingest-nf/tools/stage-refdata.py), which checks
+each file against the SHA-256 digest in `DEFAULTS["gene_references"]`.
 
 The destination is a local path, a remote URL such as `s3://bucket/prefix.zarr`, or a
 `zarr.abc.store.Store`. For a remote destination, export AWS credentials into the environment
@@ -40,15 +46,26 @@ first; `AWS_PROFILE` alone does not work.
 
 | Decision | State | Where |
 |---|---|---|
-| Admission — does the dataset belong in Census 2 | Minimal stub: one criterion, the `assay_allowlist` | `admit` |
+| Admission — does the dataset belong in Census 2 | Minimal stub: the `assay_allowlist`, and an organism with a gene reference | `admit` |
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
-| Harmonization — what makes stores queryable together | Stub: returns its input | `harmonize` |
+| Harmonization — what makes stores queryable together | Partly made: the `obs` columns that Zarr cannot name, the counts matrix, and the gene projection | `harmonize` |
 
-Because two of the three are stubs, a store today is the dataset's Census slot set written to Zarr.
-The one admission criterion rejects a dataset with no cell on the assay allowlist, which defaults
-to the Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk
-ingestion workflow away from modalities a Census is unlikely to carry, not to settle what Census 2
-admits.
+A store holds the dataset's cells, with the counts on the organism's pinned gene reference:
+
+- `X` holds the counts: `raw.X` when the source has `raw`, else `X`. The store has no `raw`.
+- `var` is the reference (GENCODE v48 for human, 78,894 rows; GENCODE M37 for mouse), in reference
+  order. Every store of one organism has the same `var`, so a reader concatenates stores by
+  position. A gene that the dataset did not measure is a zero column.
+- The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
+  gene that is not in the reference fails the dataset. The writer does not map genes across
+  reference versions.
+- The result reports the reference version and the dropped features, and the pipeline records
+  both in the receipt.
+
+The assay criterion rejects a dataset with no cell on the assay allowlist, which defaults to the
+Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk ingestion
+workflow away from modalities a Census is unlikely to carry, not to settle what Census 2 admits.
+The organism criterion rejects a dataset whose organism has no gene reference.
 
 A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.

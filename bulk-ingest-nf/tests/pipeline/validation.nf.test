@@ -19,6 +19,20 @@ nextflow_pipeline {
         }
     }
 
+    test("fails clearly when no refdata is given") {
+        // The writer projects every dataset onto the staged gene references.
+        tag "validation"
+
+        when {
+            params { refdata = null }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("Missing --refdata") }
+            assert workflow.stdout.any { it.contains("tools/stage-refdata.py") }
+        }
+    }
+
     test("refuses a local outdir when the profile needs a remote one") {
         // A remote worker does not share this filesystem, so a local
         // destination would be written inside the worker and lost.
