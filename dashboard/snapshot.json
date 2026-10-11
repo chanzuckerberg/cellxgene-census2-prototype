@@ -1,0 +1,690 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-02T19:10:57Z",
+  "sources": {
+    "design": "https://app.notion.com/p/3d816a75378981f18f55c2bae3256a54",
+    "twoPager": "https://docs.google.com/document/d/14krJ7viYnLn98sYCpiPURT7chmniOUDZ4bM0gbNyBWc/edit?usp=sharing",
+    "slides": "https://docs.google.com/presentation/d/1sHhO4_GH2S7H84XsG30-RgMN0gUVAbCptDWye2q4nlA/edit?usp=sharing",
+    "outline": "https://app.notion.com/p/3e616a753789813491d6ffa66a4c3998",
+    "project": "https://linear.app/biohub/project/census-on-zarr-7dceee3d0089",
+    "plan": "https://app.notion.com/p/3b216a75378981c9b7f3d954789aefe4",
+    "tracker": "https://linear.app/biohub/project/census-on-zarr-7dceee3d0089/issues",
+    "iterationProposal": "https://app.notion.com/p/68916a75378982a3908e018e928d7eb7"
+  },
+  "outlineEditedAt": "2026-10-01T17:24:02.938Z",
+  "mappingNote": "Each task's iteration is its milestone in the Linear project. The iterations of a workstream combine the dashboard proposal with the milestones of the workstream's tasks.",
+  "scheduleNote": "Gate dates are proposals on the Linear iteration milestones. The bands connect successive gates; they do not specify task start dates.",
+  "iterations": [
+    {
+      "id": "0",
+      "title": "Design and measurement",
+      "date": null,
+      "status": "Done",
+      "delivery": "The design record, the evidence, the plan.",
+      "demo": "Review the design record, measurements, and implementation plan.",
+      "deliverables": [
+        "The design record.",
+        "The evidence: the layout spike, the differential harness, and the catalog prototype.",
+        "The plan."
+      ],
+      "gate": "The design and measurement work is complete.",
+      "notes": [
+        "Iteration 0 is complete."
+      ]
+    },
+    {
+      "id": "1",
+      "title": "End-to-end skeleton",
+      "date": "2026-09-30",
+      "status": "Done",
+      "delivery": "Writer, bulk ingestion, catalog, SDK, one check against Census 1.",
+      "demo": "Run one SDK query end to end and compare its result with Census 1 on one dataset.",
+      "deliverables": [
+        "The census dataset writer (PR #2, merged).",
+        "Bulk ingestion: the reconciliation job on HealthOmics (PR #2, merged). One run converted 100 datasets in one hour of wall time and produced 96 stores.",
+        "The catalog: the Iteration 1 catalog builder and the exclusion rule (PR #4, merged 2026-09-29).",
+        "The SDK skeleton: one query over the 96 stores returns one AnnData (PR #4, merged 2026-09-29).",
+        "One check against Census 1: one dataset, 4,778 cells, zero of 9,424,345 nonzeros differ."
+      ],
+      "gate": "One query runs through the system and matches Census 1 on the dataset under comparison.",
+      "notes": [
+        "Iteration 1 is complete. The team confirmed the gate on 2026-09-30.",
+        "PR #2 and PR #4 are merged, and tracker task 6.1 is Done.",
+        "Harmonization is a stub. A multi-store query returns the obs columns that every selected store holds. Iteration 2 replaces the stub."
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Full harmonization",
+      "date": "2026-10-30",
+      "status": "In progress",
+      "delivery": "Stores that match Census 1 cell for cell and value for value, and the obs columns a store keeps (perturbation fields included).",
+      "demo": "Show Census 1 parity on the current store set, cell for cell and value for value.",
+      "deliverables": [
+        "Stores that match Census 1 cell for cell and value for value.",
+        "The obs columns a store keeps, the perturbation fields included.",
+        "The harness query corpus run through the SDK against Census 1 (task 6.2). Its findings are the harmonization worklist, and an empty list is the gate."
+      ],
+      "gate": "The harness reports no difference against Census 1 on the current store set.",
+      "notes": [
+        "Built so far: the gene projection module (task 4.2, PR #7 in review) and the harness pieces ported to census2-sdk (PR #10, draft).",
+        "Task 6.2, the harness run through the SDK, is tracker task AIP-214.",
+        "Corpus v1.1 (tasks 2.1, 2.2) repins two vacuous queries and regenerates the oracle snapshot."
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Scale and layout",
+      "date": "2026-11-27",
+      "status": "Not started",
+      "delivery": "Preview-ready: the full corpus, the store layout decided, the release builder.",
+      "demo": "Query the full corpus through the catalog and SDK in a development bucket.",
+      "deliverables": [
+        "The full corpus, readable through the catalog and the SDK in a development bucket.",
+        "The store layout decided, the X encoding included.",
+        "The release builder.",
+        "Scale measurements from the benchmark rig: data volume, request count, elapsed time, and concurrency for the wide filters."
+      ],
+      "gate": "The full corpus is readable through the catalog and SDK in a development bucket.",
+      "notes": [
+        "Built so far: the layout measurements and the backfill inventory.",
+        "The X encoding decision is with scverse.",
+        "The preview has no production sign-off."
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Continuous ingestion and private data",
+      "date": "2026-12-18",
+      "status": "Not started",
+      "delivery": "The curation pipeline step, private catalogs, the filter interface over the kept obs columns, a beta on the preview.",
+      "demo": "Show continuous ingestion and query public and authorized private data together.",
+      "deliverables": [
+        "The curation pipeline step, on Step Functions.",
+        "Private catalogs, queried together with public data in one call.",
+        "The filter interface over the kept obs columns.",
+        "A beta on the preview."
+      ],
+      "gate": "The system supports continuous ingestion and public and private sources in one query.",
+      "notes": [
+        "Nothing is built yet. The design exists.",
+        "Where the writer runs in production and artifact registration in Discover are open decisions.",
+        "The curation pipeline step brings monitoring and alerting."
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Approvals and first release",
+      "date": "2027-01-29",
+      "status": "Not started",
+      "delivery": "Sign-off, identity mapping, retention agreement, the SDK published with documentation, first release.",
+      "demo": "Publish the first release and documented SDK after the required approvals and agreements.",
+      "deliverables": [
+        "Formal sign-off on the design decisions.",
+        "The identity mapping from soma_joinid to (dataset_id, observation_joinid), derived from the last TileDB release.",
+        "The retention agreement with the bucket owners.",
+        "The SDK published with documentation and a migration guide.",
+        "The first release: a manifest over immutable stores plus a catalog snapshot."
+      ],
+      "gate": "The release and SDK are published after the required approvals and agreements.",
+      "notes": [
+        "Retention, Discover registration, design sign-off, and the store format need agreements outside the team. None has an owner yet.",
+        "Broader ecosystem migration continues after the first release."
+      ]
+    },
+    {
+      "id": "later",
+      "title": "After the first release",
+      "date": null,
+      "status": "Not started",
+      "delivery": "R client, spatial, compaction, cutover.",
+      "demo": "R, spatial support, ecosystem migration, optional compaction, and cutover; no target date yet.",
+      "deliverables": [
+        "The R client, once the R stack reads sharded Zarr.",
+        "Spatial: the SpatialData representation with scenes and images. The expression data of spatial datasets is in the first release, as in Census 1.",
+        "Compaction, optional, when wide-query cost calls for it.",
+        "Cutover: retirement of the TileDB corpus and the 1.x package, inside the five-year commitment."
+      ],
+      "gate": "Each deferred workstream has its own completion condition in the plan.",
+      "notes": [
+        "The outline assigns no date. Cutover follows the first release and R reading Zarr, and the last TileDB release stays supported until November 2030.",
+        "Built so far: one failed R read test."
+      ]
+    }
+  ],
+  "epics": [
+    {
+      "id": "0",
+      "title": "Phase 0: Design",
+      "color": "#536878",
+      "url": "https://linear.app/biohub/issue/AIP-124/phase-0-design",
+      "status": "Done",
+      "iterations": [
+        "0"
+      ],
+      "trackerStart": "2026-09-07",
+      "trackerEnd": "2026-09-18",
+      "workstream": "Design"
+    },
+    {
+      "id": "1",
+      "title": "Phase 1: Approvals and amendments",
+      "color": "#9a6515",
+      "url": "https://linear.app/biohub/issue/AIP-125/phase-1-approvals-and-amendments",
+      "status": "Backlog",
+      "iterations": [
+        "5"
+      ],
+      "trackerStart": "2026-09-21",
+      "trackerEnd": "2026-10-02",
+      "workstream": "Approvals"
+    },
+    {
+      "id": "2",
+      "title": "Phase 2: The validation harness",
+      "color": "#4169a1",
+      "url": "https://linear.app/biohub/issue/AIP-126/phase-2-the-validation-harness",
+      "status": "Done",
+      "iterations": [
+        "0",
+        "2",
+        "3"
+      ],
+      "trackerStart": "2026-09-21",
+      "trackerEnd": "2026-10-02",
+      "workstream": "Validation"
+    },
+    {
+      "id": "3",
+      "title": "Phase 3: Spatial representation",
+      "color": "#9b4d87",
+      "url": "https://linear.app/biohub/issue/AIP-127/phase-3-spatial-representation",
+      "status": "Backlog",
+      "iterations": [
+        "later"
+      ],
+      "trackerStart": "2026-09-21",
+      "trackerEnd": "2026-10-02",
+      "workstream": "Spatial"
+    },
+    {
+      "id": "4",
+      "title": "Phase 4: The per-dataset writer",
+      "color": "#207a63",
+      "url": "https://linear.app/biohub/issue/AIP-128/phase-4-the-per-dataset-writer",
+      "status": "In Progress",
+      "iterations": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "trackerStart": "2026-10-05",
+      "trackerEnd": "2026-10-16",
+      "workstream": "Writer"
+    },
+    {
+      "id": "5",
+      "title": "Phase 5: The catalog",
+      "color": "#b25432",
+      "url": "https://linear.app/biohub/issue/AIP-129/phase-5-the-catalog",
+      "status": "In Progress",
+      "iterations": [
+        "1",
+        "3",
+        "4"
+      ],
+      "trackerStart": "2026-10-19",
+      "trackerEnd": "2026-10-30",
+      "workstream": "Catalog"
+    },
+    {
+      "id": "6",
+      "title": "Phase 6: The v2 Python SDK",
+      "color": "#7254a3",
+      "url": "https://linear.app/biohub/issue/AIP-130/phase-6-the-v2-python-sdk",
+      "status": "In Progress",
+      "iterations": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "trackerStart": "2026-11-02",
+      "trackerEnd": "2026-11-13",
+      "workstream": "SDK"
+    },
+    {
+      "id": "7",
+      "title": "Phase 7: The identity proof",
+      "color": "#34768e",
+      "url": "https://linear.app/biohub/issue/AIP-131/phase-7-the-identity-proof",
+      "status": "Backlog",
+      "iterations": [
+        "5"
+      ],
+      "trackerStart": "2026-11-16",
+      "trackerEnd": "2026-11-27",
+      "workstream": "Identity"
+    },
+    {
+      "id": "8",
+      "title": "Phase 8: Backfill ingestion",
+      "color": "#89642f",
+      "url": "https://linear.app/biohub/issue/AIP-132/phase-8-backfill-ingestion",
+      "status": "Backlog",
+      "iterations": [
+        "3"
+      ],
+      "trackerStart": "2026-11-02",
+      "trackerEnd": "2026-11-13",
+      "workstream": "Backfill"
+    },
+    {
+      "id": "9",
+      "title": "Phase 9: Ongoing ingestion",
+      "color": "#a94f68",
+      "url": "https://linear.app/biohub/issue/AIP-133/phase-9-ongoing-ingestion",
+      "status": "In Progress",
+      "iterations": [
+        "1",
+        "4"
+      ],
+      "trackerStart": "2026-11-02",
+      "trackerEnd": "2026-11-13",
+      "workstream": "Ingestion"
+    },
+    {
+      "id": "10",
+      "title": "Phase 10: Publish",
+      "color": "#647c30",
+      "url": "https://linear.app/biohub/issue/AIP-134/phase-10-publish",
+      "status": "Backlog",
+      "iterations": [
+        "3",
+        "5"
+      ],
+      "trackerStart": "2026-11-30",
+      "trackerEnd": "2026-12-11",
+      "workstream": "Publishing"
+    },
+    {
+      "id": "11",
+      "title": "Phase 11: Private datasets",
+      "color": "#276f9d",
+      "url": "https://linear.app/biohub/issue/AIP-135/phase-11-private-datasets",
+      "status": "Backlog",
+      "iterations": [
+        "4"
+      ],
+      "trackerStart": "2026-11-16",
+      "trackerEnd": "2026-11-27",
+      "workstream": "Private data"
+    },
+    {
+      "id": "12",
+      "title": "Phase 12: Migrate the ecosystem",
+      "color": "#806350",
+      "url": "https://linear.app/biohub/issue/AIP-136/phase-12-migrate-the-ecosystem",
+      "status": "Backlog",
+      "iterations": [
+        "5",
+        "later"
+      ],
+      "trackerStart": "2026-12-14",
+      "trackerEnd": "2026-12-25",
+      "workstream": "Migration"
+    },
+    {
+      "id": "13",
+      "title": "Phase 13: R parity",
+      "color": "#89518f",
+      "url": "https://linear.app/biohub/issue/AIP-138/phase-13-r-parity",
+      "status": "Backlog",
+      "iterations": [
+        "later"
+      ],
+      "trackerStart": "2026-12-14",
+      "trackerEnd": "2026-12-25",
+      "workstream": "R parity"
+    },
+    {
+      "id": "14",
+      "title": "Phase 14: Compaction (optional)",
+      "color": "#347f7b",
+      "url": "https://linear.app/biohub/issue/AIP-139/phase-14-compaction-optional",
+      "status": "Backlog",
+      "iterations": [
+        "later"
+      ],
+      "trackerStart": "2026-12-14",
+      "trackerEnd": "2026-12-25",
+      "workstream": "Compaction"
+    },
+    {
+      "id": "15",
+      "title": "Phase 15: Cutover",
+      "color": "#636a9e",
+      "url": "https://linear.app/biohub/issue/AIP-141/phase-15-cutover",
+      "status": "Backlog",
+      "iterations": [
+        "later"
+      ],
+      "trackerStart": "2026-12-28",
+      "trackerEnd": "2027-01-08",
+      "workstream": "Cutover"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "2.1",
+      "title": "2.1 Define the fixed query corpus",
+      "url": "https://linear.app/biohub/issue/AIP-137/21-define-the-fixed-query-corpus",
+      "status": "Done",
+      "epic": "2",
+      "iteration": "0",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "2.2",
+      "title": "2.2 Build the v1 oracle runner",
+      "url": "https://linear.app/biohub/issue/AIP-140/22-build-the-v1-oracle-runner",
+      "status": "Done",
+      "epic": "2",
+      "iteration": "0",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "2.3",
+      "title": "2.3 Define the canonical result form and build the comparator",
+      "url": "https://linear.app/biohub/issue/AIP-143/23-define-the-canonical-result-form-and-build-the-comparator",
+      "status": "Done",
+      "epic": "2",
+      "iteration": "0",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "2.4",
+      "title": "2.4 Build the stack-under-test adapter",
+      "url": "https://linear.app/biohub/issue/AIP-145/24-build-the-stack-under-test-adapter",
+      "status": "Done",
+      "epic": "2",
+      "iteration": "0",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "2.5",
+      "title": "2.5 Build the benchmark rig for data volume and request count",
+      "url": "https://linear.app/biohub/issue/AIP-147/25-build-the-benchmark-rig-for-data-volume-and-request-count",
+      "status": "Done",
+      "epic": "2",
+      "iteration": "0",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.1",
+      "title": "4.1 Write the harmonization disposition table",
+      "url": "https://linear.app/biohub/issue/AIP-142/41-write-the-harmonization-disposition-table",
+      "status": "Done",
+      "epic": "4",
+      "iteration": "0",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.2",
+      "title": "4.2 Build the gene-reference projection module",
+      "url": "https://linear.app/biohub/issue/AIP-144/42-build-the-gene-reference-projection-module",
+      "status": "In Review",
+      "epic": "4",
+      "iteration": "2",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.3",
+      "title": "4.3 Port the spike's X encoding",
+      "url": "https://linear.app/biohub/issue/AIP-146/43-port-the-spikes-x-encoding",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.4",
+      "title": "4.4 Encode obs and var",
+      "url": "https://linear.app/biohub/issue/AIP-148/44-encode-obs-and-var",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.5",
+      "title": "4.5 Compute the derived per-dataset artifacts",
+      "url": "https://linear.app/biohub/issue/AIP-160/45-compute-the-derived-per-dataset-artifacts",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "2",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.6",
+      "title": "4.6 Assert identity uniqueness on every write",
+      "url": "https://linear.app/biohub/issue/AIP-161/46-assert-identity-uniqueness-on-every-write",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "2",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.7",
+      "title": "4.7 Emit the store-root records: inventory and summary",
+      "url": "https://linear.app/biohub/issue/AIP-162/47-emit-the-store-root-records-inventory-and-summary",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.8",
+      "title": "4.8 Derive the address and finalize atomically",
+      "url": "https://linear.app/biohub/issue/AIP-163/48-derive-the-address-and-finalize-atomically",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.9",
+      "title": "4.9 Run the differential sign-off against the v1 stack",
+      "url": "https://linear.app/biohub/issue/AIP-164/49-run-the-differential-sign-off-against-the-v1-stack",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "2",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.10",
+      "title": "4.10 Build the pipeline entrypoint",
+      "url": "https://linear.app/biohub/issue/AIP-165/410-build-the-pipeline-entrypoint",
+      "status": "Done",
+      "epic": "4",
+      "iteration": "1",
+      "owner": "Mike Lin",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "4.11",
+      "title": "4.11 Define the census dataset writer contract for both callers",
+      "url": "https://linear.app/biohub/issue/AIP-166/411-define-the-census-dataset-writer-contract-for-both-callers",
+      "status": "Backlog",
+      "epic": "4",
+      "iteration": "4",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.1",
+      "title": "5.1 Define the catalog row schema and dictionary format",
+      "url": "https://linear.app/biohub/issue/AIP-151/51-define-the-catalog-row-schema-and-dictionary-format",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.2",
+      "title": "5.2 Build the dictionary and bitmaps from the TileDB corpus",
+      "url": "https://linear.app/biohub/issue/AIP-152/52-build-the-dictionary-and-bitmaps-from-the-tiledb-corpus",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.3",
+      "title": "5.3 Build the exclusion path in the SDK",
+      "url": "https://linear.app/biohub/issue/AIP-153/53-build-the-exclusion-path-in-the-sdk",
+      "status": "In Progress",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.4",
+      "title": "5.4 Extract one implementation shared with the per-chunk obs index",
+      "url": "https://linear.app/biohub/issue/AIP-154/54-extract-one-implementation-shared-with-the-per-chunk-obs-index",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.5",
+      "title": "5.5 Implement the publication protocol",
+      "url": "https://linear.app/biohub/issue/AIP-155/55-implement-the-publication-protocol",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.6",
+      "title": "5.6 Build catalog rows from store summary records",
+      "url": "https://linear.app/biohub/issue/AIP-156/56-build-catalog-rows-from-store-summary-records",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.7",
+      "title": "5.7 Run the no-false-negative proof",
+      "url": "https://linear.app/biohub/issue/AIP-157/57-run-the-no-false-negative-proof",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "5.8",
+      "title": "5.8 Derive the column set from the curation schema",
+      "url": "https://linear.app/biohub/issue/AIP-158/58-derive-the-column-set-from-the-curation-schema",
+      "status": "Backlog",
+      "epic": "5",
+      "iteration": "3",
+      "owner": "Unassigned",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "6.1",
+      "title": "6.1 Build the SDK skeleton over the catalog",
+      "url": "https://linear.app/biohub/issue/AIP-159/61-build-the-sdk-skeleton-over-the-catalog",
+      "status": "Done",
+      "epic": "6",
+      "iteration": "1",
+      "owner": "rkalo@contractor.chanzuckerberg.com",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "6.2",
+      "title": "6.2 Run the harness query corpus through the SDK against Census 1",
+      "url": "https://linear.app/biohub/issue/AIP-214/62-run-the-harness-query-corpus-through-the-sdk-against-census-1",
+      "status": "Backlog",
+      "epic": "6",
+      "iteration": "2",
+      "owner": "rkalo@contractor.chanzuckerberg.com",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "9.1",
+      "title": "9.1 Build the Nextflow bulk-ingestion pipeline",
+      "url": "https://linear.app/biohub/issue/AIP-149/91-build-the-nextflow-bulk-ingestion-pipeline",
+      "status": "In Review",
+      "epic": "9",
+      "iteration": "1",
+      "owner": "Mike Lin",
+      "trackerStart": null,
+      "trackerEnd": null
+    },
+    {
+      "id": "9.2",
+      "title": "9.2 Add the census-writer step to the curation ingestion pipeline",
+      "url": "https://linear.app/biohub/issue/AIP-150/92-add-the-census-writer-step-to-the-curation-ingestion-pipeline",
+      "status": "Backlog",
+      "epic": "9",
+      "iteration": "4",
+      "owner": "rkalo@contractor.chanzuckerberg.com",
+      "trackerStart": null,
+      "trackerEnd": null
+    }
+  ]
+}

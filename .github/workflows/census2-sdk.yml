@@ -1,0 +1,61 @@
+# CI for the census2-sdk package. No AWS account is involved: the tests write
+# small stores to a temporary directory and read them back.
+name: census2-sdk
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "census2-sdk/**"
+      - ".github/workflows/census2-sdk.yml"
+  pull_request:
+    paths:
+      - "census2-sdk/**"
+      - ".github/workflows/census2-sdk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Unpinned, so this runs what a committer runs. See the root CLAUDE.md,
+      # "Python style".
+      - name: Lint
+        run: pipx run ruff check census2-sdk
+
+      - name: Check formatting
+        run: pipx run ruff format --check census2-sdk
+
+  package:
+    name: census2-sdk
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: census2-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Not editable: the tests then run against the installed package.
+      - name: Install
+        run: pip install '.[dev,s3]'
+
+      - name: Unit tests
+        run: pytest -q
+
+      # Strict, per the root CLAUDE.md. Settings come from this package's own
+      # pyproject, which is why this runs from the package directory.
+      - name: Type check
+        run: mypy

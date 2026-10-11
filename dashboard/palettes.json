@@ -1,0 +1,24 @@
+{
+  "muted": {
+    "label": "Muted",
+    "description": "Soft fills with dark labels reduce the amount of solid colour in the chart.",
+    "ink": "#23313b",
+    "colors": {
+      "0": "#d5dee5", "1": "#ecd6a7", "2": "#c4d6ef", "3": "#e2c6dc",
+      "4": "#bcddd1", "5": "#edcbbb", "6": "#d3c8e8", "7": "#bddce5",
+      "8": "#ddcfac", "9": "#e8c4cc", "10": "#d4dfa9", "11": "#b8d8ed",
+      "12": "#dacabc", "13": "#dec6e9", "14": "#b9deda", "15": "#c9cdec"
+    }
+  },
+  "vivid": {
+    "label": "Vivid",
+    "description": "Saturated fills put more emphasis on the epic bands.",
+    "ink": "#ffffff",
+    "colors": {
+      "0": "#475569", "1": "#a16207", "2": "#1d4ed8", "3": "#a21caf",
+      "4": "#047857", "5": "#c2410c", "6": "#6d28d9", "7": "#0e7490",
+      "8": "#854d0e", "9": "#be123c", "10": "#4d7c0f", "11": "#0369a1",
+      "12": "#92400e", "13": "#7e22ce", "14": "#0f766e", "15": "#4338ca"
+    }
+  }
+}

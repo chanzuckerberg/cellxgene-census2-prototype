@@ -13,6 +13,13 @@ workflow {
               "  tools/cxg-manifest.py --limit 5 --sort size_asc --out manifest.jsonl"
     }
 
+    // The writer projects every dataset onto the pinned gene references, and a
+    // task cannot fetch them, so they are staged beforehand.
+    if (!params.refdata) {
+        error "Missing --refdata. Stage the gene references first:\n" +
+              "  tools/stage-refdata.py refdata/"
+    }
+
     // Executors whose workers do not share this filesystem cannot publish to a
     // local path. The profile declares that. The rule then travels with the
     // profile, and a test can check it without the platform.
@@ -44,9 +51,10 @@ workflow {
         // nothing: no task runs, so REPORT never runs either.
         .ifEmpty { error "No dataset records in ${params.manifest}" }
 
-    // Optional and shared by every task. An empty list stages nothing.
+    // Shared by every task. The config is optional, and an empty list stages
+    // nothing.
     ch_config  = Channel.value(params.config  ? file(params.config,  checkIfExists: true) : [])
-    ch_refdata = Channel.value(params.refdata ? file(params.refdata, checkIfExists: true) : [])
+    ch_refdata = Channel.value(file(params.refdata, checkIfExists: true))
 
     INGEST(datasets, ch_config, ch_refdata)
 

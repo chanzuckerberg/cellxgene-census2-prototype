@@ -1,0 +1,74 @@
+name: Project dashboard
+
+on:
+  push:
+    branches: [main, feat/project-dashboard]
+    paths:
+      - "dashboard/**"
+      - ".github/workflows/dashboard.yml"
+  pull_request:
+    paths:
+      - "dashboard/**"
+      - ".github/workflows/dashboard.yml"
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      REFRESH: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Refresh the snapshot from the tracker
+        if: env.REFRESH == 'true'
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: node dashboard/fetch-snapshot.mjs
+      - name: Validate and build the dashboard
+        run: |
+          node --check dashboard/app.js
+          node --test dashboard/build.test.mjs dashboard/fetch-snapshot.test.mjs
+          node dashboard/build.mjs
+          if [ "$REFRESH" != "true" ]; then git diff --exit-code -- dashboard/index.html; fi
+          mkdir _site
+          cp dashboard/index.html _site/index.html
+      - name: Upload the site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+  deploy:
+    if: >-
+      github.event_name != 'pull_request' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/project-dashboard')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: project-dashboard-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check that the site is private
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh api "repos/$GH_REPO/pages" | jq -e '.public == false'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
