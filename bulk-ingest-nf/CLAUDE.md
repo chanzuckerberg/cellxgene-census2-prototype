@@ -85,7 +85,7 @@ refuses to *write* such a name to an h5ad as well. The corpus datasets that carr
 A test fixture that needs one must turn the setting off; zarr has no equivalent opt-out, because
 there the restriction belongs to the format.
 
-Peak memory follows the matrix that the store holds, not the file size. The store's `X` holds the
+Peak memory depends on the encoding of the matrix that the store holds. The store's `X` holds the
 counts: `raw.X` when the source has `raw`, else `X`. Census 1 reads the same matrix. Some datasets
 also hold a dense matrix beside sparse counts, for example a dense normalized `X` beside a sparse
 `raw.X`. The writer does not read that dense matrix. Of the 1086 human datasets in Census 1 LTS
@@ -95,12 +95,11 @@ The DNA methylation datasets (snmC-seq) hold dense counts: `X` is dense, and the
 no `layers`. Admission rejects them on their assay: `census2_dataset_writer.admit` requires one cell
 on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53 have no allowed
 assay, and 18 dense datasets are among the 53. The criterion is the assay and not the encoding, so
-a dataset with dense counts on an allowed assay is admitted, and its write is not bounded the way a
-sparse write is.
+admission admits a dataset with dense counts on an allowed assay.
 
 The memory request is still `size * 2.5` for every dataset. On the prototyping manifest, the
 largest peak was 4.0 GiB, on a 16.4 GiB h5ad, and no task used more than 40% of its reservation.
-Keep the measured fit in view if the request is ever tuned: peak is about
+Keep the measured fit for sparse counts in view if the request is ever tuned: peak is about
 `0.90 GiB + 0.20 * filesize`.
 
 ## Sharp edges: Nextflow
@@ -187,22 +186,31 @@ untested: TLS to real S3 with no apt `ca-certificates`, and whether the environm
 
 ## Sharp edges: AWS HealthOmics and credentials
 
-HealthOmics runs do not publish Nextflow's `report.html`, `timeline.html`, or `trace.txt`, though
-`conf/healthomics.config` points them at `report_dir`. No run has published them, and the cause is
-not known. HealthOmics records the task metrics itself, in the run manifest log: CloudWatch log
-group `/aws/omics/WorkflowLog`, stream `manifest/run/<run id>/<uuid>`. It holds one JSON record for
-each task, and the `metrics` of a record include `memoryMaximumGiB`, `memoryReservedGiB`,
-`cpusMaximum`, and `runningSeconds`. The reservation is larger than the request, because
-HealthOmics rounds a request up to the next of 4, 8, 16, 32, and 64 GiB: 5 GiB to 8, and 41 to 64.
+HealthOmics exports two directories of a Nextflow run. What a task publishes with `publishDir` to
+`/mnt/workflow/pubdir` goes to the `pubdir/` prefix of the run output location, and the run report
+goes there. What the engine writes itself to `/mnt/workflow/output/` goes to the `output/` prefix,
+on Nextflow 25.10 and later. Nextflow's `report.html`, `timeline.html`, and `trace.txt` are engine
+files, so `conf/healthomics.config` writes them to `/mnt/workflow/output/`. HealthOmics discards an
+engine file written anywhere else, `pubdir` included, and logs no warning. The trace records the
+`peak_rss` and the `realtime` of each task. To collect them, Nextflow runs `ps` in each task
+container, so the image installs `procps`.
+
+HealthOmics also records the task metrics itself, in the run manifest log: CloudWatch log group
+`/aws/omics/WorkflowLog`, stream `manifest/run/<run id>/<uuid>`. It holds one JSON record for each
+task, and the `metrics` of a record include `memoryMaximumGiB`, `memoryReservedGiB`, `cpusMaximum`,
+and `runningSeconds`. The reservation is larger than the request, because HealthOmics rounds a
+request up to the next of 4, 8, 16, 32, and 64 GiB: 5 GiB to 8, and 41 to 64.
 
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
 object, and an output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
 pipeline normalizes.
 
-There is no way to pass `-profile`: neither `create-workflow` nor `start-run` accepts Nextflow
-arguments, so the platform settings must be the defaults inside the bundle.
-`tools/build-healthomics-bundle.sh` appends that include when it builds the zip, which keeps a
-HealthOmics-only default out of the configuration that a local run reads.
+`start-run` selects a Nextflow profile through `--engine-settings '{"profile": "<name>"}'`, and the
+HealthOmics documentation says that this works for every Nextflow version it supports. This
+pipeline does not use it yet. Instead, `tools/build-healthomics-bundle.sh` appends
+`includeConfig 'conf/healthomics.config'` when it builds the zip, so the platform settings are the
+defaults inside the bundle, and the configuration that a local run reads holds no HealthOmics-only
+default. Selecting the `healthomics` profile at `start-run` would remove that step.
 
 HealthOmics has no boolean parameter type, so every parameter arrives as a string, and a non-empty
 string is true in Groovy: `check=false` would switch the check on. Read a boolean parameter

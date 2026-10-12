@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Build the workflow bundle that AWS HealthOmics runs.
 #
-# HealthOmics has no way to pass `-profile` to Nextflow, so the healthomics
-# profile's settings have to be the defaults inside the bundle. This script
-# copies the pipeline and appends the include. The repository therefore carries
-# no HealthOmics-only default that would change a local run.
+# The healthomics profile's settings are the defaults inside the bundle: this
+# script copies the pipeline and appends the include. The repository therefore
+# carries no HealthOmics-only default that would change a local run. StartRun
+# can also select a profile (`--engine-settings`), which would remove this step;
+# the pipeline does not use that yet.
 #
 # Usage: tools/build-healthomics-bundle.sh [outfile.zip]
 set -euo pipefail
@@ -27,8 +28,8 @@ find "$STAGE" -name __pycache__ -type d -prune -exec rm -rf {} +
 
 cat >> "$STAGE/nextflow.config" <<'CFG'
 
-// Appended by tools/build-healthomics-bundle.sh. HealthOmics cannot select a
-// Nextflow profile, so the platform settings are applied unconditionally here.
+// Appended by tools/build-healthomics-bundle.sh, so that the platform settings
+// apply without a profile.
 includeConfig 'conf/healthomics.config'
 CFG
 

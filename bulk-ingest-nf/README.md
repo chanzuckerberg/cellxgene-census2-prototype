@@ -143,8 +143,10 @@ A rejection is not an error: the task succeeds, no store is written, and the rec
 
 This flat layout is a prototype convenience: a rerun overwrites the store it wrote before. The
 run report publishes to `--report_dir`, not `--outdir`; a local run leaves it in the task's
-working directory unless you set `--report_dir`. On HealthOmics, the run manifest log in
-CloudWatch records what each task reserved and what it used; `CLAUDE.md` gives its location.
+working directory unless you set `--report_dir`. On HealthOmics, the run report goes to the
+`pubdir/` prefix of the run output location, and Nextflow's `report.html`, `timeline.html`, and
+`trace.txt` go to the `output/` prefix; `trace.txt` records the peak memory and the runtime of each
+task.
 
 ## Running a component alone
 
