@@ -12,7 +12,7 @@ same query against Census 1.
 
 The population is the datasets that have cells in one organism's experiment in
 the release. The script shuffles the population with a seed and takes the first
-records. The sample is therefore uniform and without replacement. Each prefix of
+--limit records. The sample is therefore uniform and without replacement. Each prefix of
 the manifest is also a uniform sample. With one seed, a smaller sample is a
 prefix of a larger one, and --limit 0 gives the whole population in that order.
 

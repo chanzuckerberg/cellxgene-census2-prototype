@@ -95,11 +95,11 @@ The DNA methylation datasets (snmC-seq) hold dense counts: `X` is dense, and the
 no `layers`. Admission rejects them on their assay: `census2_dataset_writer.admit` requires one cell
 on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53 have no allowed
 assay, and 18 dense datasets are among the 53. The criterion is the assay and not the encoding, so
-admission admits a dataset with dense counts on an allowed assay.
+admission accepts a dataset that holds dense counts on an allowed assay.
 
 The memory request is still `size * 2.5` for every dataset. On the prototyping manifest, the
 largest peak was 4.0 GiB, on a 16.4 GiB h5ad, and no task used more than 40% of its reservation.
-Keep the measured fit for sparse counts in view if the request is ever tuned: peak is about
+If you tune the request, start from the measured fit for sparse counts: peak is about
 `0.90 GiB + 0.20 * filesize`.
 
 ## Sharp edges: Nextflow
@@ -186,14 +186,15 @@ untested: TLS to real S3 with no apt `ca-certificates`, and whether the environm
 
 ## Sharp edges: AWS HealthOmics and credentials
 
-HealthOmics exports two directories of a Nextflow run. What a task publishes with `publishDir` to
-`/mnt/workflow/pubdir` goes to the `pubdir/` prefix of the run output location, and the run report
-goes there. What the engine writes itself to `/mnt/workflow/output/` goes to the `output/` prefix,
-on Nextflow 25.10 and later. Nextflow's `report.html`, `timeline.html`, and `trace.txt` are engine
-files, so `conf/healthomics.config` writes them to `/mnt/workflow/output/`. HealthOmics discards an
-engine file written anywhere else, `pubdir` included, and logs no warning. The trace records the
-`peak_rss` and the `realtime` of each task. To collect them, Nextflow runs `ps` in each task
-container, so the image installs `procps`.
+HealthOmics exports two directories of a Nextflow run. A task publishes files to
+`/mnt/workflow/pubdir` with `publishDir`, and HealthOmics exports them to the `pubdir/` prefix of
+the run output location. The run report goes there. The engine writes its own files to
+`/mnt/workflow/output/`, and HealthOmics exports them to the `output/` prefix, on Nextflow 25.10 and
+later. Nextflow's `report.html`, `timeline.html`, and `trace.txt` are engine files, so
+`conf/healthomics.config` writes them to `/mnt/workflow/output/`. HealthOmics does not export an
+engine file from any other directory, `pubdir` included, and it logs no warning. The trace records
+the `peak_rss` and the `realtime` of each task. Nextflow runs `ps` in each task container to collect
+them, so the image installs `procps`.
 
 HealthOmics also records the task metrics itself, in the run manifest log: CloudWatch log group
 `/aws/omics/WorkflowLog`, stream `manifest/run/<run id>/<uuid>`. It holds one JSON record for each
@@ -205,12 +206,13 @@ HealthOmics validates any parameter whose value looks like an `s3://` URI as an 
 object, and an output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
 pipeline normalizes.
 
-`start-run` selects a Nextflow profile through `--engine-settings '{"profile": "<name>"}'`, and the
+`start-run` selects a Nextflow profile through `--engine-settings '{"profile": "<name>"}'`. The
 HealthOmics documentation says that this works for every Nextflow version it supports. This
-pipeline does not use it yet. Instead, `tools/build-healthomics-bundle.sh` appends
-`includeConfig 'conf/healthomics.config'` when it builds the zip, so the platform settings are the
-defaults inside the bundle, and the configuration that a local run reads holds no HealthOmics-only
-default. Selecting the `healthomics` profile at `start-run` would remove that step.
+pipeline does not use it. Instead, `tools/build-healthomics-bundle.sh` appends
+`includeConfig 'conf/healthomics.config'` when it builds the zip. The platform settings are thus
+the defaults inside the bundle, and the configuration that a local run reads holds no
+HealthOmics-only default. A `start-run` that selects the `healthomics` profile would make that
+step unnecessary.
 
 HealthOmics has no boolean parameter type, so every parameter arrives as a string, and a non-empty
 string is true in Groovy: `check=false` would switch the check on. Read a boolean parameter

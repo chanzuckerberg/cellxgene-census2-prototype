@@ -4,8 +4,8 @@
 # The healthomics profile's settings are the defaults inside the bundle: this
 # script copies the pipeline and appends the include. The repository therefore
 # carries no HealthOmics-only default that would change a local run. StartRun
-# can also select a profile (`--engine-settings`), which would remove this step;
-# the pipeline does not use that yet.
+# can also select a profile with `--engine-settings`. That would make this step
+# unnecessary, but the pipeline does not use it.
 #
 # Usage: tools/build-healthomics-bundle.sh [outfile.zip]
 set -euo pipefail
