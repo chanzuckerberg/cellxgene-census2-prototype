@@ -90,7 +90,7 @@ nextflow run . -profile docker \
 | `--check` | `false` | Verify each output against its source: `obs`, and the counts at their gene reference positions. A failure goes into the receipt, and `REPORT` fails the run. |
 | `--config` | none | Ingestion configuration file, staged into every task. The file format is not defined yet. |
 | `--refdata` | none, required | Directory or `s3://` prefix that holds the gene references from `tools/stage-refdata.py`, staged into every task. |
-| `--report_dir` | none | Where the run report publishes, and the execution reports on HealthOmics. The `healthomics` profile sets it. |
+| `--report_dir` | none | Where the run report publishes. The `healthomics` profile sets it. |
 
 `tools/cxg-manifest.py` selects which datasets to ingest, by organism, size, and count. Run it
 with `--help` for the options.
@@ -143,9 +143,8 @@ A rejection is not an error: the task succeeds, no store is written, and the rec
 
 This flat layout is a prototype convenience: a rerun overwrites the store it wrote before. The
 run report publishes to `--report_dir`, not `--outdir`; a local run leaves it in the task's
-working directory unless you set `--report_dir`. On HealthOmics, Nextflow's own `report.html`,
-`timeline.html`, and `trace.txt` go there too; `trace.txt` records what each task reserved and
-what it used.
+working directory unless you set `--report_dir`. On HealthOmics, the run manifest log in
+CloudWatch records what each task reserved and what it used; `CLAUDE.md` gives its location.
 
 ## Running a component alone
 

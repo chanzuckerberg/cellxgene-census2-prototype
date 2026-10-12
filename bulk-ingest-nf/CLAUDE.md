@@ -85,18 +85,23 @@ refuses to *write* such a name to an h5ad as well. The corpus datasets that carr
 A test fixture that needs one must turn the setting off; zarr has no equivalent opt-out, because
 there the restriction belongs to the format.
 
-Peak memory follows the matrix encoding, not the file size. A sparse dataset stays far below the
-`size * 2.5` request: one task asked for 38 GiB and peaked at 3.3 GiB. A dense one does not. The
-DNA methylation datasets (snmC-seq) hold dense matrices, and every task that ran out of memory
-held one. Such a dataset carries no sparse alternative: `X` is dense, and there is no `raw` and
-no `layers`.
+Peak memory follows the matrix that the store holds, not the file size. The store's `X` holds the
+counts: `raw.X` when the source has `raw`, else `X`. Census 1 reads the same matrix. Some datasets
+also hold a dense matrix beside sparse counts, for example a dense normalized `X` beside a sparse
+`raw.X`. The writer does not read that dense matrix. Of the 1086 human datasets in Census 1 LTS
+`2025-11-08`, 9 hold a dense `X` beside a sparse `raw.X`, and none holds dense counts.
 
-Admission rejects them, so the pipeline does not read a dense matrix:
-`census2_dataset_writer.admit` requires one cell on an assay allowlist, and no methylation assay is
-on it. Of 2228 datasets, 53 have no allowed assay, and all 18 dense datasets are among the 53. The
-memory request is still `size * 2.5` for every dataset, which over-provisions a sparse one by 6 to
-10 times. Keep the measured fit in view if that is ever tuned: sparse peak is about
-`0.90 GiB + 0.16 * filesize`.
+The DNA methylation datasets (snmC-seq) hold dense counts: `X` is dense, and there is no `raw` and
+no `layers`. Admission rejects them on their assay: `census2_dataset_writer.admit` requires one cell
+on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53 have no allowed
+assay, and 18 dense datasets are among the 53. The criterion is the assay and not the encoding, so
+a dataset with dense counts on an allowed assay is admitted, and its write is not bounded the way a
+sparse write is.
+
+The memory request is still `size * 2.5` for every dataset. On the prototyping manifest, the
+largest peak was 4.0 GiB, on a 16.4 GiB h5ad, and no task used more than 40% of its reservation.
+Keep the measured fit in view if the request is ever tuned: peak is about
+`0.90 GiB + 0.20 * filesize`.
 
 ## Sharp edges: Nextflow
 
@@ -181,6 +186,14 @@ pixi when a lock file is appropriate, or when dependencies outside Python arrive
 untested: TLS to real S3 with no apt `ca-certificates`, and whether the environment relocates.
 
 ## Sharp edges: AWS HealthOmics and credentials
+
+HealthOmics runs do not publish Nextflow's `report.html`, `timeline.html`, or `trace.txt`, though
+`conf/healthomics.config` points them at `report_dir`. No run has published them, and the cause is
+not known. HealthOmics records the task metrics itself, in the run manifest log: CloudWatch log
+group `/aws/omics/WorkflowLog`, stream `manifest/run/<run id>/<uuid>`. It holds one JSON record for
+each task, and the `metrics` of a record include `memoryMaximumGiB`, `memoryReservedGiB`,
+`cpusMaximum`, and `runningSeconds`. The reservation is larger than the request, because
+HealthOmics rounds a request up to the next of 4, 8, 16, 32, and 64 GiB: 5 GiB to 8, and 41 to 64.
 
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
 object, and an output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
