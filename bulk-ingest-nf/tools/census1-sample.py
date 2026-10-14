@@ -16,6 +16,11 @@ the release. The script shuffles the population with a seed and takes the first
 the manifest is also a uniform sample. With one seed, a smaller sample is a
 prefix of a larger one, and --limit 0 gives the whole population in that order.
 
+--dataset-id names datasets instead of a sample. The script writes a record for
+each named dataset, in the order given, and refuses a dataset that is not in the
+population. Use it for a companion manifest of datasets chosen for a property,
+so that the sample stays uniform.
+
 A schema migration gives every dataset a new version, so the versions in an older
 release are usually not current. Discover keeps the older h5ads in its asset
 bucket, under their own dataset_version_id. This script gets their metadata from
@@ -131,6 +136,12 @@ def main() -> int:
     )
     p.add_argument("--seed", type=int, default=0, help="seed for the shuffle")
     p.add_argument(
+        "--dataset-id",
+        action="append",
+        default=[],
+        help="name a dataset instead of sampling; repeat for each dataset",
+    )
+    p.add_argument(
         "--jobs", type=int, default=16, help="concurrent requests to Discover"
     )
     p.add_argument("--out", default="manifest.jsonl")
@@ -155,14 +166,25 @@ def main() -> int:
 
     by_id = {d["dataset_id"]: d for d in datasets}
     population = sorted(members)
-    if not 0 <= args.limit <= len(population):
-        p.error(f"--limit must be 0 to {len(population)}, got {args.limit}")
-    # Shuffle the whole population and take a prefix. The samples of one seed
-    # then nest: each is a prefix of all larger samples, and of --limit 0.
-    # random.sample does not nest, because its method depends on the sample size.
-    chosen = list(population)
-    random.Random(args.seed).shuffle(chosen)
-    chosen = chosen[: args.limit or len(population)]
+    if args.dataset_id:
+        outside = [d for d in args.dataset_id if d not in members]
+        if outside:
+            p.error(f"not in {args.organism} of Census {version}: {', '.join(outside)}")
+        if len(set(args.dataset_id)) != len(args.dataset_id):
+            p.error("a --dataset-id is given more than once")
+        chosen = list(args.dataset_id)
+        selection = "named"
+    else:
+        if not 0 <= args.limit <= len(population):
+            p.error(f"--limit must be 0 to {len(population)}, got {args.limit}")
+        # Shuffle the whole population and take a prefix. The samples of one seed
+        # then nest: each is a prefix of all larger samples, and of --limit 0.
+        # random.sample does not nest, because its method depends on the sample
+        # size.
+        chosen = list(population)
+        random.Random(args.seed).shuffle(chosen)
+        chosen = chosen[: args.limit or len(population)]
+        selection = f"seed={args.seed}"
 
     def to_record(dataset_id: str) -> dict:
         row = by_id[dataset_id]
@@ -190,7 +212,7 @@ def main() -> int:
     total = sum(r["filesize"] for r in records)
     print(
         f"sample: wrote {len(records)} records to {args.out} "
-        f"({total / 1024**3:.2f} GiB, seed={args.seed})",
+        f"({total / 1024**3:.2f} GiB, {selection})",
         file=sys.stderr,
     )
     return 0

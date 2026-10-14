@@ -124,6 +124,27 @@ occurs twice, and the first N records of the manifest are also a uniform sample.
 with the same seed starts with this one. `--limit 0` gives all 1086 datasets (1.7 TiB) in that
 order.
 
+`manifests/census1-2025-11-08-homo_sapiens-harness.jsonl` is a companion manifest. It holds the
+three datasets of the human sample of the validation harness (`census2-sdk/tools/harness/`), at
+the versions that the release holds. The harness chose them for their properties, so they are not
+part of the uniform sample. Ingest both manifests to the same `--outdir`.
+
+| Dataset | Property |
+| --- | --- |
+| `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | A multi-valued disease |
+| `6e00ccf7-0749-46ef-a999-dba785630d52` | Primary data, lung cells |
+| `62315937-e268-4fa5-a032-8f7d776f3a3f` | The control: the SDK and Census 1 agree on every value |
+
+`--dataset-id` names a dataset instead of a sample:
+
+```bash
+tools/census1-sample.py --census-version 2025-11-08 \
+    --dataset-id 5b25a46f-f1cf-4caa-9e10-6ab81dfe9174 \
+    --dataset-id 6e00ccf7-0749-46ef-a999-dba785630d52 \
+    --dataset-id 62315937-e268-4fa5-a032-8f7d776f3a3f \
+    --out manifests/census1-2025-11-08-homo_sapiens-harness.jsonl
+```
+
 ## Profiles
 
 | Profile | Use |
