@@ -6,6 +6,10 @@ nextflow_pipeline {
     // nf-test selects tags and cannot exclude them, so the offline tests carry
     // their own tag rather than relying on a bare run to skip the others.
 
+    // An assertion on a message reads stdout and stderr together. Nextflow 26.04
+    // prints the message of error() to stdout, and 26.10 prints it to stderr. A
+    // negative assertion on stdout alone would then pass without a check.
+
     test("fails clearly when no manifest is given") {
         tag "validation"
 
@@ -14,8 +18,8 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("Missing --manifest") }
-            assert workflow.stdout.any { it.contains("tools/cxg-manifest.py") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("Missing --manifest") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("tools/cxg-manifest.py") }
         }
     }
 
@@ -28,8 +32,8 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("Missing --refdata") }
-            assert workflow.stdout.any { it.contains("tools/stage-refdata.py") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("Missing --refdata") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("tools/stage-refdata.py") }
         }
     }
 
@@ -46,7 +50,7 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("must be an s3:// URI") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("must be an s3:// URI") }
         }
     }
 
@@ -70,7 +74,7 @@ nextflow_pipeline {
         }
         then {
             // Reaches ingestion rather than being refused as a local path.
-            assert !workflow.stdout.any { it.contains("must be an s3:// URI") }
+            assert !(workflow.stdout + workflow.stderr).any { it.contains("must be an s3:// URI") }
             assert workflow.trace.tasks().size() == 2
         }
     }
@@ -92,8 +96,8 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("No dataset records") }
-            assert !workflow.stdout.any { it.contains("must be an s3:// URI") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("No dataset records") }
+            assert !(workflow.stdout + workflow.stderr).any { it.contains("must be an s3:// URI") }
         }
     }
 
@@ -108,7 +112,7 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("No dataset records") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("No dataset records") }
         }
     }
 
@@ -127,7 +131,7 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("--container must be") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("--container must be") }
         }
     }
 
@@ -140,7 +144,7 @@ nextflow_pipeline {
         }
         then {
             assert workflow.failed
-            assert workflow.stdout.any { it.contains("must be an s3:// URI") }
+            assert (workflow.stdout + workflow.stderr).any { it.contains("must be an s3:// URI") }
         }
     }
 }
