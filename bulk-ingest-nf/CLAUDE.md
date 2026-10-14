@@ -44,6 +44,19 @@ Each CxG schema version is a complete, separately versioned copy of the corpus. 
 every dataset a new `dataset_version_id`, so it invalidates every output keyed on one. Budget for
 a full reconversion at each schema release.
 
+The superseded versions stay in the source bucket under their own `dataset_version_id`. The
+curation API's `/curation/v1/datasets/<dataset_id>/versions` gives their metadata. A manifest can
+therefore pin an older generation. The prototyping manifest pins the 7.0.0 versions that Census 1
+LTS `2025-11-08` holds.
+
+Each Census 1 release also keeps its own copy of each h5ad in a public bucket, keyed by
+`dataset_id`. For each of the 1086 human datasets in `2025-11-08`, that copy and the Discover
+version have the same size. `tools/census1-sample.py` asserts this for each record it writes.
+
+`cellxgene-census` needs tiledbsoma, and tiledbsoma 2.3.0 publishes no wheel for Python 3.14. The
+script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
+a source build, which fails.
+
 Some datasets name an `obs` column with a `/` in it. Zarr gives `/` its path meaning, so the
 write fails on that column. The names seen are clinical units (`SCr_(mg/dl)`,
 `eGFR_(ml/min/1.73m2)`), compound cell types (`T/NK_cycling`), and deconvolution factors
@@ -72,18 +85,22 @@ refuses to *write* such a name to an h5ad as well. The corpus datasets that carr
 A test fixture that needs one must turn the setting off; zarr has no equivalent opt-out, because
 there the restriction belongs to the format.
 
-Peak memory follows the matrix encoding, not the file size. A sparse dataset stays far below the
-`size * 2.5` request: one task asked for 38 GiB and peaked at 3.3 GiB. A dense one does not. The
-DNA methylation datasets (snmC-seq) hold dense matrices, and every task that ran out of memory
-held one. Such a dataset carries no sparse alternative: `X` is dense, and there is no `raw` and
-no `layers`.
+Peak memory depends on the encoding of the matrix that the store holds. The store's `X` holds the
+counts: `raw.X` when the source has `raw`, else `X`. Census 1 reads the same matrix. Some datasets
+also hold a dense matrix beside sparse counts, for example a dense normalized `X` beside a sparse
+`raw.X`. The writer does not read that dense matrix. Of the 1086 human datasets in Census 1 LTS
+`2025-11-08`, 9 hold a dense `X` beside a sparse `raw.X`, and none holds dense counts.
 
-Admission rejects them, so the pipeline does not read a dense matrix:
-`census2_dataset_writer.admit` requires one cell on an assay allowlist, and no methylation assay is
-on it. Of 2228 datasets, 53 have no allowed assay, and all 18 dense datasets are among the 53. The
-memory request is still `size * 2.5` for every dataset, which over-provisions a sparse one by 6 to
-10 times. Keep the measured fit in view if that is ever tuned: sparse peak is about
-`0.90 GiB + 0.16 * filesize`.
+The DNA methylation datasets (snmC-seq) hold dense counts: `X` is dense, and there is no `raw` and
+no `layers`. Admission rejects them on their assay: `census2_dataset_writer.admit` requires one cell
+on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53 have no allowed
+assay, and 18 dense datasets are among the 53. The criterion is the assay and not the encoding, so
+admission accepts a dataset that holds dense counts on an allowed assay.
+
+The memory request is still `size * 2.5` for every dataset. On the prototyping manifest, the
+largest peak was 4.0 GiB, on a 16.4 GiB h5ad, and no task used more than 40% of its reservation.
+If you tune the request, start from the measured fit for sparse counts: peak is about
+`0.90 GiB + 0.20 * filesize`.
 
 ## Sharp edges: Nextflow
 
@@ -169,14 +186,42 @@ untested: TLS to real S3 with no apt `ca-certificates`, and whether the environm
 
 ## Sharp edges: AWS HealthOmics and credentials
 
+HealthOmics exports two directories of a Nextflow run. A task publishes files to
+`/mnt/workflow/pubdir` with `publishDir`, and HealthOmics exports them to the `pubdir/` prefix of
+the run output location. The run report goes there. The engine writes its own files to
+`/mnt/workflow/output/`, and HealthOmics exports them to the `output/` prefix, on Nextflow 25.10 and
+later. Nextflow's `report.html`, `timeline.html`, and `trace.txt` are engine files, so
+`conf/healthomics.config` writes them to `/mnt/workflow/output/`. HealthOmics does not export an
+engine file from any other directory, `pubdir` included, and it logs no warning. The trace records
+the `peak_rss` and the `realtime` of each task. Nextflow runs `ps` in each task container to collect
+them, so the image installs `procps`.
+
+HealthOmics also records the task metrics itself, in the run manifest log: CloudWatch log group
+`/aws/omics/WorkflowLog`, stream `manifest/run/<run id>/<uuid>`. It holds one JSON record for each
+task, and the `metrics` of a record include `memoryMaximumGiB`, `memoryReservedGiB`, `cpusMaximum`,
+and `runningSeconds`. The reservation is larger than the request, because HealthOmics rounds a
+request up to the next of 4, 8, 16, 32, and 64 GiB: 5 GiB to 8, and 41 to 64.
+
 HealthOmics validates any parameter whose value looks like an `s3://` URI as an existing input
 object, and an output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
 pipeline normalizes.
 
-There is no way to pass `-profile`: neither `create-workflow` nor `start-run` accepts Nextflow
-arguments, so the platform settings must be the defaults inside the bundle.
-`tools/build-healthomics-bundle.sh` appends that include when it builds the zip, which keeps a
-HealthOmics-only default out of the configuration that a local run reads.
+HealthOmics selects the Nextflow version from `manifest.nextflowVersion`. It runs an exact
+version that it supports, such as `'25.10.0'`. For a range, its documentation gives an order of
+preference (23.10.0, 22.04.0, 24.10.8, 25.10.0, 26.04.0), but `'>=24.04'` gave 25.10.0 and not
+24.10.8. The pipeline therefore pins an exact version, and CI sets `NXF_VER` to the same version,
+so the tests run the engine that HealthOmics runs. `GetRun` gives the version of a run as
+`engineVersion`. On 25.10, a `healthomics` profile test failed with `Unknown config attribute
+params.container` until the test set `container`, and 26.x ran it without that, so both profile
+tests set it.
+
+`start-run` selects a Nextflow profile through `--engine-settings '{"profile": "<name>"}'`. The
+HealthOmics documentation says that this works for every Nextflow version it supports. This
+pipeline does not use it. Instead, `tools/build-healthomics-bundle.sh` appends
+`includeConfig 'conf/healthomics.config'` when it builds the zip. The platform settings are thus
+the defaults inside the bundle, and the configuration that a local run reads holds no
+HealthOmics-only default. A `start-run` that selects the `healthomics` profile would make that
+step unnecessary.
 
 HealthOmics has no boolean parameter type, so every parameter arrives as a string, and a non-empty
 string is true in Groovy: `check=false` would switch the check on. Read a boolean parameter
