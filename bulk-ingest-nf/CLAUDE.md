@@ -155,16 +155,6 @@ error message is absent also passes when the run fails for another reason. Tests
 manifest in `tests/fixtures`, so a failure means the code changed rather than the corpus, and they
 assert on the receipt, which has to stay correct anyway.
 
-Nextflow 26.10 prints the message of `error()` to stderr, and 26.04 printed it to stdout. A test
-therefore asserts on `workflow.stdout + workflow.stderr`. On one stream alone, a negative assertion
-passes without a check. CI installs the current Nextflow release, so a release can move the
-message again.
-
-Nextflow also changes its output when its environment names an AI agent, for example through
-`CLAUDECODE` or `AI_AGENT`. It then prints a short log to stdout, errors included. A test that an
-agent runs can thus pass where CI fails. To run as CI does, unset those variables:
-`env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT -u AI_AGENT nf-test test --tag validation`.
-
 CI runs `--tag validation,ingest`, the union of the two tags. `ingest` is a second tag on the
 ingest suite so that CI takes those tests without the `s3_//` escape test, which writes to object
 storage and proves nothing against a mock. `nf-test list` takes `--tags` rather than `--tag`, and
