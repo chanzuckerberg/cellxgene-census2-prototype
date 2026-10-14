@@ -16,6 +16,9 @@ an earlier run. The shapes are:
 holds the elapsed time of the catalog read and of the query. It also holds the
 number of stores and cells, the reads and the payload, and the peak memory.
 
+`--max-rss-gb` is a memory limit. When the peak memory passes it, the process
+prints a record with the status `memory_limit` and stops with exit code 3.
+
     python -m bench.run catalog-500.parquet --shape cell_type --workers 32
 """
 
@@ -45,6 +48,7 @@ from census2_sdk import catalog as _catalog
 
 SHAPES = ("single", "cell_type", "open", "corpus_obs", "corpus_x")
 ORGANISM = "homo_sapiens"
+MEMORY_LIMIT_EXIT = 3
 
 
 class Counter:
@@ -181,6 +185,47 @@ def peak_rss_mb() -> float:
     return round(peak / (2**20 if sys.platform == "darwin" else 2**10), 1)
 
 
+PUBLISH_LOCK = threading.Lock()
+PUBLISHED = threading.Event()
+
+
+def publish(record: dict[str, Any], exit_code: int | None = None) -> bool:
+    """Print the one terminal record of this process. Return False if a record exists.
+
+    The first caller prints, and later callers print nothing. With `exit_code`,
+    the process stops after the print, while it still holds the lock.
+    """
+    with PUBLISH_LOCK:
+        if PUBLISHED.is_set():
+            return False
+        PUBLISHED.set()
+        print(json.dumps(record), flush=True)
+        if exit_code is not None:
+            os._exit(exit_code)
+    return True
+
+
+def guard_memory(
+    limit_mb: float, record: dict[str, Any], interval: float = 0.5
+) -> None:
+    """Stop this process when its peak memory passes `limit_mb`.
+
+    A thread checks the peak memory at each `interval`. Above the limit, it prints
+    `record` with the status `memory_limit` and stops the process at once.
+    """
+
+    def watch() -> None:
+        while True:
+            peak = peak_rss_mb()
+            if peak > limit_mb:
+                over = {**record, "status": "memory_limit", "peak_rss_mb": peak}
+                publish({**over, "limit_mb": limit_mb}, MEMORY_LIMIT_EXIT)
+                return
+            time.sleep(interval)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def run(
     catalog: str, shape: str, workers: int, cell_type: str | None
 ) -> dict[str, Any]:
@@ -248,8 +293,12 @@ def main() -> int:
     p.add_argument("--shape", choices=SHAPES, required=True)
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--cell-type", default=None)
+    p.add_argument("--max-rss-gb", type=float, default=None)
     args = p.parse_args()
-    print(json.dumps(run(args.catalog, args.shape, args.workers, args.cell_type)))
+    if args.max_rss_gb is not None:
+        base = {"catalog": args.catalog, "shape": args.shape, "workers": args.workers}
+        guard_memory(args.max_rss_gb * 1024, base)
+    publish(run(args.catalog, args.shape, args.workers, args.cell_type))
     return 0
 
 

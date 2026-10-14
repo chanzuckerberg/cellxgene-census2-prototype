@@ -1,6 +1,8 @@
 """Tests for the store-count benchmark tools (task 6.4). No network, no AWS."""
 
 import asyncio
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +12,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr.storage
-from bench import catalogs, run
+from bench import catalogs, matrix, run
 from zarr.abc.store import RangeByteRequest
 from zarr.core.buffer import default_buffer_prototype
 
@@ -110,3 +112,27 @@ def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> 
     assert (record["stores_opened"], record["cells"]) == expected
     assert record["requests"] > 0
     assert record["mb_payload"] > 0
+
+
+def test_memory_limit_stops_the_run(
+    stores: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The run is a new process, so it needs the import path of the tools and the SDK.
+    here = Path(__file__).resolve().parents[1]
+    monkeypatch.setenv("PYTHONPATH", f"{here / 'tools'}{os.pathsep}{here / 'src'}")
+    record = matrix.one(
+        stores / "catalog.parquet", "open", 1, 120, "T cell", max_rss_gb=0.001
+    )
+    assert record["status"] == "memory_limit"
+    assert record["peak_rss_mb"] > record["limit_mb"]
+    assert record["shape"] == "open"
+
+
+def test_only_the_first_record_is_published(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The guard and the normal end of a run both publish. The first one wins.
+    monkeypatch.setattr(run, "PUBLISHED", threading.Event())
+    assert run.publish({"status": "memory_limit"}) is True
+    assert run.publish({"status": "ok"}) is False
+    assert capsys.readouterr().out.splitlines() == ['{"status": "memory_limit"}']
