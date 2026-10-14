@@ -211,8 +211,9 @@ version that it supports, such as `'25.10.0'`. For a range, its documentation gi
 preference (23.10.0, 22.04.0, 24.10.8, 25.10.0, 26.04.0), but `'>=24.04'` gave 25.10.0 and not
 24.10.8. The pipeline therefore pins an exact version, and CI sets `NXF_VER` to the same version,
 so the tests run the engine that HealthOmics runs. `GetRun` gives the version of a run as
-`engineVersion`. Nextflow 25.10 also refuses a `params` name in a config file that no earlier file
-declares, where 26.x accepts it; the `healthomics` profile tests set `container` for that reason.
+`engineVersion`. On 25.10, a `healthomics` profile test failed with `Unknown config attribute
+params.container` until the test set `container`, and 26.x ran it without that, so both profile
+tests set it.
 
 `start-run` selects a Nextflow profile through `--engine-settings '{"profile": "<name>"}'`. The
 HealthOmics documentation says that this works for every Nextflow version it supports. This
