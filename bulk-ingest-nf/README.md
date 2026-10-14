@@ -14,7 +14,8 @@ pipeline is the I/O around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline
 
 ## Requirements
 
-- Nextflow 24.04 or later.
+- Nextflow 25.10.0, the version that the pipeline pins (`manifest.nextflowVersion`). HealthOmics
+  runs that version, and CI tests it. Another version gives a warning.
 - Docker.
 - AWS credentials that can read the source bucket.
 - Internet access for `tools/cxg-manifest.py` and `tools/stage-refdata.py` only. The pipeline

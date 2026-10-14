@@ -206,6 +206,14 @@ HealthOmics validates any parameter whose value looks like an `s3://` URI as an 
 object, and an output prefix is not one. Pass the destination as `s3_//bucket/prefix`, which the
 pipeline normalizes.
 
+HealthOmics selects the Nextflow version from `manifest.nextflowVersion`. It runs an exact
+version that it supports, such as `'25.10.0'`. For a range, its documentation gives an order of
+preference (23.10.0, 22.04.0, 24.10.8, 25.10.0, 26.04.0), but `'>=24.04'` gave 25.10.0 and not
+24.10.8. The pipeline therefore pins an exact version, and CI sets `NXF_VER` to the same version,
+so the tests run the engine that HealthOmics runs. `GetRun` gives the version of a run as
+`engineVersion`. Nextflow 25.10 also refuses a `params` name in a config file that no earlier file
+declares, where 26.x accepts it; the `healthomics` profile tests set `container` for that reason.
+
 `start-run` selects a Nextflow profile through `--engine-settings '{"profile": "<name>"}'`. The
 HealthOmics documentation says that this works for every Nextflow version it supports. This
 pipeline does not use it. Instead, `tools/build-healthomics-bundle.sh` appends
