@@ -110,7 +110,7 @@ The driver prints one line for each query:
 
 | Status | Meaning |
 | --- | --- |
-| `pass` | No finding, other than the genes that only one side holds |
+| `pass` | No finding, other than the genes that only the SDK holds |
 | `fail` | At least one finding. The first five follow the line. |
 | `vacuous` | Neither side holds a cell. The findings stay on record. |
 | `unsupported` | The SDK cannot express the query. The line names the reason. |
@@ -123,9 +123,10 @@ that the catalog does not index, and the `get_obs`, `get_var`, and presence acce
 unsupported.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
-while the gene sets differ. The driver thus restricts both sides to the shared genes and
-records the genes of one side only as a finding of their own. Each finding names the task
-that removes it (the `OWNERS` table in `compare_stacks.py`). A label difference whose term
+while the gene sets differ. The driver thus restricts both sides to the shared genes. The
+genes that only the SDK holds are an expected finding, and a Census 1 gene that the SDK
+does not hold fails the query. Each finding names the task
+that owns it (the `OWNERS` table in `compare_stacks.py`). A label difference whose term
 ID agrees goes to "re-curation", because the stores hold later dataset versions than
 release 2025-11-08.
 

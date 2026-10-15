@@ -1,14 +1,20 @@
 """The 6.2 adapter's filter translation and the driver's gene restriction and owners."""
 
-import json
 import pathlib
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
+import anndata as ad
 import numpy as np
 import pandas as pd
 import pytest
-from harness.canonical import frame_arrays, layer_arrays
+from harness.canonical import (
+    Arrays,
+    canonicalize_anndata,
+    frame_arrays,
+    layer_arrays,
+    write_result,
+)
 from harness.comparator import Finding
 from harness.compare_stacks import owner, relabel, restrict_genes, run_one
 from harness.corpus import BoundQuery
@@ -174,29 +180,53 @@ def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
         answer(QUERY, cast("census2_sdk.Census", Empty()), ["d1"], PINS)
 
 
+def _run_one(
+    tmp_path: pathlib.Path, query: BoundQuery, census: object, census1: Arrays
+) -> dict[str, Any]:
+    """`run_one` over a Census 1 result of `census1` and a clamp of one dataset."""
+    meta = {"clamp": ["d1"], "env": {"corpus_version": "1.1"}}
+    write_result(tmp_path / query.label.replace("/", "__"), census1, meta)
+    return run_one(
+        query,
+        tmp_path,
+        cast("census2_sdk.Census", census),
+        {"d1"},
+        {"census_data/homo_sapiens": PINS},
+        {"census_data/homo_sapiens": {"dataset_ids": ["d1"]}},
+    )
+
+
 @pytest.mark.parametrize(("census1_rows", "status"), [(2, "fail"), (0, "vacuous")])
 def test_run_one_records_an_empty_sdk_result(
     tmp_path: pathlib.Path, census1_rows: int, status: str
 ) -> None:
     query = replace(QUERY, obs_filter="tissue_general == 'lung'")
-    result_dir = tmp_path / query.label.replace("/", "__")
-    result_dir.mkdir()
-    manifest = {
-        "clamp": ["d1"],
-        "env": {"corpus_version": "1.1"},
-        "files": ["obs.dataset_id.offsets"],
-    }
-    (result_dir / "manifest.json").write_text(json.dumps(manifest))
-    np.save(result_dir / "obs.dataset_id.offsets.npy", np.arange(census1_rows + 1))
-    record = run_one(
-        query,
-        tmp_path,
-        cast("census2_sdk.Census", Empty()),
-        {"d1"},
-        {"census_data/homo_sapiens": PINS},
-        {"census_data/homo_sapiens": {"dataset_ids": ["d1"]}},
-    )
+    census1 = {"obs.dataset_id.offsets": np.arange(census1_rows + 1, dtype=np.uint64)}
+    record = _run_one(tmp_path, query, Empty(), census1)
     assert record["status"] == status
     assert record["cells"] == {"census1": census1_rows, "sdk": 0}
     assert {"seconds", "notes", "findings"} <= record.keys()
     assert [f["owner"] for f in record["findings"]] == (["4.5"] if census1_rows else [])
+
+
+def _adata(genes: list[str]) -> ad.AnnData:
+    obs = pd.DataFrame(
+        {"dataset_id": ["d1", "d1"], "observation_joinid": [0, 1]}, index=["0", "1"]
+    )
+    var = pd.DataFrame({"feature_id": genes}, index=genes)
+    return ad.AnnData(sparse.csr_matrix(np.ones((2, len(genes)), np.float32)), obs, var)
+
+
+@pytest.mark.parametrize(
+    ("sdk_genes", "status"), [(["g1", "g2", "g3"], "pass"), (["g1"], "fail")]
+)
+def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
+    tmp_path: pathlib.Path, sdk_genes: list[str], status: str
+) -> None:
+    class Stores:
+        def get_anndata(self, organism: str, obs_filter: object) -> ad.AnnData:
+            return _adata(sdk_genes)
+
+    census1 = canonicalize_anndata(_adata(["g1", "g2"]))
+    record = _run_one(tmp_path, QUERY, Stores(), census1)
+    assert record["status"] == status

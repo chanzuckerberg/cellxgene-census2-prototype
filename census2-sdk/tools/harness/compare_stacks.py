@@ -12,8 +12,8 @@ Run from `census2-sdk/tools/` with the stores' credentials in the environment:
 
 The SDK's `var` is the whole pinned reference, and the Census 1 `var` is the genes of
 its build. The comparator compares no X value while the gene sets differ, so the driver
-restricts both sides to the shared genes and records the genes of one side only as a
-finding of its own (task 4.2).
+restricts both sides to the shared genes. The genes that only the SDK holds are an
+expected finding. A Census 1 gene that the SDK does not hold fails the query.
 """
 
 import argparse
@@ -46,7 +46,7 @@ from harness.corpus import BoundQuery, expand, load_values
 HERE = pathlib.Path(__file__).parent
 MANIFEST = HERE / "snapshot_manifest.json"
 
-# The task that removes each kind of finding: (where pattern, task, reason). First match wins.
+# The task that owns each kind of finding: (where pattern, task, reason). First match wins.
 OWNERS: tuple[tuple[str, str, str], ...] = (
     (
         r"^obs\.(raw_sum|nnz|raw_mean_nnz|raw_variance_nnz|n_measured_vars)$",
@@ -66,13 +66,15 @@ OWNERS: tuple[tuple[str, str, str], ...] = (
         "a column of the pinned reference that Census 1 drops",
     ),
     (
-        r"^var genes$",
+        r"^var genes, SDK only$",
         "4.2",
-        "genes of the pinned reference against the genes of the build",
+        "genes of the pinned reference that the Census 1 build does not hold",
     ),
     (r"^obs\.", "4.4", "the obs columns that a store keeps"),
 )
 COLUMN_RULES = {r"^obs\."}  # these rules apply to column-set findings only
+# The SDK's var is the whole pinned reference, so its extra genes do not block a query.
+EXPECTED = "var genes, SDK only"
 
 
 def owner(finding: Finding, row_columns: set[str]) -> tuple[str, str]:
@@ -248,24 +250,22 @@ def run_one(
     findings: list[Finding] = []
     genes_c1 = set(_var_frame(census1)["feature_id"])
     genes_sdk = set(_var_frame(sdk)["feature_id"])
+    shared = genes_c1 & genes_sdk
+    for where, genes in (
+        (EXPECTED, genes_sdk - genes_c1),
+        ("var genes, Census 1 only", genes_c1 - genes_sdk),
+    ):
+        if genes:
+            detail = f"{len(genes)} genes; X compared on {len(shared)} shared genes"
+            findings.append(Finding("row-set", where, detail))
     if genes_c1 != genes_sdk:
-        only_c1, only_sdk = sorted(genes_c1 - genes_sdk), sorted(genes_sdk - genes_c1)
-        findings.append(
-            Finding(
-                "row-set",
-                "var genes",
-                f"{len(only_c1)} in Census 1 only, {len(only_sdk)} in the SDK only; "
-                f"compared on {len(genes_c1 & genes_sdk)} shared genes",
-            )
-        )
-        shared = genes_c1 & genes_sdk
         census1, sdk = restrict_genes(census1, shared), restrict_genes(sdk, shared)
     findings += compare(census1, sdk)
 
     row_columns = _row_columns(query, pins)
     record["findings"] = [_finding_record(f, row_columns) for f in findings]
     relabel(record["findings"], _obs_columns(census1) & _obs_columns(sdk))
-    blocking = [f for f in record["findings"] if f["where"] != "var genes"]
+    blocking = [f for f in record["findings"] if f["where"] != EXPECTED]
     if record["cells"]["census1"] == 0 and record["cells"]["sdk"] == 0:
         record["status"] = "vacuous"  # no cell to compare; the findings stay on record
     else:
