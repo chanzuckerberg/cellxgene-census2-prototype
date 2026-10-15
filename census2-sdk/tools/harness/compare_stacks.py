@@ -179,6 +179,24 @@ def _obs_rows(arrays: Arrays) -> int:
     return 0 if offsets is None else len(offsets) - 1
 
 
+def _row_columns(query: BoundQuery, pins: dict[str, Any]) -> set[str]:
+    """The obs columns that the filter names. `answer` accepted it, so this cannot raise."""
+    if not query.obs_filter:
+        return set()
+    return set(sdk_adapter.translate(query.obs_filter, pins))
+
+
+def _finding_record(finding: Finding, row_columns: set[str]) -> dict[str, Any]:
+    who, why = owner(finding, row_columns)
+    return {
+        "kind": finding.kind,
+        "where": finding.where,
+        "detail": finding.detail,
+        "owner": who,
+        "reason": why,
+    }
+
+
 def run_one(
     query: BoundQuery,
     oracle: pathlib.Path,
@@ -209,6 +227,19 @@ def run_one(
     except sdk_adapter.Unsupported as reason:
         record.update(status="unsupported", reason=str(reason))
         return record
+    except sdk_adapter.NoCells as reason:
+        rows = _obs_rows(load_result(result_dir))
+        found = Finding("row-set", "obs", f"{reason}; Census 1 selected {rows}")
+        record.update(
+            seconds=round(time.monotonic() - t0, 1),
+            notes=[],
+            cells={"census1": rows, "sdk": 0},
+            findings=[_finding_record(found, _row_columns(query, pins))]
+            if rows
+            else [],
+            status="fail" if rows else "vacuous",
+        )
+        return record
     record["seconds"] = round(time.monotonic() - t0, 1)
     record["notes"] = notes
     census1 = drop_soma_joinid(load_result(result_dir))
@@ -231,21 +262,8 @@ def run_one(
         census1, sdk = restrict_genes(census1, shared), restrict_genes(sdk, shared)
     findings += compare(census1, sdk)
 
-    row_columns = (
-        set(sdk_adapter.translate(query.obs_filter, pins))
-        if query.obs_filter
-        else set()
-    )
-    record["findings"] = [
-        {
-            "kind": f.kind,
-            "where": f.where,
-            "detail": f.detail,
-            "owner": owner(f, row_columns)[0],
-            "reason": owner(f, row_columns)[1],
-        }
-        for f in findings
-    ]
+    row_columns = _row_columns(query, pins)
+    record["findings"] = [_finding_record(f, row_columns) for f in findings]
     relabel(record["findings"], _obs_columns(census1) & _obs_columns(sdk))
     blocking = [f for f in record["findings"] if f["where"] != "var genes"]
     if record["cells"]["census1"] == 0 and record["cells"]["sdk"] == 0:
@@ -273,14 +291,11 @@ def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("catalog", help="the catalog of the stores under test")
     p.add_argument("--oracle", type=pathlib.Path, default=HERE / "oracle_snapshot")
-    p.add_argument(
-        "--refdata", default=None, help="the directory of the pinned gene references"
-    )
     p.add_argument("--out", type=pathlib.Path, default=None)
     p.add_argument("--only", default="")
     args = p.parse_args()
 
-    census = census2_sdk.open_census([args.catalog], refdata=args.refdata)
+    census = census2_sdk.open_census([args.catalog])
     stores = set(census.catalog["dataset_id"])
     values = load_values()
     samples = json.loads(MANIFEST.read_text())

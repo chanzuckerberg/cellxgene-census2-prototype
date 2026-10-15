@@ -1,5 +1,7 @@
 """The 6.2 adapter's filter translation and the driver's gene restriction and owners."""
 
+import json
+import pathlib
 from dataclasses import replace
 from typing import cast
 
@@ -8,9 +10,9 @@ import pandas as pd
 import pytest
 from harness.canonical import frame_arrays, layer_arrays
 from harness.comparator import Finding
-from harness.compare_stacks import owner, relabel, restrict_genes
+from harness.compare_stacks import owner, relabel, restrict_genes, run_one
 from harness.corpus import BoundQuery
-from harness.sdk_adapter import Unsupported, answer, clauses, translate
+from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
 
 import census2_sdk
@@ -139,25 +141,62 @@ def test_translate_reads_quoted_values_and_booleans() -> None:
         translate("tissue == blood", PINS)
 
 
+QUERY = BoundQuery(
+    key="cell_type_slice",
+    accessor="get_anndata",
+    modality="census_data",
+    experiment="homo_sapiens",
+    relied_on_by=("6",),
+    obs_filter="cell_type_ontology_term_id == 'CL:0000897'",
+    var_filter=None,
+    layers=("raw",),
+    obs_columns=(),
+    label="cell_type_slice:census_data/homo_sapiens",
+)
+
+
+class Empty:
+    def get_anndata(self, organism: str, obs_filter: object) -> None:
+        return None
+
+
 def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
     class Broken:
         def get_anndata(self, organism: str, obs_filter: object) -> None:
             raise SourceConflict("the cell key is not unique across the result")
 
-    query = BoundQuery(
-        key="cell_type_slice",
-        accessor="get_anndata",
-        modality="census_data",
-        experiment="homo_sapiens",
-        relied_on_by=("6",),
-        obs_filter="cell_type_ontology_term_id == 'CL:0000897'",
-        var_filter=None,
-        layers=("raw",),
-        obs_columns=(),
-        label="cell_type_slice:census_data/homo_sapiens",
-    )
     with pytest.raises(SourceConflict):
-        answer(query, cast("census2_sdk.Census", Broken()), ["d1"], PINS)
-    unindexed = replace(query, obs_filter="is_primary_data == True")
+        answer(QUERY, cast("census2_sdk.Census", Broken()), ["d1"], PINS)
+    unindexed = replace(QUERY, obs_filter="is_primary_data == True")
     with pytest.raises(Unsupported, match="not a catalog column"):
         answer(unindexed, cast("census2_sdk.Census", Broken()), ["d1"], PINS)
+    with pytest.raises(NoCells):
+        answer(QUERY, cast("census2_sdk.Census", Empty()), ["d1"], PINS)
+
+
+@pytest.mark.parametrize(("census1_rows", "status"), [(2, "fail"), (0, "vacuous")])
+def test_run_one_records_an_empty_sdk_result(
+    tmp_path: pathlib.Path, census1_rows: int, status: str
+) -> None:
+    query = replace(QUERY, obs_filter="tissue_general == 'lung'")
+    result_dir = tmp_path / query.label.replace("/", "__")
+    result_dir.mkdir()
+    manifest = {
+        "clamp": ["d1"],
+        "env": {"corpus_version": "1.1"},
+        "files": ["obs.dataset_id.offsets"],
+    }
+    (result_dir / "manifest.json").write_text(json.dumps(manifest))
+    np.save(result_dir / "obs.dataset_id.offsets.npy", np.arange(census1_rows + 1))
+    record = run_one(
+        query,
+        tmp_path,
+        cast("census2_sdk.Census", Empty()),
+        {"d1"},
+        {"census_data/homo_sapiens": PINS},
+        {"census_data/homo_sapiens": {"dataset_ids": ["d1"]}},
+    )
+    assert record["status"] == status
+    assert record["cells"] == {"census1": census1_rows, "sdk": 0}
+    assert {"seconds", "notes", "findings"} <= record.keys()
+    assert [f["owner"] for f in record["findings"]] == (["4.5"] if census1_rows else [])

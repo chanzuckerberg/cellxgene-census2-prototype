@@ -31,6 +31,10 @@ class Unsupported(Exception):
     """The SDK cannot express this query. The message names the reason."""
 
 
+class NoCells(Exception):
+    """The SDK selected no cell, so `get_anndata` returned None."""
+
+
 def _values(text: str) -> list[str]:
     try:
         value = ast.literal_eval(text)
@@ -121,6 +125,8 @@ def answer(
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.
     adata = census.get_anndata(organism, obs_filter)
+    if adata is None:
+        raise NoCells("the SDK selected no cell")
 
     notes = []
     if query.var_filter:
