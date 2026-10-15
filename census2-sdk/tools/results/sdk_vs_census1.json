@@ -1,9 +1,9 @@
 {
  "catalog": {
-  "file": "catalog.parquet",
-  "sha256": "354adcf42fde75a09de1b11b881c95f57c72e4c62664156808cbeec7e8acd8a5",
-  "stores": 96,
-  "store_prefix": "s3://mlin-census-scratch/census2-ingest-100-v2/out/"
+  "file": "catalog-census1-lts-100-v2.parquet",
+  "sha256": "95cf9701663eb20600d2a86f78e0d270967134e355b7d0c136e43e95ade421d4",
+  "stores": 103,
+  "store_prefix": "s3://mlin-census-scratch/census1-lts-100-v2/out/"
  },
  "summary": {
   "status": {
@@ -14,8 +14,8 @@
   },
   "by_owner": {
    "4.2": {
-    "column-set var.feature_version": 9,
-    "row-set var genes": 7
+    "column-set var.feature_version": 6,
+    "row-set var genes, SDK only": 4
    },
    "4.4": {
     "column-set obs.Bcell_UCell": 1,
@@ -93,19 +93,16 @@
    },
    "4.5": {
     "column-set X.normalized": 1,
-    "column-set obs.n_measured_vars": 7,
-    "column-set obs.nnz": 7,
-    "column-set obs.raw_mean_nnz": 7,
-    "column-set obs.raw_sum": 7,
-    "column-set obs.raw_variance_nnz": 7,
-    "column-set obs.tissue_general": 7,
-    "column-set obs.tissue_general_ontology_term_id": 7,
-    "column-set var.n_measured_obs": 9,
-    "column-set var.nnz": 9,
-    "strict-subset obs": 2
-   },
-   "re-curation": {
-    "value obs.cell_type": 2
+    "column-set obs.n_measured_vars": 6,
+    "column-set obs.nnz": 6,
+    "column-set obs.raw_mean_nnz": 6,
+    "column-set obs.raw_sum": 6,
+    "column-set obs.raw_variance_nnz": 6,
+    "column-set obs.tissue_general": 6,
+    "column-set obs.tissue_general_ontology_term_id": 6,
+    "column-set var.n_measured_obs": 6,
+    "column-set var.nnz": 6,
+    "row-set obs": 2
    }
   }
  },
@@ -120,91 +117,13 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 36.7,
+   "seconds": 30.3,
    "notes": [],
    "cells": {
     "census1": 0,
     "sdk": 0
    },
-   "findings": [
-    {
-     "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
-     "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.n_measured_vars",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "per-cell statistics that the writer computes"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.nnz",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "per-cell statistics that the writer computes"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.raw_mean_nnz",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "per-cell statistics that the writer computes"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.raw_sum",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "per-cell statistics that the writer computes"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.raw_variance_nnz",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "per-cell statistics that the writer computes"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.tissue_general",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "tissue_general, which the writer derives"
-    },
-    {
-     "kind": "column-set",
-     "where": "obs.tissue_general_ontology_term_id",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "tissue_general, which the writer derives"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.n_measured_obs",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.nnz",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.feature_version",
-     "detail": "present on right only",
-     "owner": "4.2",
-     "reason": "a column of the pinned reference that Census 1 drops"
-    }
-   ],
+   "findings": [],
    "status": "vacuous"
   },
   {
@@ -217,7 +136,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 34.9,
+   "seconds": 27.0,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -226,38 +145,10 @@
    "findings": [
     {
      "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
-     "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
-    },
-    {
-     "kind": "strict-subset",
      "where": "obs",
-     "detail": "right is a strict subset: 10277 rows missing, first missing identity np.str_('62315937-e268-4fa5-a032-8f7d776f3a3f|!!)}MmGN@{')",
+     "detail": "the SDK selected no cell; Census 1 selected 10277",
      "owner": "4.5",
      "reason": "the filter names tissue_general, which the stores lack"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.n_measured_obs",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.nnz",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.feature_version",
-     "detail": "present on right only",
-     "owner": "4.2",
-     "reason": "a column of the pinned reference that Census 1 drops"
     }
    ],
    "status": "fail"
@@ -285,7 +176,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 30.3,
+   "seconds": 38.5,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -294,10 +185,10 @@
    "findings": [
     {
      "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
      "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
+     "reason": "genes of the pinned reference that the Census 1 build does not hold"
     },
     {
      "kind": "column-set",
@@ -382,7 +273,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 11.8,
+   "seconds": 10.5,
    "notes": [],
    "cells": {
     "census1": 4778,
@@ -391,10 +282,10 @@
    "findings": [
     {
      "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
      "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
+     "reason": "genes of the pinned reference that the Census 1 build does not hold"
     },
     {
      "kind": "column-set",
@@ -556,7 +447,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 34.4,
+   "seconds": 28.0,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -565,38 +456,10 @@
    "findings": [
     {
      "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
-     "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
-    },
-    {
-     "kind": "strict-subset",
      "where": "obs",
-     "detail": "right is a strict subset: 10277 rows missing, first missing identity np.str_('62315937-e268-4fa5-a032-8f7d776f3a3f|!!)}MmGN@{')",
+     "detail": "the SDK selected no cell; Census 1 selected 10277",
      "owner": "4.5",
      "reason": "the filter names tissue_general, which the stores lack"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.n_measured_obs",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.nnz",
-     "detail": "present on left only",
-     "owner": "4.5",
-     "reason": "corpus aggregates that the release builder sums from the per-dataset files"
-    },
-    {
-     "kind": "column-set",
-     "where": "var.feature_version",
-     "detail": "present on right only",
-     "owner": "4.2",
-     "reason": "a column of the pinned reference that Census 1 drops"
     }
    ],
    "status": "fail"
@@ -611,7 +474,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 43.8,
+   "seconds": 48.1,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -670,13 +533,6 @@
      "reason": "tissue_general, which the writer derives"
     },
     {
-     "kind": "value",
-     "where": "obs.cell_type",
-     "detail": "identity np.str_('5b25a46f-f1cf-4caa-9e10-6ab81dfe9174|!+2P*FHCFw'): left 'mucosal invariant T cell' vs right 'mucosal-associated invariant T cell'",
-     "owner": "re-curation",
-     "reason": "the term ID agrees; the store's dataset version names it differently"
-    },
-    {
      "kind": "column-set",
      "where": "var.n_measured_obs",
      "detail": "present on left only",
@@ -710,7 +566,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 59.6,
+   "seconds": 35.7,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -802,7 +658,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 22.4,
+   "seconds": 20.8,
    "notes": [],
    "cells": {
     "census1": 12822,
@@ -811,10 +667,10 @@
    "findings": [
     {
      "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
      "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
+     "reason": "genes of the pinned reference that the Census 1 build does not hold"
     },
     {
      "kind": "column-set",
@@ -1293,13 +1149,6 @@
      "reason": "the obs columns that a store keeps"
     },
     {
-     "kind": "value",
-     "where": "obs.cell_type",
-     "detail": "identity np.str_('5b25a46f-f1cf-4caa-9e10-6ab81dfe9174|!+2P*FHCFw'): left 'mucosal invariant T cell' vs right 'mucosal-associated invariant T cell'",
-     "owner": "re-curation",
-     "reason": "the term ID agrees; the store's dataset version names it differently"
-    },
-    {
      "kind": "column-set",
      "where": "var.n_measured_obs",
      "detail": "present on left only",
@@ -1346,7 +1195,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 29.3,
+   "seconds": 37.5,
    "notes": [
     "the SDK returns the raw layer only; asked for ('raw', 'normalized')"
    ],
@@ -1357,10 +1206,10 @@
    "findings": [
     {
      "kind": "row-set",
-     "where": "var genes",
-     "detail": "0 in Census 1 only, 17397 in the SDK only; compared on 61497 shared genes",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
      "owner": "4.2",
-     "reason": "genes of the pinned reference against the genes of the build"
+     "reason": "genes of the pinned reference that the Census 1 build does not hold"
     },
     {
      "kind": "column-set",
