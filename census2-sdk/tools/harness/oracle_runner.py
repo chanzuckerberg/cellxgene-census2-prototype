@@ -35,7 +35,7 @@ import tiledbsoma as soma
 
 from harness.canonical import (
     canonicalize_anndata,
-    frame_arrays,
+    canonicalize_frame,
     layer_arrays,
     result_digest,
     write_result,
@@ -157,8 +157,7 @@ def run_query(census, q, sample):
                 .to_pandas()
             )
             path = "direct"
-        var = var.sort_values("feature_id", kind="stable").reset_index(drop=True)
-        return frame_arrays(
+        return canonicalize_frame(
             "var", var.drop(columns=["soma_joinid"], errors="ignore")
         ), path
 
@@ -177,13 +176,8 @@ def run_query(census, q, sample):
                 .to_pandas()
             )
             path = "direct"
-        order = obs.sort_values(
-            ["dataset_id", "observation_joinid"],
-            key=lambda s: s.astype(str),
-            kind="stable",
-        ).reset_index(drop=True)
-        return frame_arrays(
-            "obs", order.drop(columns=["soma_joinid"], errors="ignore")
+        return canonicalize_frame(
+            "obs", obs.drop(columns=["soma_joinid"], errors="ignore")
         ), path
 
     first, *rest = q.layers
