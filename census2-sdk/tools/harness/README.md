@@ -125,10 +125,8 @@ unsupported.
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
 while the gene sets differ. The driver thus restricts both sides to the shared genes. The
 genes that only the SDK holds are an expected finding, and a Census 1 gene that the SDK
-does not hold fails the query. Each finding names the task
-that owns it (the `OWNERS` table in `compare_stacks.py`). A label difference whose term
-ID agrees goes to "re-curation", because the stores hold later dataset versions than
-release 2025-11-08.
+does not hold fails the query. Each finding names the task that owns it (the `OWNERS`
+table in `compare_stacks.py`).
 
 ## Scope limits
 

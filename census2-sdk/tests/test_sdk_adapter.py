@@ -16,7 +16,7 @@ from harness.canonical import (
     write_result,
 )
 from harness.comparator import Finding
-from harness.compare_stacks import owner, relabel, restrict_genes, run_one
+from harness.compare_stacks import owner, restrict_genes, run_one
 from harness.corpus import BoundQuery
 from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
@@ -93,37 +93,6 @@ def test_owner_names_the_task_that_removes_a_finding() -> None:
     assert owner(tissue, {"tissue_general_ontology_term_id", "dataset_id"})[0] == "4.5"
     assert owner(Finding("value", "X.raw", "cell x gene"), set())[0] == "6.2"
     assert owner(Finding("value", "obs.donor_id", "identity x"), set())[0] == "6.2"
-
-
-def test_relabel_gives_a_label_difference_with_agreeing_terms_to_recuration() -> None:
-    def finding(kind: str, where: str) -> dict[str, str]:
-        return {"kind": kind, "where": where, "owner": "4.4", "reason": ""}
-
-    compared = {
-        "obs.cell_type",
-        "obs.cell_type_ontology_term_id",
-        "obs.tissue",
-        "obs.tissue_ontology_term_id",
-        "obs.sex",
-        "obs.sex_ontology_term_id",
-    }
-    findings = [
-        finding("value", "obs.cell_type"),  # its term agrees
-        finding("value", "obs.tissue"),  # its term differs
-        finding("value", "obs.tissue_ontology_term_id"),
-        finding("value", "obs.sex"),  # its term has another kind of finding
-        finding("dtype", "obs.sex_ontology_term_id"),
-        finding("value", "obs.disease"),  # its term is not on both sides
-    ]
-    relabel(findings, compared)
-    assert [f["owner"] for f in findings] == [
-        "re-curation",
-        "4.4",
-        "4.4",
-        "4.4",
-        "4.4",
-        "4.4",
-    ]
 
 
 def test_clauses_split_outside_quotes_and_brackets() -> None:

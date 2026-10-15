@@ -93,42 +93,6 @@ def owner(finding: Finding, row_columns: set[str]) -> tuple[str, str]:
     return "6.2", "triage"
 
 
-LABELS = (
-    "assay",
-    "cell_type",
-    "development_stage",
-    "disease",
-    "self_reported_ethnicity",
-    "sex",
-    "tissue",
-    "tissue_general",
-)
-
-
-def relabel(findings: list[dict[str, Any]], compared: set[str]) -> None:
-    """Give a label difference whose term ID agrees to re-curation.
-
-    The stores hold re-curated dataset versions, so a label can carry a newer ontology
-    name for the same term. `compared` holds the obs columns of both sides. The
-    comparator reports every column that differs, so a term ID column in `compared` with
-    no finding of any kind agrees on every cell.
-    """
-    flagged = {f["where"] for f in findings}
-    for f in findings:
-        label = f["where"].removeprefix("obs.")
-        term = f"obs.{label}_ontology_term_id"
-        if (
-            f["kind"] == "value"
-            and label in LABELS
-            and term in compared
-            and term not in flagged
-        ):
-            f["owner"] = "re-curation"
-            f["reason"] = (
-                "the term ID agrees; the store's dataset version names it differently"
-            )
-
-
 def drop_soma_joinid(arrays: Arrays) -> Arrays:
     """Census 1 rows carry `soma_joinid`, which a Census 2 result does not have."""
     return {k: v for k, v in arrays.items() if k.split(".")[1] != "soma_joinid"}
@@ -166,14 +130,6 @@ def restrict_genes(arrays: Arrays, keep: set[str]) -> Arrays:
         )
         out.update(layer_arrays(name, matrix[:, np.flatnonzero(mask)].tocsr()))
     return out
-
-
-def _obs_columns(arrays: Arrays) -> set[str]:
-    return {
-        k.removesuffix(".offsets").removesuffix(".bytes")
-        for k in arrays
-        if k.startswith("obs.")
-    }
 
 
 def _obs_rows(arrays: Arrays) -> int:
@@ -264,7 +220,6 @@ def run_one(
 
     row_columns = _row_columns(query, pins)
     record["findings"] = [_finding_record(f, row_columns) for f in findings]
-    relabel(record["findings"], _obs_columns(census1) & _obs_columns(sdk))
     blocking = [f for f in record["findings"] if f["where"] != EXPECTED]
     if record["cells"]["census1"] == 0 and record["cells"]["sdk"] == 0:
         record["status"] = "vacuous"  # no cell to compare; the findings stay on record
