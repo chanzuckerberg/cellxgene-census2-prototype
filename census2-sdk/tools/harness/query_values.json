@@ -132,18 +132,21 @@
  "census_data/homo_sapiens": {
   "assay_ontology_term_id": "EFO:0009922",
   "assay_ontology_term_id_cells": 59240701,
-  "cell_type_ontology_term_id": "CL:0000128",
-  "cell_type_ontology_term_id_cells": 5705502,
+  "cell_type_ontology_term_id": "CL:0000897",
+  "cell_type_ontology_term_id_cells": 3575,
   "colliding_feature_ids": [
    "ENSG00000198019",
    "ENSG00000291135"
   ],
   "colliding_feature_name": "FCGR1BP",
-  "dataset_id": "37a17b78-4864-4a42-b67b-31c00962795a",
-  "dataset_id_cells": 4140453,
+  "dataset_id": "62315937-e268-4fa5-a032-8f7d776f3a3f",
+  "dataset_id_cells": 4778,
   "disease_is_multivalued": true,
-  "disease_label": "dementia || Alzheimer disease",
-  "disease_ontology_term_id": "MONDO:0001627 || MONDO:0004975",
+  "disease_label": "HIV infectious disease || visceral leishmaniasis",
+  "disease_ontology_term_id": "MONDO:0005109",
+  "disease_ontology_term_id_matches": [
+   "MONDO:0005109 || MONDO:0005445"
+  ],
   "feature_id_sample": "ENSG00000237491",
   "gene_subset": [
    "ENSG00000237491",
@@ -248,8 +251,8 @@
    "ENSG00000120948"
   ],
   "n_genes": 61497,
-  "tissue_general_ontology_term_id": "UBERON:0000955",
-  "tissue_general_ontology_term_id_cells": 28967109
+  "tissue_general_ontology_term_id": "UBERON:0002048",
+  "tissue_general_ontology_term_id_cells": 10277
  },
  "census_data/macaca_mulatta": {
   "assay_ontology_term_id": "EFO:0030028",

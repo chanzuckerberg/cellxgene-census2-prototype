@@ -27,8 +27,8 @@ Iteration 3.
 | `tiledbsoma` | 1.15.3, the builder's pin | `requirements-oracle.lock` |
 | `anndata` | 0.13.2 | `requirements-oracle.lock` |
 | Python | 3.12 | this page |
-| Query corpus | v1.0, 16 entries, 74 bound queries | `corpus.py` |
-| Snapshot bound | 3 smallest datasets per experiment | `snapshot_manifest.json` |
+| Query corpus | v1.1, 16 entries, 74 bound queries | `corpus.py` |
+| Snapshot bound | 3 datasets per experiment: the 3 smallest, or the human pick below | `snapshot_manifest.json` |
 
 Every serialized result records the release, its URI, the package versions, and the
 corpus version in its `manifest.json`. A result thus names the oracle that produced it
@@ -47,13 +47,51 @@ Reads are anonymous. From `census2-sdk/tools/`:
    every query again and compares the result digests. The last line must read
    `PASS: 0 digest mismatches`.
 
-The snapshot is not committed. Steps 3 and 4 gave 74 of 74 identical digests on
-2026-08-24 from a clean environment on one host. That run proves the steps and the
-pins on that host.
+The snapshot is not committed. For corpus v1.1, steps 3 and 4 gave 74 of 74 identical
+digests on 2026-10-02 from a clean environment on one host. That run proves the steps and
+the pins on that host. 64 of the 74 digests equal those of v1.0. The 10 others are the
+human queries that the new human sample changes.
 
 `snapshot_manifest.json` is committed. A change to the dataset sample can change the digest
 of every clamped query, so regenerate it (`oracle_runner build-manifest`) only with a
 corpus version bump.
+
+## The human sample of corpus v1.1
+
+The SDK run (task 6.2) compares Census 1 with the Iteration 1 stores, so the human sample
+must hold datasets that both stacks have. 73 of the 96 stores are in release 2025-11-08.
+The human sample is three of them, chosen so that the silent-failure entries select
+cells on both stacks:
+
+| Dataset | Cells | Reason |
+| --- | --- | --- |
+| `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | 12,822 | The only one of the 73 with a multi-valued disease. All its cells are primary data. |
+| `6e00ccf7-0749-46ef-a999-dba785630d52` | 5,499 | The smallest dataset with primary data and brain or lung cells |
+| `62315937-e268-4fa5-a032-8f7d776f3a3f` | 4,778 | The control: the SDK and Census 1 agreed on every value of this dataset (task 6.1) |
+
+To rebuild the manifest with this pick:
+
+```sh
+harness/.venv-oracle/bin/python -m harness.oracle_runner build-manifest \
+  --pick census_data/homo_sapiens=5b25a46f-f1cf-4caa-9e10-6ab81dfe9174,6e00ccf7-0749-46ef-a999-dba785630d52,62315937-e268-4fa5-a032-8f7d776f3a3f
+```
+
+The other six experiments keep the 3 smallest datasets. Four human pins in
+`query_values.json` come from the Census 1 cells of this sample, and their `_cells`
+counts are counts within the sample. The other human pins (the assay, the genes, and the
+colliding feature name) keep their v1.0 values.
+
+- `cell_type_ontology_term_id` is the cell type that the most datasets hold, then the most cells.
+- `tissue_general_ontology_term_id` follows the same rule.
+- `dataset_id` is the control dataset.
+- `disease_ontology_term_id` is one term of the multi-valued disease. Census 1 compares the
+  whole string. `disease_ontology_term_id_matches` thus lists every joined value in the
+  sample that holds the term, and the corpus filter selects those values. A stack with
+  membership semantics takes the bare term.
+
+No dataset of the 73 holds vasculature cells, so `documented_narrow` selects no cells on
+either stack. The steps of the previous section produce the whole v1.1 snapshot, 74
+results. To regenerate the human results only, add `--only census_data/homo_sapiens`.
 
 ## Scope limits
 
