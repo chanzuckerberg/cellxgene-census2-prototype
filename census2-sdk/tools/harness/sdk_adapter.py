@@ -88,6 +88,9 @@ def translate(value_filter: str, pins: dict[str, Any]) -> dict[str, list[str]]:
             if values != pins.get(f"{column}_matches"):
                 raise Unsupported(f"no bare term is pinned for {column} = {values}")
             values = [pins[column]]
+        # A conjunction keeps the values that every clause of the column accepts.
+        if column in mapping:
+            values = [v for v in mapping[column] if v in values]
         mapping[column] = values
     return mapping
 

@@ -37,6 +37,9 @@ def test_translate_takes_equality_membership_and_conjunction() -> None:
     assert translate(
         "tissue_general in ['brain', 'lung'] and sex == 'female'", PINS
     ) == {"tissue_general": ["brain", "lung"], "sex": ["female"]}
+    both = "sex in ['female', 'male'] and sex == 'female'"
+    assert translate(both, PINS) == {"sex": ["female"]}
+    assert translate("sex == 'female' and sex == 'male'", PINS) == {"sex": []}
 
 
 def test_translate_gives_a_multivalued_column_the_bare_term() -> None:
