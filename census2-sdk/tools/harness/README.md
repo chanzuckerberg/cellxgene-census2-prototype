@@ -60,15 +60,15 @@ corpus version bump.
 
 ## The human sample of corpus v1.1
 
-The SDK run (task 6.2) compares Census 1 with the Iteration 1 stores, so the human sample
-must hold datasets that both stacks have. 73 of the 96 stores are in release 2025-11-08.
-The human sample is three of them, chosen so that the silent-failure entries select
-cells on both stacks:
+The SDK run (task 6.2) compares Census 1 with 103 stores. `bulk-ingest-nf/manifests/`
+lists their datasets: 100 human datasets sampled from release 2025-11-08, and the three
+datasets of this sample. The three datasets let the silent-failure entries select cells
+on both stacks:
 
 | Dataset | Cells | Reason |
 | --- | --- | --- |
-| `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | 12,822 | The only one of the 73 with a multi-valued disease. All its cells are primary data. |
-| `6e00ccf7-0749-46ef-a999-dba785630d52` | 5,499 | The smallest dataset with primary data and brain or lung cells |
+| `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | 12,822 | The only one of the 103 with a multi-valued disease. All its cells are primary data. |
+| `6e00ccf7-0749-46ef-a999-dba785630d52` | 5,499 | Primary data with brain or lung cells |
 | `62315937-e268-4fa5-a032-8f7d776f3a3f` | 4,778 | The control: the SDK and Census 1 agreed on every value of this dataset (task 6.1) |
 
 To rebuild the manifest with this pick:
@@ -91,8 +91,8 @@ colliding feature name) keep their v1.0 values.
   sample that holds the term, and the corpus filter selects those values. A stack with
   membership semantics takes the bare term.
 
-No dataset of the 73 holds vasculature cells, so `documented_narrow` selects no cells on
-either stack. The steps of the previous section produce the whole v1.1 snapshot, 74
+No dataset of the sample holds vasculature cells, so `documented_narrow` selects no cells
+on either stack. The steps of the previous section produce the whole v1.1 snapshot, 74
 results. To regenerate the human results only, add `--only census_data/homo_sapiens`.
 
 ## Run the SDK against Census 1
