@@ -113,7 +113,7 @@ Two rules that this table sets:
 | Joinids unique and exactly `[0, n)` | replaced (4.6) | The writer asserts `(dataset_id, observation_joinid)` uniqueness on every write. |
 | `var` union check | replaced (4.2) | Projection against the pinned reference is the check. |
 | No duplicate coordinates in either X layer | writer | The writer removes duplicate coordinates with `sum_duplicates()` and does not check for them. |
-| Normalization recomputed, row sums near 1, no stored zero | writer | Per-dataset self-check. The catalog builder checks a store only against its inventory ([design 3.3](./census_zarr_design_v3_ste100.md#33-release-contents), step 4). |
+| Normalization recomputed, row sums near 1, no stored zero | writer | Per-dataset self-check. The release builder checks a store only against its inventory ([design 3.3](./census_zarr_design_v3_ste100.md#33-release-contents), step 4). |
 | `dataset_id`/`dataset_version_id` unique in the manifest | release builder | The release builder asserts uniqueness. The SDK reports an error when a `dataset_id` occurs in more than one source ([design 4.4](./census_zarr_design_v3_ste100.md#44-query-execution)). |
 
 ## New: contributor `uns`
