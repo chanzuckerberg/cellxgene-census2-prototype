@@ -6,7 +6,7 @@ Census 1 reprocesses Discover's scRNA AnnData datasets into one monolithic TileD
 
 Census 2 replaces the monolithic data structure with an S3 data lake. It also moves from TileDB to AnnData's maturing Zarr materialization. **The tentpoles are: one AnnData-Zarr store per dataset, written independently, composed at query time through a catalog.**
 
-- **One store per dataset.** Each dataset that the Census admits becomes one Zarr store. The store goes into CELLxGENE Discover's asset storage, beside the dataset's other artifacts. Its address is the `dataset_version_id` and the `artifact_revision`.
+- **One store per dataset.** Each dataset that the Census admits becomes one Zarr store. The store goes into CELLxGENE Discover's asset storage, beside the dataset's other artifacts. Its address is the `dataset_version_id` and the `writer_version`.
 - **Independent writes.** We write the stores one dataset at a time. There is no corpus-wide data build. A store depends only on its dataset and the schema version.
 - **Harmonization without aggregation.** Cross-dataset queries need harmonized data. We apply some of Census 1's harmonization steps during Zarr ingestion (so a store is *not* merely the Discover h5ad saved in a different format). Ingestion reads only one dataset at a time, so steps that needed corpus-wide aggregates are redesigned or eliminated.
 - **Catalog and releases.** The Census owns both. The catalog holds one summary row per dataset, projected from Discover's curation API. A query uses these summaries to skip irrelevant stores without opening them. A release is a manifest and a catalog snapshot, which together pin the exact dataset versions. Because ingestion does not use corpus-wide aggregates, many releases can pin the same store.

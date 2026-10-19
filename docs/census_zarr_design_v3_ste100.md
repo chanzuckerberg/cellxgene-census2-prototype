@@ -1,6 +1,6 @@
 # Publish the Census as per-dataset AnnData-Zarr
 
-**Version 3. Status:** DRAFT, the current design record. **Last edited:** 2026-10-08.
+**Version 3. Status:** DRAFT, the current design record. **Last edited:** 2026-10-19.
 
 This document is the design record for Census 2. It follows ASD-STE100 and the
 [Census 2 documentation policy](https://github.com/chanzuckerberg/cellxgene-census2-prototype/blob/main/CLAUDE.md#documentation-policy).
@@ -397,8 +397,10 @@ digests for the other release files.
 The catalog builder runs after each ingestion or reconciliation run. It reads
 the summary record of each new store and the Discover response (section 2.3). It
 appends new values to the dictionary. It writes `catalog/current.parquet` and
-`catalog/dictionary.parquet` in one serialized atomic write. The dataset becomes
-available to live queries after this write.
+`catalog/dictionary.parquet` as one serialized update. S3 writes each object
+atomically, but not the two objects together. The protocol that gives a reader a
+catalog and a dictionary from the same update is open (section 3.6). The dataset
+becomes available to live queries after this update.
 
 The release builder assembles a release on demand. It reads the live catalog
 and dictionary at one point in time and the inventory of each store. It performs
@@ -454,12 +456,13 @@ scheduled and on-demand runs. It handles these cases:
 The reconciliation job compares published dataset versions with catalog rows.
 It writes missing stores. Both callers then invoke the catalog builder.
 
-The catalog builder uses one serialized atomic write. Both callers must produce
-byte-identical stores. The differential harness checks this requirement. These
-questions are open:
+The catalog builder makes one serialized update at a time. Both callers must
+produce byte-identical stores. The differential harness checks this requirement.
+These questions are open:
 
 - How does the reconciliation job register an artifact?
 - What mechanism allows only one catalog write at a time?
+- How does a reader get a catalog and a dictionary from the same update?
 - Where does the reconciliation job run in production?
 
 ### 3.7 Writer inputs
