@@ -15,9 +15,8 @@ design in full.
   <img alt="The Census 2 query sequence, from the catalog read to one AnnData" src="docs/diagrams/census-query-sequence.light.png">
 </picture>
 
-Source: `docs/diagrams/census-query-sequence.workflow.json`. The
-[interactive diagram](https://scaling-dollop-pzyy6pk.pages.github.io/census-query-sequence.html) is
-on the dashboard site and follows the light or dark setting of the browser.
+Source: `docs/diagrams/census-query-sequence.workflow.json`. To see the interactive diagram, open
+`docs/diagrams/census-query-sequence.html` in a browser.
 
 ## Components
 
