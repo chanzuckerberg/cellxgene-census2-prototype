@@ -7,10 +7,14 @@ on:
     branches: [main]
     paths:
       - "census2-sdk/**"
+      # The catalog builder reads the summary record that the writer defines.
+      - "census2-dataset-writer/**"
       - ".github/workflows/census2-sdk.yml"
   pull_request:
     paths:
       - "census2-sdk/**"
+      # The catalog builder reads the summary record that the writer defines.
+      - "census2-dataset-writer/**"
       - ".github/workflows/census2-sdk.yml"
 
 permissions:
@@ -48,9 +52,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Not editable: the tests then run against the installed package.
+      # Not editable: the tests then run against the installed package. The
+      # catalog builder in tools/ imports census2-dataset-writer for the summary
+      # record, so the tests and mypy need it. The SDK package itself does not.
       - name: Install
-        run: pip install '.[dev,s3]'
+        run: pip install ../census2-dataset-writer '.[dev,s3]'
 
       - name: Unit tests
         run: pytest -q

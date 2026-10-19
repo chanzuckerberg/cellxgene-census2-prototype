@@ -365,6 +365,61 @@ def test_a_store_without_a_summary_record_reads_as_partial(tmp_path: Path) -> No
     assert census2_dataset_writer.read_summary(tmp_path / "plain.zarr") is None
 
 
+GOOD_RECORD = {
+    "version": 1,
+    "dataset_id": "d",
+    "dataset_version_id": "v",
+    "gene_reference_version": "TEST v1",
+}
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"version": 2}, "version 2"),
+        ({"version": True}, "version True"),
+        ({"dataset_id": 7}, "dataset_id is 7"),
+        ({"gene_reference_version": ""}, "gene_reference_version is ''"),
+        ({"gene_reference_version": None}, "gene_reference_version is None"),
+        ({"extra": 1}, "unknown \\['extra'\\]"),
+    ],
+)
+def test_validate_summary_refuses_a_malformed_record(
+    change: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match=message):
+        census2_dataset_writer.validate_summary({**GOOD_RECORD, **change})
+
+
+def test_validate_summary_refuses_a_missing_field() -> None:
+    record = {k: v for k, v in GOOD_RECORD.items() if k != "dataset_id"}
+    with pytest.raises(
+        census2_dataset_writer.SummaryRecordError, match="missing \\['dataset_id'\\]"
+    ):
+        census2_dataset_writer.validate_summary(record)
+
+
+def test_read_summary_refuses_a_malformed_record(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    root = zarr.open_group(dest, mode="r+")
+    root.update_attributes(
+        {"cellxgene-census2": {"summary": {**GOOD_RECORD, "version": 9}}}
+    )
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="version 9"):
+        census2_dataset_writer.read_summary(dest)
+    # An open root group reads the same way.
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="version 9"):
+        census2_dataset_writer.read_summary(zarr.open_group(dest, mode="r"))
+
+
+def test_write_refuses_a_malformed_record_and_writes_nothing(tmp_path: Path) -> None:
+    write: Any = census2_dataset_writer.write
+    bad = {**GOOD_RECORD, "dataset_id": ""}
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="dataset_id"):
+        write(anndata.AnnData(X=np.zeros((2, 2))), tmp_path / "store.zarr", summary=bad)
+    assert not (tmp_path / "store.zarr").exists()
+
+
 def test_write_needs_a_summary_record(tmp_path: Path) -> None:
     write: Any = census2_dataset_writer.write
     with pytest.raises(TypeError, match="summary"):

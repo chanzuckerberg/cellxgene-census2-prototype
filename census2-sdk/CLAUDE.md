@@ -17,6 +17,13 @@ The `ponytail:` comments in the code mark the `dataset_id` stamp and the list co
 - The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no
   `raw_sum`, `nnz`, or the other three columns of design 2.1.
 
+## The catalog builder
+
+`tools/build_catalog.py` imports `census2-dataset-writer`, which defines the summary record, reads
+it, and checks its fields with `read_summary`. The builder thus shares one definition of the record
+with the writer. The SDK package does not depend on the writer, so a user of the SDK does not
+install it. The tests and mypy do need it, and CI installs it.
+
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the

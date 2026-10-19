@@ -17,6 +17,7 @@ import pathlib
 import sys
 from typing import Any
 
+import census2_dataset_writer
 import pandas as pd
 import zarr
 from anndata.io import read_elem
@@ -26,14 +27,6 @@ from census2_sdk.gene_reference import TAXON_TO_ORGANISM
 
 # Assays that the curation schema lists as spatial.
 SPATIAL_ASSAYS = frozenset({"EFO:0010961", "EFO:0030062"})
-
-# The summary record that `census2-dataset-writer` writes into the attributes of
-# each store's root group: `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`. The SDK does
-# not depend on the writer, so the names are repeated here. The writer's README
-# describes the record.
-SUMMARY_NAMESPACE = "cellxgene-census2"
-SUMMARY_KEY = "summary"
-SUMMARY_VERSION = 1
 
 
 def _stores(prefix: str) -> list[str]:
@@ -50,27 +43,25 @@ def _stores(prefix: str) -> list[str]:
     return sorted(n for n in names if n.endswith(".zarr"))
 
 
-def summary_record(group: zarr.Group, name: str) -> dict[str, Any]:
+def summary_record(
+    group: zarr.Group, name: str
+) -> census2_dataset_writer.SummaryRecord:
     """The summary record of the store `name`. Refuse a store that has no usable one.
 
+    `census2-dataset-writer` defines the record, reads it, and checks its fields.
     The writer adds the record last, so a store without one is partial. A catalog
     that dropped such a store quietly would drop its cells from every query.
     """
-    namespace = group.attrs.get(SUMMARY_NAMESPACE)
-    record: dict[str, Any] | None = (
-        namespace.get(SUMMARY_KEY) if isinstance(namespace, dict) else None
-    )
+    try:
+        record = census2_dataset_writer.read_summary(group)
+    except census2_dataset_writer.SummaryRecordError as e:
+        raise ValueError(f"{name}: {e}") from e
     if record is None:
         raise ValueError(f"{name}: no summary record; the store is partial")
-    if record.get("version") != SUMMARY_VERSION:
-        raise ValueError(
-            f"{name}: summary record version {record.get('version')!r}, "
-            f"and this builder reads version {SUMMARY_VERSION}"
-        )
-    if f"{record.get('dataset_version_id')}.zarr" != name:
+    if f"{record['dataset_version_id']}.zarr" != name:
         raise ValueError(
             f"{name}: the summary record names dataset version "
-            f"{record.get('dataset_version_id')!r}"
+            f"{record['dataset_version_id']!r}"
         )
     return record
 
@@ -91,10 +82,10 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
         record = summary_record(group, name)
         rows.append(
             {
-                "dataset_id": str(record["dataset_id"]),
-                "dataset_version_id": str(record["dataset_version_id"]),
+                "dataset_id": record["dataset_id"],
+                "dataset_version_id": record["dataset_version_id"],
                 "store_uri": store_uri,
-                "gene_reference_version": record.get("gene_reference_version"),
+                "gene_reference_version": record["gene_reference_version"],
                 **summarize(group),
             }
         )

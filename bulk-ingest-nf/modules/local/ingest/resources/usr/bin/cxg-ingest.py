@@ -128,9 +128,13 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         result["consolidated"] = True
 
         result["compared"].append("summary")
-        stored = census2_dataset_writer.read_summary(dst)
-        if stored != summary:
-            fail("summary", f"the store holds {stored}, expected {summary}")
+        try:
+            stored = census2_dataset_writer.read_summary(dst)
+        except census2_dataset_writer.SummaryRecordError as e:
+            fail("summary", str(e))
+        else:
+            if stored != summary:
+                fail("summary", f"the store holds {stored}, expected {summary}")
 
         dropped = set(written["dropped_obs_columns"])
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])

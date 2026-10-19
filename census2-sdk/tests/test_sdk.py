@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import anndata
 import build_catalog
+import census2_dataset_writer
 import numpy as np
 import pandas as pd
 import pytest
@@ -90,28 +91,31 @@ def write_one(
     prefix: Path,
     adata: anndata.AnnData,
     dataset_id: str,
-    version: str | None = "GENCODE v48",
 ) -> None:
     """One store and its summary record, as the writer writes them."""
     version_id = f"v-{dataset_id}"
     path = prefix / f"{version_id}.zarr"
     adata.write_zarr(path)
-    record = {
-        "version": 1,
+    record: census2_dataset_writer.SummaryRecord = {
+        "version": census2_dataset_writer.SUMMARY_VERSION,
         "dataset_id": dataset_id,
         "dataset_version_id": version_id,
-        "gene_reference_version": version,
+        "gene_reference_version": "GENCODE v48",
     }
-    set_summary(path, record)
+    set_summary(path, dict(record))
 
 
 def set_summary(path: Path, record: dict[str, Any] | None) -> None:
-    """Set or remove the summary record in the store's root attributes."""
+    """Set or remove the summary record in the store's root attributes.
+
+    It writes the record as given, unchecked, so that a test can write a malformed one.
+    """
+    namespace = census2_dataset_writer.SUMMARY_NAMESPACE
     root = zarr.open_group(path, mode="r+")
     attrs = dict(root.attrs)
-    attrs.pop("cellxgene-census2", None)
+    attrs.pop(namespace, None)
     if record is not None:
-        attrs["cellxgene-census2"] = {"summary": record}
+        attrs[namespace] = {census2_dataset_writer.SUMMARY_KEY: record}
     root.attrs.clear()
     root.update_attributes(attrs)
 
@@ -132,11 +136,10 @@ def one_store_catalog(
     tmp_path: Path,
     adata: anndata.AnnData,
     dataset_id: str,
-    version: str | None = "GENCODE v48",
 ) -> Path:
     prefix = tmp_path / "out"
     prefix.mkdir()
-    write_one(prefix, adata, dataset_id, version)
+    write_one(prefix, adata, dataset_id)
     build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
     return tmp_path / "catalog.parquet"
 
@@ -296,9 +299,17 @@ def test_store_with_another_var_refused(
 
 
 def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
-    """A summary record that names no reference gives a row that the SDK refuses."""
+    """A catalog row that names no reference is refused.
+
+    The builder refuses a summary record without a reference, so the test removes the
+    value from the catalog row.
+    """
     adata = make_store("ds-u", 5, REFERENCE_IDS, ["lung"], ["normal"], 7)
-    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-u", None)])
+    path = one_store_catalog(tmp_path, adata, "ds-u")
+    frame = catalog.load(path)
+    frame["gene_reference_version"] = None
+    frame.to_parquet(path, index=False)
+    census = census2_sdk.open_census([path])
     with pytest.raises(census2_sdk.SourceConflict, match="no gene_reference_version"):
         census.get_anndata("homo_sapiens")
 
@@ -468,4 +479,17 @@ def test_builder_refuses_a_record_for_another_store(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="names dataset version 'v-other'"):
+        build_catalog.build(str(prefix))
+
+
+def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
+    prefix, store = builder_prefix(tmp_path)
+    record = {
+        "version": 1,
+        "dataset_id": 7,
+        "dataset_version_id": "v-ds-s",
+        "gene_reference_version": "GENCODE v48",
+    }
+    set_summary(store, record)
+    with pytest.raises(ValueError, match="v-ds-s.zarr: summary record dataset_id is 7"):
         build_catalog.build(str(prefix))

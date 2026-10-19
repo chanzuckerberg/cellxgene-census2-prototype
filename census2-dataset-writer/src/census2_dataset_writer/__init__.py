@@ -26,7 +26,8 @@ Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
 
 `slots_of(adata)` lists what a store written from an AnnData will hold.
-`read_summary(dest)` returns the summary record of a store. `load_config(path)`
+`read_summary(dest)` returns the summary record of a store, and
+`validate_summary(obj)` checks one read from elsewhere. `load_config(path)`
 returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
 which ships no S3 client.
@@ -220,6 +221,41 @@ class SummaryRecord(TypedDict):
     # The label of the gene reference in the store's `var`, as in
     # `genes.REFERENCES`, for example "GENCODE v48".
     gene_reference_version: str
+
+
+class SummaryRecordError(ValueError):
+    """A summary record that is malformed: a missing, unknown, or wrongly typed field."""
+
+
+def validate_summary(obj: object) -> SummaryRecord:
+    """Return `obj` as a summary record, or raise `SummaryRecordError` saying why not.
+
+    A summary record is read from a store, which is external input, so its type is
+    checked here at run time and not only asserted. The record must have exactly
+    the fields of `SummaryRecord`, `version` must be `SUMMARY_VERSION`, and the
+    other fields must be strings that are not empty.
+    """
+    if not isinstance(obj, dict):
+        raise SummaryRecordError(
+            f"a summary record is a JSON object, not {type(obj).__name__}"
+        )
+    fields = set(SummaryRecord.__annotations__)
+    if set(obj) != fields:
+        missing, extra = sorted(fields - set(obj)), sorted(set(obj) - fields)
+        raise SummaryRecordError(
+            f"summary record fields: missing {missing}, unknown {extra}"
+        )
+    version = obj["version"]
+    if type(version) is not int or version != SUMMARY_VERSION:
+        raise SummaryRecordError(
+            f"summary record version {version!r}; this package reads {SUMMARY_VERSION}"
+        )
+    for field in sorted(fields - {"version"}):
+        if not isinstance(obj[field], str) or not obj[field]:
+            raise SummaryRecordError(
+                f"summary record {field} is {obj[field]!r}, not a string"
+            )
+    return cast("SummaryRecord", obj)
 
 
 def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
@@ -678,6 +714,9 @@ def write(
     limit = (
         dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
     )
+    # Refuse a malformed record before anything is written, so that a caller with
+    # no type checker cannot leave a store with one.
+    validate_summary(summary)
     store = as_store(dest)
     with limit:
         adata.write_zarr(store, consolidate_metadata=consolidate)
@@ -699,13 +738,25 @@ def summary_record(
     }
 
 
-def read_summary(dest: StoreLike) -> SummaryRecord | None:
-    """The summary record of the store at `dest`, or None for a partial store."""
-    root = zarr.open_group(as_store(dest), mode="r")
+def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
+    """The summary record of a store, or None for a partial store.
+
+    `dest` is a store's location, or its root group already open. A record that is
+    present but malformed raises `SummaryRecordError`; see `validate_summary`.
+    """
+    root = (
+        dest
+        if isinstance(dest, zarr.Group)
+        else zarr.open_group(as_store(dest), mode="r")
+    )
     namespace = root.attrs.get(SUMMARY_NAMESPACE)
-    if not isinstance(namespace, dict) or SUMMARY_KEY not in namespace:
+    if namespace is None:
         return None
-    return cast("SummaryRecord", namespace[SUMMARY_KEY])
+    if not isinstance(namespace, dict):
+        raise SummaryRecordError(f"{SUMMARY_NAMESPACE} attribute is not a JSON object")
+    if SUMMARY_KEY not in namespace:
+        return None
+    return validate_summary(namespace[SUMMARY_KEY])
 
 
 @contextlib.contextmanager
