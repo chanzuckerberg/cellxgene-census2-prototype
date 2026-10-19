@@ -1,7 +1,8 @@
 # cellxgene-census2-prototype
 
 This repository holds the prototype of Census 2, the successor to
-[CELLxGENE Discover Census](https://github.com/chanzuckerberg/cellxgene-census).
+[CELLxGENE Discover Census](https://github.com/chanzuckerberg/cellxgene-census). The prototype is
+in development and is not stable.
 
 Census 2 publishes one AnnData-Zarr store for each dataset that it admits. The census dataset writer writes each
 store independently, next to the other artifacts of the dataset. A catalog holds one summary row
@@ -58,3 +59,20 @@ a phase of the plan. A tracker citation such as tracker 6.1 names a task.
 [`CLAUDE.md`](CLAUDE.md) holds the lint, format, type-check, and documentation policy. CI runs
 `ruff` on each Python component and the tests of each package. The documentation policy applies to
 every markdown file, docstring, and code comment in this repository.
+
+## Code of conduct
+
+This project follows the Contributor Covenant
+[code of conduct](https://github.com/chanzuckerberg/.github/blob/main/CODE_OF_CONDUCT.md). All
+participants must obey it. Send reports of unacceptable behavior to
+[opensource@chanzuckerberg.com](mailto:opensource@chanzuckerberg.com).
+
+## Security
+
+Do not open a public issue for a security issue. Send an email to
+[security@chanzuckerberg.com](mailto:security@chanzuckerberg.com).
+[SECURITY.md](SECURITY.md) states this policy.
+
+## License
+
+The contents of this repository are available under the [MIT license](LICENSE).
