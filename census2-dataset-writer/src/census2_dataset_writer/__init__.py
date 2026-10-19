@@ -34,16 +34,24 @@ Decisions
 1. Admission (`admit`) decides whether the dataset belongs in Census 2. A
    rejection is a normal result: `build` returns no AnnData and a reason,
    and the caller records the reason and succeeds. This decision is largely
-   open. The stub applies one criterion, the assay allowlist, which keeps
-   the workflow away from modalities a Census is unlikely to carry.
+   open. The stub applies two criteria. The assay allowlist keeps the
+   workflow away from modalities a Census is unlikely to carry. The
+   organism must have a gene reference, so that harmonization can project
+   the genes.
 2. The slot policy decides which AnnData slots the store carries. This
    decision is made: the set that the Census 1 builder reads (`obs`, `var`,
    `X`, `raw`, and the `uns` keys that the `uns_keys` configuration lists),
-   or every slot when `all_slots` is set.
+   or every slot when `all_slots` is set. Harmonization then puts the
+   counts from `raw` in `X`, and removes the slots that index the source
+   genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. This decision is largely open. The stub calls
-   `project_obs`, which decides which `obs` columns a store carries, and
-   today removes only the columns that Zarr cannot name.
+   query can combine stores. It runs three steps in order. `project_obs`
+   decides which `obs` columns a store carries, and removes only the columns
+   that Zarr cannot name. `select_counts` puts the counts in `X`: `raw.X`
+   when the dataset has `raw`, else `X`. The store has no `raw`.
+   `project_genes` projects the counts onto the pinned gene reference of the
+   dataset's organism. Thus every store of one organism has the same `var`,
+   in the same order. See `census2_dataset_writer.genes`.
 
 Admission runs before the optional slots are read, so a rejected dataset
 does not read them. The `uns` policy is the exception: it applies at the read,
@@ -61,6 +69,10 @@ names a reference file, and a step resolves the name against `refdata`.
 This module does not fetch a file at run time, because a HealthOmics task
 has no public internet access.
 
+An admitted dataset needs `refdata`. `gene_references` names one gene file
+for each organism, with its SHA-256 digest. `project_genes` refuses a file
+that is absent or that has another digest.
+
 `load_config` is a stub: no file format is defined, and it returns
 `DEFAULTS`. Do not define a configuration schema before the step that needs
 it exists.
@@ -74,10 +86,12 @@ docstrings.
 Memory
 ------
 `build` returns a complete AnnData but reads only `obs`, `var`, and `uns`
-into memory. `X` and `raw.X` are dask arrays of row blocks of about
-`BLOCK_BYTES`, sparse when the source is sparse. Memory use follows the
-block size and not the file size; the corpus p99 is about 26 GiB and the
-maximum is 50 GiB. Two rules follow:
+into memory. The source `X` and `raw.X` are dask arrays of row blocks of
+about `BLOCK_BYTES`, sparse when the source is sparse. The projected `X` is
+a dask array of sparse blocks over the same rows. Each block holds at most
+the stored values of its source block. Memory use follows the block
+size and not the file size; the corpus p99 is about 26 GiB and the maximum
+is 50 GiB. Two rules follow:
 
 - An `h5py.File` given to `build` must stay open until `write` returns.
 - A step that needs the whole matrix at one time forces a compute, and so
@@ -105,7 +119,7 @@ from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
 from zarr.abc.store import Store
 
-from . import assays
+from . import assays, genes
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
@@ -138,6 +152,13 @@ class Result(TypedDict):
     # The `obs` columns that harmonization removed, in source order. Empty for
     # a rejected dataset, which is never harmonized.
     dropped_obs_columns: list[str]
+    # The features of the source counts matrix that are not in the store's
+    # `var`, in source order: the non-gene features and the genes of another
+    # organism. Empty for a rejected dataset.
+    dropped_var_features: list[str]
+    # The version of the gene reference in the store's `var`. None for a
+    # rejected dataset.
+    gene_reference_version: str | None
 
 
 # Slots that only `all_slots` carries. The Census builder reads none of them.
@@ -195,7 +216,21 @@ DEFAULTS: Config = {
     # list rather than the frozenset, because a config file is JSON.
     # See census2_dataset_writer.assays for where the terms come from.
     "assay_allowlist": sorted(assays.DEFAULT_ALLOWLIST),
+    # The gene reference of each organism, keyed by organism ontology term: the
+    # file name in `refdata`, the annotation version, the SHA-256 digest, and
+    # the URL to stage it from. An organism with no entry is not admitted.
+    # See census2_dataset_writer.genes for the pin.
+    "gene_references": {taxon: dict(spec) for taxon, spec in genes.REFERENCES.items()},
 }
+
+
+def _gene_references(config: Config) -> dict[str, genes.Reference]:
+    """The `gene_references` of `config`, or the defaults when it names none."""
+    # A config value is Any by design, so name its shape where it is read.
+    return cast(
+        "dict[str, genes.Reference]",
+        config.get("gene_references", DEFAULTS["gene_references"]),
+    )
 
 
 def load_config(path: PathLike | None = None) -> Config:
@@ -226,10 +261,12 @@ class StoreProvenance(TypedDict):
 class Receipt(StoreProvenance, total=False):
     """The JSON a pipeline writes beside a store.
 
-    A private log today, read only by the pipeline's own report step. The shape
-    lives here because the script that writes one and the script that reads one
-    cannot import each other, and because `provenance` fills the part that only
-    this package knows.
+    Two readers use it today: the pipeline's report step, and the prototype
+    catalog builder (`census2-sdk/tools/build_catalog.py`), which takes
+    `dataset_id` and `gene_reference_version` from it until a store summary
+    record exists. The shape lives here because the script that writes one and
+    the script that reads one cannot import each other, and because
+    `provenance` fills the part that only this package knows.
 
     The `StoreProvenance` keys are always present. The rest is what a writer
     knows about where the dataset came from and what it did, so it is optional
@@ -249,6 +286,8 @@ class Receipt(StoreProvenance, total=False):
     reason: str | None
     slots_written: list[str]
     dropped_obs_columns: list[str]
+    dropped_var_features: list[str]
+    gene_reference_version: str | None
     store: str
     output_bytes: int
     published_by: str
@@ -286,12 +325,14 @@ def admit(
 ) -> str | None:
     """Decide whether Census 2 admits this dataset.
 
-    THIS IS A MINIMAL STUB. It applies one criterion: the dataset must hold at
-    least one cell on the assay allowlist. It is not production-ready admission
-    logic. Its purpose is to keep the bulk ingestion workflow away from data
-    shapes that a Census is unlikely to carry, such as the dense matrices of a
-    DNA methylation dataset, so that the workflow is not contorted to hold
-    them. Real admission criteria are open.
+    THIS IS A MINIMAL STUB. It applies two criteria. The dataset must hold at
+    least one cell on the assay allowlist, and its organism must have an entry
+    in `gene_references`. It is not production-ready admission logic. The
+    assay criterion keeps the bulk ingestion workflow away from data shapes
+    that a Census is unlikely to carry, such as the dense matrices of a DNA
+    methylation dataset, so that the workflow is not contorted to hold them.
+    The organism criterion admits only the datasets that `project_genes` can
+    project. Real admission criteria are open.
 
     Return `None` to admit the dataset. Return a short reason to reject it.
     A rejection is a normal result. The caller records the reason and exits
@@ -314,17 +355,23 @@ def admit(
       off-list cells as well.
     - An `obs` without `assay_ontology_term_id` is admitted. Such an object is
       not a Discover dataset, so a Discover criterion does not apply to it.
+
+    A `uns` without `organism_ontology_term_id` is admitted for the same
+    reason. `project_genes` cannot project it, and raises an error.
     """
     config = DEFAULTS if config is None else config
     # A config value is Any by design, so name its shape where it is read.
     allowlist = set(cast("list[str]", config.get("assay_allowlist") or []))
     terms = adata.obs.get("assay_ontology_term_id")
-    if not allowlist or terms is None:
-        return None
-    if bool(terms.isin(allowlist).any()):
-        return None
-    present = sorted({str(t) for t in terms.unique()})
-    return f"no cells on the assay allowlist: {', '.join(present[:3])}"
+    if allowlist and terms is not None and not bool(terms.isin(allowlist).any()):
+        present = sorted({str(t) for t in terms.unique()})
+        return f"no cells on the assay allowlist: {', '.join(present[:3])}"
+
+    references = _gene_references(config)
+    organism = adata.uns.get("organism_ontology_term_id")
+    if organism is not None and str(organism) not in references:
+        return f"no gene reference for organism {organism}"
+    return None
 
 
 def project_obs(
@@ -347,6 +394,8 @@ def project_obs(
     keeps every column that Zarr can hold.
 
     `var` is not projected. The names seen with a `/` were all in `obs`.
+
+    This step consumes `adata`, as `harmonize` states.
     """
     # `AnnData.obs` is typed `DataFrame | Dataset2D`, the second being what
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
@@ -358,19 +407,66 @@ def project_obs(
     return adata
 
 
+def select_counts(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Put the counts in `X`, and remove `raw`.
+
+    A Discover dataset holds the counts in `raw.X` when `X` holds normalized
+    values, and in `X` when it has no `raw`. With `raw`, return a new AnnData
+    whose `X` and `var` are `raw.X` and `raw.var`. `layers`, `varm`, and `varp`
+    index the genes of the normalized `X`, so they are dropped. Without `raw`,
+    return `adata` unchanged. `X` stays lazy. This step consumes `adata`, as
+    `harmonize` states.
+    """
+    if adata.raw is None:
+        return adata
+    return genes.with_gene_axis(adata, adata.raw.X, adata.raw.var)
+
+
+def project_genes(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Project the counts in `X` onto the organism's pinned gene reference.
+
+    Return a new AnnData. `X` has its columns moved to reference positions, and
+    `var` is the reference. `varm`, `varp`, and `layers` index the source genes,
+    so they are dropped. `X` stays lazy. Run `select_counts` first: this step
+    refuses an AnnData that has `raw`. See `census2_dataset_writer.genes` for the
+    rules.
+
+    `gene_references` in `config` names the reference file for each organism.
+    The file must be staged in `refdata`. This step consumes `adata`, as
+    `harmonize` states.
+    """
+    config = DEFAULTS if config is None else config
+    return genes.project(adata, _gene_references(config), refdata)
+
+
 def harmonize(
     adata: anndata.AnnData,
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Apply harmonization.
+    """Apply harmonization: `project_obs`, `select_counts`, then `project_genes`.
 
-    THIS IS A MINIMAL STUB. It calls `project_obs` and does nothing else. Real
-    harmonization changes values and annotations so that a query can combine
-    stores from different datasets. None of that is specified yet. See the
-    module docstring for the constraints on whatever lands here.
+    Harmonization changes values and annotations so that a query can combine
+    stores from different datasets. The other steps are not specified yet.
+    See the module docstring for the constraints on whatever lands here.
+
+    `harmonize` and each step consume the AnnData that they receive. A step can
+    change that object and return it, or return a new object that shares its
+    parts. Do not use the input after the call, and do not assume that the
+    result is the same object. A caller that needs the input afterwards passes a
+    copy.
     """
-    return project_obs(adata, config, refdata)
+    adata = project_obs(adata, config, refdata)
+    adata = select_counts(adata, config, refdata)
+    return project_genes(adata, config, refdata)
 
 
 def read_uns(f: h5py.File, keys: Iterable[str] | None = None) -> Config:
@@ -452,6 +548,8 @@ def build(
             "reason": reason,
             "slots": [],
             "dropped_obs_columns": [],
+            "dropped_var_features": [],
+            "gene_reference_version": None,
         }
 
     if all_slots:
@@ -464,16 +562,25 @@ def build(
 
     # Report the object that harmonize returns, not the one assembled above, so
     # that a step which renames, adds, or drops a slot is reflected. The same
-    # rule gives the dropped columns: diff `obs` across the call rather than
-    # have harmonize report them, so a drop is reported whatever its reason.
+    # rule gives the dropped columns and features: diff `obs` and the counts
+    # `var` across the call rather than have harmonize report them, so a drop is
+    # reported whatever its reason.
     before = list(adata.obs.columns)
+    counts_var = adata.raw.var if adata.raw is not None else adata.var
+    features = [str(i) for i in counts_var.index]
     adata = harmonize(adata, config, refdata)
     kept = set(adata.obs.columns)
+    stored = set(adata.var.index.astype(str))
+    # harmonize projects onto the reference that `gene_references` names for
+    # the organism, which admission requires.
+    spec = _gene_references(config).get(str(adata.uns.get("organism_ontology_term_id")))
     return adata, {
         "admitted": True,
         "reason": None,
         "slots": slots_of(adata),
         "dropped_obs_columns": [c for c in before if c not in kept],
+        "dropped_var_features": [i for i in features if i not in stored],
+        "gene_reference_version": None if spec is None else spec["version"],
     }
 
 

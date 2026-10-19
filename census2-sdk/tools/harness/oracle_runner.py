@@ -40,7 +40,13 @@ from harness.canonical import (
     result_digest,
     write_result,
 )
-from harness.corpus import CORPUS_VERSION, clamp_filter, expand, load_values
+from harness.corpus import (
+    CORPUS_VERSION,
+    clamp_filter,
+    expand,
+    load_values,
+    parse_picks,
+)
 
 HERE = pathlib.Path(__file__).parent
 MANIFEST = HERE / "snapshot_manifest.json"
@@ -72,8 +78,12 @@ def env_record():
     }
 
 
-def build_manifest(values):
-    """The N smallest datasets of each experiment, from the experiment's own obs."""
+def build_manifest(values, picks=None):
+    """The N smallest datasets of each experiment, from the experiment's own obs.
+
+    `picks` overrides the sample of an experiment key (the v1.1 human sample, README).
+    """
+    picks = picks or {}
     manifest = {"datasets_per_experiment": DATASETS_PER_EXPERIMENT}
     with open_census(values) as census:
         for modality in ("census_data", "census_spatial_sequencing"):
@@ -86,13 +96,25 @@ def build_manifest(values):
                     .to_pandas()
                 )
                 counts = col.value_counts().sort_values(kind="stable")
-                picks = sorted(str(d) for d in counts.index[:DATASETS_PER_EXPERIMENT])
-                cells = int(counts.iloc[:DATASETS_PER_EXPERIMENT].sum())
-                manifest[f"{modality}/{experiment}"] = {
-                    "dataset_ids": picks,
-                    "cells": cells,
-                }
-                print(f"{modality}/{experiment}: {picks} ({cells:,} cells)")
+                key = f"{modality}/{experiment}"
+                if key in picks:
+                    chosen = sorted(picks[key])
+                    missing = [d for d in chosen if d not in counts.index]
+                    if missing:
+                        raise SystemExit(
+                            f"{key}: picked datasets not in the release: {missing}"
+                        )
+                    cells = int(counts[chosen].sum())
+                else:
+                    chosen = sorted(
+                        str(d) for d in counts.index[:DATASETS_PER_EXPERIMENT]
+                    )
+                    cells = int(counts.iloc[:DATASETS_PER_EXPERIMENT].sum())
+                manifest[key] = {"dataset_ids": chosen, "cells": cells}
+                print(f"{key}: {chosen} ({cells:,} cells)")
+    unknown = sorted(set(picks) - set(manifest))
+    if unknown:
+        raise SystemExit(f"--pick names experiments the release lacks: {unknown}")
     MANIFEST.write_text(json.dumps(manifest, indent=1, sort_keys=True) + "\n")
     print(f"wrote {MANIFEST}")
 
@@ -195,6 +217,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("command", choices=["build-manifest", "run"])
     p.add_argument("--only", default="")
+    p.add_argument(
+        "--pick",
+        action="append",
+        default=[],
+        metavar="EXPERIMENT=ID,ID,...",
+        help="build-manifest: use these datasets for one experiment",
+    )
     p.add_argument("--out", type=pathlib.Path, default=HERE / "oracle_snapshot")
     p.add_argument(
         "--verify",
@@ -202,10 +231,16 @@ def main():
         help="compare digests against an existing snapshot",
     )
     args = p.parse_args()
+    if args.pick and args.command != "build-manifest":
+        p.error("--pick applies to build-manifest only")
+    try:
+        picks = parse_picks(args.pick, DATASETS_PER_EXPERIMENT)
+    except ValueError as error:
+        p.error(str(error))
 
     values = load_values()
     if args.command == "build-manifest":
-        build_manifest(values)
+        build_manifest(values, picks)
         return
 
     manifest = json.loads(MANIFEST.read_text())
