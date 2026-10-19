@@ -38,14 +38,14 @@
     {
       "id": "writer",
       "type": "backend",
-      "label": "Census writer",
+      "label": "Census dataset writer",
       "sublabel": "one shared library",
       "pos": [
-        270,
+        250,
         200
       ],
       "size": [
-        140,
+        165,
         64
       ]
     },
@@ -82,7 +82,7 @@
       "id": "aggregates",
       "type": "database",
       "label": "Per-dataset aggregates",
-      "sublabel": "count files beside the store",
+      "sublabel": "count files next to the store",
       "pos": [
         470,
         340
@@ -119,7 +119,7 @@
         180,
         64
       ],
-      "tag": "only writer under Census prefix"
+      "tag": "writes catalog/"
     },
     {
       "id": "catalog",
@@ -136,13 +136,28 @@
       ]
     },
     {
+      "id": "relbuilder",
+      "type": "backend",
+      "label": "Release builder",
+      "sublabel": "on demand",
+      "pos": [
+        720,
+        340
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "tag": "writes releases/"
+    },
+    {
       "id": "release",
       "type": "database",
       "label": "Release",
       "sublabel": "manifest, snapshot, presence",
       "pos": [
         980,
-        300
+        340
       ],
       "size": [
         180,
@@ -210,14 +225,10 @@
       "from": "store",
       "to": "builder",
       "label": "summary record",
-      "labelDy": -19
-    },
-    {
-      "id": "aggregates-to-builder",
-      "from": "aggregates",
-      "to": "builder",
-      "label": "release assembly reads",
-      "variant": "dashed"
+      "labelAt": [
+        685,
+        182
+      ]
     },
     {
       "id": "api-to-builder",
@@ -234,11 +245,40 @@
       "variant": "emphasis"
     },
     {
-      "id": "catalog-snapshot-release",
+      "id": "aggregates-to-relbuilder",
+      "from": "aggregates",
+      "to": "relbuilder",
+      "label": "per-dataset files",
+      "variant": "dashed",
+      "labelAt": [
+        685,
+        420
+      ]
+    },
+    {
+      "id": "catalog-to-relbuilder",
       "from": "catalog",
-      "to": "release",
+      "to": "relbuilder",
       "label": "snapshot",
-      "labelDy": 24
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          1070,
+          290
+        ],
+        [
+          810,
+          290
+        ]
+      ]
+    },
+    {
+      "id": "relbuilder-writes-release",
+      "from": "relbuilder",
+      "to": "release",
+      "label": "writes",
+      "variant": "emphasis"
     }
   ],
   "cards": [
@@ -246,7 +286,7 @@
       "dot": "cyan",
       "title": "Writers",
       "items": [
-        "One census-writer library, two callers",
+        "One census dataset writer library, two callers",
         "Both callers must produce byte-identical stores",
         "Both end at the catalog builder"
       ]
@@ -256,16 +296,16 @@
       "title": "Discover asset buckets",
       "items": [
         "The store is another artifact of the dataset version",
-        "Address from dataset_version_id and artifact_revision",
-        "Aggregate files sit beside the store, outside it"
+        "Address from dataset_version_id and writer_version",
+        "Aggregate files sit next to the store, outside it"
       ]
     },
     {
       "dot": "violet",
       "title": "Census prefix",
       "items": [
-        "Only the catalog builder writes here",
-        "The live catalog is rewritten after each ingestion",
+        "The catalog builder writes catalog/ after each ingestion",
+        "The release builder writes releases/ on demand",
         "A release is an immutable snapshot plus presence and aggregates"
       ]
     }

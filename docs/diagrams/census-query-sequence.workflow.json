@@ -85,7 +85,7 @@
       "lane": "sdk",
       "col": 1,
       "type": "backend",
-      "label": "Prune datasets",
+      "label": "Exclude datasets",
       "sublabel": "bitmaps and ranges",
       "width": 150
     },
@@ -244,11 +244,11 @@
   "cards": [
     {
       "dot": "cyan",
-      "title": "Prune before open",
+      "title": "Exclude before open",
       "items": [
         "The catalog excludes whole datasets",
         "The per-chunk index excludes chunks inside each open store",
-        "A one-dataset query reads 2.6 percent of cell-table chunks"
+        "On the Census 1 human axis, the largest dataset holds 2.6 percent of cell-table chunks"
       ]
     },
     {
