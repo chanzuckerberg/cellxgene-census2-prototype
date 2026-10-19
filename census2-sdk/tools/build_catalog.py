@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build the prototype catalog from a prefix of stores: one Parquet row for each store.
+"""Build the prototype catalog from the Iteration 1 stores: one Parquet row for each store.
 
-The catalog builder is not part of the SDK. The SDK reads a catalog, and the Census 2
-team publishes one. This script is the prototype's stand-in for that builder. It reads
-a prefix that holds `<dataset_version_id>.zarr` stores. Each store's summary record, in
-the attributes of its root group, gives the dataset's identifiers and the gene reference
-version. The rest of the row comes from the store's `obs` and `uns`. The builder reads
-no receipt.
+The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 2 team
+publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for that
+builder. It reads a prefix that holds `<dataset_version_id>.zarr` stores. Each store's
+summary record, in the attributes of its root group, gives the dataset's identifiers and
+the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
+The builder reads no receipt.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
@@ -81,6 +81,8 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
     The store's summary record supplies `dataset_id`, `dataset_version_id`, and
     `gene_reference_version`. The store's `obs` and `uns` supply the rest.
     """
+    # ponytail: dataset_id comes from the summary record until the writer stamps it
+    # into obs (disposition row 13).
     prefix = prefix.rstrip("/")
     rows: list[dict[str, Any]] = []
     for name in _stores(prefix):

@@ -20,7 +20,7 @@ zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only
 ## Build the catalog
 
 The catalog is a Parquet table with one row for each store. The Census 2 team publishes it, and the
-SDK only reads it. `tools/build_catalog.py` is the prototype's stand-in for the catalog builder.
+SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder.
 It reads a prefix that holds `<dataset_version_id>.zarr` stores. It reads no receipt.
 
 ```bash
@@ -29,8 +29,8 @@ python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 ```
 
 Each row holds the identity of the dataset, the organism, the spatial flag, `n_obs`, and the
-`gene_reference_version`. It also holds the distinct values of the 18 indexed columns. Each
-store's summary record, in the attributes of its root group, gives `dataset_id`,
+`gene_reference_version`. It also holds the distinct values of the 18 indexed columns of design 2.2.
+Each store's summary record, in the attributes of its root group, gives `dataset_id`,
 `dataset_version_id`, and `gene_reference_version`. The `census2-dataset-writer` README describes
 the record. The builder reads the other fields from the store's `obs` and `uns`. It refuses a store
 that has no summary record, because such a store is partial.
