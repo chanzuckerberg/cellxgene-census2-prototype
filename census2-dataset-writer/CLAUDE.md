@@ -20,8 +20,8 @@ local path hides the mistake because it works.
 AWS profiles, so `AWS_PROFILE` alone is not enough on a workstation.
 
 anndata consolidates Zarr metadata itself, through `write_zarr(consolidate_metadata=...)`; a
-second consolidation is redundant. A reader that opens with `zarr.open_consolidated` thus fails on
-a store that anndata did not finish.
+second consolidation is redundant. anndata writes the consolidated metadata after the other nodes,
+so a reader that opens with `zarr.open_consolidated` fails on a store that anndata did not finish.
 
 `write` then adds the summary record to the root group's attributes, and that is the last write.
 anndata opens the root group with `mode="w"`, which clears the store, so an attribute set before

@@ -99,8 +99,9 @@ Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
 }
 ```
 
-- `version` is the format of the record, `SUMMARY_VERSION`. A reader refuses a version that it
-  does not know. `SummaryRecord` types the record, and `read_summary(dest)` reads it.
+- `version` gives the format of the record. Its value is `SUMMARY_VERSION`, and a reader refuses a
+  version that it does not know. `SummaryRecord` types the record, and `read_summary(dest)` reads
+  it.
 - `gene_reference_version` is the label of the gene reference in the store's `var`, from
   `genes.REFERENCES`. No ontology names an annotation release. The label follows the GENCODE
   release that the pinned `single-cell-curation` tag declares.

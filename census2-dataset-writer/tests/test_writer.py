@@ -341,7 +341,7 @@ def test_summary_record_is_in_the_root_attributes(tmp_path: Path) -> None:
 
 
 def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
-    """The record rewrites the root zarr.json. The consolidated nodes must survive."""
+    """The record rewrites the root zarr.json, which must keep every consolidated node."""
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:

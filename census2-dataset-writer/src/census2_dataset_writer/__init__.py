@@ -100,7 +100,8 @@ A receipt is the JSON a pipeline writes beside a store, about one run of the
 pipeline. `Receipt` declares its shape, and `provenance` fills the part this
 package knows; see their docstrings. A receipt holds a copy of the store's
 summary record, so that a report on a run needs to open no store. Nothing
-outside the pipeline reads a receipt: the store is the source of its own facts.
+outside the pipeline reads a receipt, because the facts about a store are in
+the store.
 
 Memory
 ------
