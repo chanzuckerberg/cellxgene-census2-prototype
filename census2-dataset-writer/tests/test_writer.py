@@ -1,12 +1,18 @@
 """Unit tests for the store builder. No network, no AWS, no container.
 
 These cover the properties the module docstring promises, because a caller
-relies on them: the round trip, the slot policy, admission as a normal outcome,
-the memory contract, provenance, and destination handling.
+relies on them: the round trip, the gene projection, the slot policy, admission
+as a normal outcome, the memory contract, provenance, and destination handling.
+
+The gene reference is a 24-row file in a `refdata` directory, staged for every
+test, and the default configuration names it. Its order is the reverse of the
+fixture's gene order, so a projection that keeps the source order fails.
 """
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -21,6 +27,29 @@ import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem
 
+TAXON = "NCBITaxon:9606"
+REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
+
+
+@pytest.fixture(autouse=True)
+def refdata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Stage the test reference, and make the default configuration name it."""
+    root = tmp_path / "refdata"
+    root.mkdir()
+    rows = "".join(f"{g},name{g},1,100,protein_coding\n" for g in REF_IDS)
+    data = gzip.compress(rows.encode())
+    (root / "genes_test.csv.gz").write_bytes(data)
+    spec = {
+        "file": "genes_test.csv.gz",
+        "version": "TEST v1",
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "url": "https://example.invalid/genes_test.csv.gz",
+    }
+    monkeypatch.setitem(
+        census2_dataset_writer.DEFAULTS, "gene_references", {TAXON: spec}
+    )
+    return root
+
 
 def dataset(
     n_obs: int = 40,
@@ -31,7 +60,11 @@ def dataset(
     extras: bool = False,
     seed: int = 0,
 ) -> anndata.AnnData:
-    """A small AnnData shaped like a Discover dataset."""
+    """A small AnnData shaped like a Discover dataset.
+
+    With `raw`, `raw.X` holds the counts and `X` holds half of each count, so a
+    test can tell which matrix a store took.
+    """
     rng = np.random.default_rng(seed)
     x: Any = (
         rng.random((n_obs, n_var), dtype="float32")
@@ -45,13 +78,17 @@ def dataset(
         index=[f"cell{i}" for i in range(n_obs)],
     )
     var = pd.DataFrame(
-        {"feature_name": [f"gene{j}" for j in range(n_var)]},
+        {
+            "feature_name": [f"gene{j}" for j in range(n_var)],
+            "feature_biotype": pd.Categorical(["gene"] * n_var),
+            "feature_reference": pd.Categorical([TAXON] * n_var),
+        },
         index=[f"ENSG{j:05d}" for j in range(n_var)],
     )
     adata = anndata.AnnData(X=x, obs=obs, var=var)
     adata.uns = {
         "schema_version": "7.1.0",
-        "organism_ontology_term_id": "NCBITaxon:9606",
+        "organism_ontology_term_id": TAXON,
         "title": "not a Census uns key",
     }
     if extras:
@@ -60,6 +97,7 @@ def dataset(
         adata.layers["counts"] = x
     if raw:
         adata.raw = adata
+        adata.X = x * 0.5
     return adata
 
 
@@ -70,8 +108,31 @@ def written(
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(**kwargs).write_h5ad(source)
-    result = census2_dataset_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
     return dest, result
+
+
+def counts(adata: Any) -> tuple[np.ndarray[Any, Any], list[str]]:
+    """The source counts, dense, and their feature_ids: raw when it exists."""
+    part = adata.raw if adata.raw is not None else adata
+    x = part.X.toarray() if hasattr(part.X, "toarray") else np.asarray(part.X)
+    return x, [str(i) for i in part.var.index]
+
+
+def projected(adata: Any) -> np.ndarray[Any, Any]:
+    """The source counts on the reference genes, by brute force."""
+    x, ids = counts(adata)
+    out = np.zeros((x.shape[0], len(REF_IDS)), dtype=x.dtype)
+    for j, gene in enumerate(ids):
+        if gene in REF_IDS:
+            out[:, REF_IDS.index(gene)] = x[:, j]
+    return out
+
+
+def stored_x(dest: Path) -> sp.csr_matrix:
+    x: Any = read_elem(zarr.open_consolidated(dest, mode="r")["X"])
+    assert isinstance(x, (sp.csr_matrix, sp.csr_array)), type(x)
+    return sp.csr_matrix(x)
 
 
 def values(array: Any) -> np.ndarray[Any, Any]:
@@ -86,9 +147,11 @@ def values(array: Any) -> np.ndarray[Any, Any]:
 # --- the round trip -------------------------------------------------------
 
 
-@pytest.mark.parametrize("dense", [False, True])
-def test_round_trip(tmp_path: Path, dense: bool) -> None:
-    dest, result = written(tmp_path, dense=dense, raw=not dense)
+@pytest.mark.parametrize(
+    ("dense", "raw"), [(False, True), (False, False), (True, False), (True, True)]
+)
+def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
+    dest, result = written(tmp_path, dense=dense, raw=raw)
     assert result["admitted"] is True
 
     source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
@@ -101,33 +164,143 @@ def test_round_trip(tmp_path: Path, dense: bool) -> None:
     assert list(obs.columns) == list(source.obs.columns)
     assert obs["cell_type"].dtype == source.obs["cell_type"].dtype
 
-    x: Any = read_elem(store["X"])
-    if dense:
-        assert np.allclose(x, source.X)
-    else:
-        assert x.nnz == source.X.nnz
-        assert np.allclose(x.toarray(), source.X.toarray())
+    # X is the counts on the reference genes, and sparse even from a dense source.
+    x = stored_x(dest)
+    assert np.array_equal(x.toarray(), projected(source))
 
 
-def test_sparse_index_values_survive_the_round_trip(tmp_path: Path) -> None:
-    """Compare the index arrays by value, not by stored width.
-
-    The round trip widens them from int32 to int64, which is why the pipeline's
-    own round-trip check hashes values rather than bytes.
-    """
-    dest, _ = written(tmp_path)
-    source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
-    store: Any = zarr.open_consolidated(dest, mode="r")
-
-    for part in ("data", "indices", "indptr"):
-        assert np.array_equal(values(store["X"][part]), values(getattr(source.X, part)))
-
-
-def test_raw_is_carried(tmp_path: Path) -> None:
+def test_the_store_holds_counts_on_the_reference(tmp_path: Path) -> None:
     dest, result = written(tmp_path, raw=True)
     store: Any = zarr.open_consolidated(dest, mode="r")
-    assert "raw" in result["slots"]
-    assert values(store["raw"]["X"]["data"]).size > 0
+    source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
+
+    var: Any = read_elem(store["var"])
+    assert list(var.index) == REF_IDS
+    assert list(var.columns) == census2_dataset_writer.genes.COLUMNS
+    assert result["gene_reference_version"] == "TEST v1"
+    # raw.X holds the counts, and X the halved values: the store took raw.X.
+    assert "raw" not in result["slots"]
+    assert "raw" not in store or store["raw"].attrs.get("encoding-type") != "raw"
+    assert np.array_equal(stored_x(dest).toarray(), projected(source))
+    assert not np.array_equal(stored_x(dest).toarray(), 0.5 * projected(source))
+
+
+def test_the_projection_keeps_every_stored_value(tmp_path: Path) -> None:
+    """The remap moves values and drops none, and leaves the CSR canonical."""
+    dest, _ = written(tmp_path, raw=False)
+    source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
+    x = stored_x(dest)
+    assert x.nnz == source.X.nnz
+    assert x.has_canonical_format
+    assert np.array_equal(values(x.indptr), values(source.X.indptr))
+
+
+def test_non_genes_and_other_organisms_are_dropped(tmp_path: Path) -> None:
+    """Disposition row 12: a spike-in and a viral gene have no reference position."""
+    adata = dataset(n_var=4, raw=False)
+    extra = pd.DataFrame(
+        {
+            "feature_name": ["ERCC-00002", "ORF1ab"],
+            "feature_biotype": pd.Categorical(["spike-in", "gene"]),
+            "feature_reference": pd.Categorical(
+                ["NCBITaxon:32630", "NCBITaxon:2697049"]
+            ),
+        },
+        index=["ERCC-00002", "ENSSASG00005000002"],
+    )
+    rng = np.random.default_rng(1)
+    extra_x = rng.integers(1, 5, (adata.n_obs, 2)).astype("float32")
+    x, _ = counts(adata)
+    obs: Any = adata.obs
+    source_var: Any = adata.var
+    var = pd.concat([source_var, extra])
+    adata = anndata.AnnData(
+        X=sp.csr_matrix(np.hstack([x, extra_x])), obs=obs, var=var, uns=dict(adata.uns)
+    )
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata.write_h5ad(source)
+
+    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+
+    assert result["dropped_var_features"] == ["ERCC-00002", "ENSSASG00005000002"]
+    assert np.array_equal(stored_x(dest).toarray(), projected(adata))
+
+
+def test_a_gene_outside_the_reference_is_refused(tmp_path: Path) -> None:
+    adata = dataset(n_var=4, raw=False)
+    adata.var.index = pd.Index(["ENSG00000", "ENSG00001", "ENSG00002", "ENSG99999"])
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata.write_h5ad(source)
+
+    with pytest.raises(
+        census2_dataset_writer.genes.GeneReferenceMismatch, match="ENSG99999"
+    ):
+        census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+    assert not dest.exists()
+
+
+@pytest.mark.parametrize("column", ["feature_biotype", "feature_reference"])
+def test_a_var_without_a_feature_column_is_refused(refdata: Path, column: str) -> None:
+    adata = dataset(raw=False)
+    var: Any = adata.var  # the getter's union includes Dataset2D
+    adata.var = var.drop(columns=[column])
+    with pytest.raises(ValueError, match=f"var lacks {column}"):
+        census2_dataset_writer.harmonize(adata, refdata=refdata)
+
+
+def test_a_reference_with_another_digest_is_refused(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    config = census2_dataset_writer.load_config()
+    config["gene_references"] = {
+        TAXON: {**config["gene_references"][TAXON], "sha256": "0" * 64}
+    }
+    with pytest.raises(ValueError, match="digest"):
+        census2_dataset_writer.create(
+            source, tmp_path / "store.zarr", config=config, refdata=tmp_path / "refdata"
+        )
+
+
+def test_an_admitted_dataset_needs_refdata(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    with pytest.raises(ValueError, match="refdata"):
+        census2_dataset_writer.create(source, tmp_path / "store.zarr")
+
+
+def test_select_counts_takes_raw_and_drops_it() -> None:
+    adata = dataset(extras=True, raw=True)
+    raw_x, raw_ids = counts(adata)
+    selected = census2_dataset_writer.select_counts(adata)
+    x: Any = selected.X
+    assert selected.raw is None
+    assert np.array_equal(x.toarray(), raw_x)
+    assert list(selected.var.index) == raw_ids
+    # These index the genes of the normalized X, not of raw.X. anndata 0.13
+    # keeps X in layers[None].
+    assert [k for k in selected.layers if k is not None] == []
+    assert list(selected.varm) == []
+    assert list(selected.obsm) == ["X_pca"]
+
+
+def test_select_counts_keeps_a_dataset_without_raw() -> None:
+    adata = dataset(raw=False)
+    assert census2_dataset_writer.select_counts(adata) is adata
+
+
+def test_project_genes_refuses_a_dataset_with_raw(refdata: Path) -> None:
+    with pytest.raises(ValueError, match="select_counts"):
+        census2_dataset_writer.project_genes(dataset(raw=True), refdata=refdata)
+
+
+def test_default_references_pin_human_and_mouse() -> None:
+    references = census2_dataset_writer.genes.REFERENCES
+    assert set(references) == {"NCBITaxon:9606", "NCBITaxon:10090"}
+    for spec in references.values():
+        assert census2_dataset_writer.genes.CURATION_TAG in spec["url"]
+        assert spec["url"].endswith(spec["file"])
 
 
 def test_consolidated_metadata_is_present(tmp_path: Path) -> None:
@@ -143,23 +316,30 @@ def test_census_slot_policy_drops_extras(tmp_path: Path) -> None:
     dest, result = written(tmp_path, extras=True)
     store: Any = zarr.open_consolidated(dest, mode="r")
 
-    assert result["slots"] == ["obs", "var", "X", "raw", "uns[2 keys]"]
+    assert result["slots"] == ["obs", "var", "X", "uns[2 keys]"]
     assert set(store["uns"]) == set(census2_dataset_writer.DEFAULTS["uns_keys"])
     for slot in census2_dataset_writer.OPTIONAL_SLOTS:
         assert slot not in store or len(list(store[slot])) == 0
 
 
 def test_uns_keys_is_configurable(tmp_path: Path) -> None:
-    """The carried uns keys are policy, not a fixed set in the code."""
+    """The carried uns keys are policy, not a fixed set in the code.
+
+    The organism key stays, because the gene projection reads it.
+    """
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
+    keys = ["organism_ontology_term_id", "title"]
     census2_dataset_writer.create(
-        source, dest, config={"all_slots": False, "uns_keys": ["title"]}
+        source,
+        dest,
+        config={"all_slots": False, "uns_keys": keys},
+        refdata=tmp_path / "refdata",
     )
 
     store: Any = zarr.open_consolidated(dest, mode="r")
-    assert set(store["uns"]) == {"title"}
+    assert set(store["uns"]) == set(keys)
 
 
 def test_unwanted_uns_keys_are_never_read(
@@ -181,7 +361,7 @@ def test_unwanted_uns_keys_are_never_read(
     # By name: read_elem is imported by the module, not exported from it.
     monkeypatch.setattr("census2_dataset_writer.read_elem", spy)
     with h5py.File(source) as f:
-        built, _ = census2_dataset_writer.build(f)
+        built, _ = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
 
     assert built is not None
     assert "spatial" not in built.uns
@@ -191,16 +371,19 @@ def test_unwanted_uns_keys_are_never_read(
     assert "/uns/schema_version" in seen, seen
 
 
-def test_all_slots_carries_everything(tmp_path: Path) -> None:
+def test_all_slots_carries_the_cell_axis_slots(tmp_path: Path) -> None:
+    """The gene projection drops the slots that index the source genes."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(extras=True).write_h5ad(source)
-    result = census2_dataset_writer.create(source, dest, config={"all_slots": True})
+    result = census2_dataset_writer.create(
+        source, dest, config={"all_slots": True}, refdata=tmp_path / "refdata"
+    )
 
     store: Any = zarr.open_consolidated(dest, mode="r")
     assert "obsm/X_pca" in result["slots"]
-    assert "varm/gene_stuff" in result["slots"]
-    assert "layers/counts" in result["slots"]
+    assert "varm/gene_stuff" not in result["slots"]
+    assert "layers/counts" not in result["slots"]
     # The full uns, so the key the Census set drops survives here.
     assert "title" in set(store["uns"])
 
@@ -254,7 +437,23 @@ def test_not_admitted_writes_nothing(
         "reason": "no thanks",
         "slots": [],
         "dropped_obs_columns": [],
+        "dropped_var_features": [],
+        "gene_reference_version": None,
     }
+    assert not dest.exists()
+
+
+def test_an_organism_without_a_reference_is_rejected(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset()
+    adata.uns["organism_ontology_term_id"] = "NCBITaxon:7955"
+    adata.write_h5ad(source)
+
+    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+
+    assert result["admitted"] is False
+    assert "NCBITaxon:7955" in str(result["reason"])
     assert not dest.exists()
 
 
@@ -292,7 +491,7 @@ def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     with_assay(dataset(), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
 
-    result = census2_dataset_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is True
     assert zarr.open_consolidated(str(dest))["obs"] is not None
@@ -306,7 +505,12 @@ def test_missing_assay_column_is_admitted(tmp_path: Path) -> None:
     dataset().write_h5ad(source)
     assert "assay_ontology_term_id" not in dataset().obs
 
-    assert census2_dataset_writer.create(source, dest)["admitted"] is True
+    assert (
+        census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")[
+            "admitted"
+        ]
+        is True
+    )
 
 
 def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
@@ -317,9 +521,10 @@ def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
     config = census2_dataset_writer.load_config()
     config["assay_allowlist"] = []
 
-    assert (
-        census2_dataset_writer.create(source, dest, config=config)["admitted"] is True
+    result = census2_dataset_writer.create(
+        source, dest, config=config, refdata=tmp_path / "refdata"
     )
+    assert result["admitted"] is True
 
 
 # --- the obs projection ---------------------------------------------------
@@ -339,7 +544,7 @@ def write_source(adata: anndata.AnnData, path: Path) -> None:
     """Write a fixture h5ad that holds a slash in an obs column name.
 
     anndata 0.12 added `disallow_forward_slash_in_h5ad`, on by default, so
-    anndata now refuses to write such a name even though HDF5 permits it. The
+    anndata refuses to write such a name even though HDF5 permits it. The
     corpus datasets that carry one predate the setting. Turn it off to build
     the fixture; the reader never needs it.
     """
@@ -359,19 +564,26 @@ def test_project_obs_keeps_a_clean_frame_untouched() -> None:
     assert list(census2_dataset_writer.project_obs(adata).obs.columns) == before
 
 
-def test_harmonize_projects_obs() -> None:
-    """harmonize is the seam; project_obs is what it currently does."""
+def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
+    """harmonize is the seam; project_obs, select_counts, and project_genes are
+    what it does."""
     adata = with_obs_columns(dataset(), *SLASH_COLS)
-    assert list(census2_dataset_writer.harmonize(adata).obs.columns) == ["cell_type"]
+    expected = projected(adata)
+    harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
+    assert list(harmonized.obs.columns) == ["cell_type"]
+    assert list(harmonized.var.index) == REF_IDS
+    assert harmonized.raw is None
+    x: Any = harmonized.X
+    assert np.array_equal(x.toarray(), expected)
 
 
 def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
-    """Zarr gives `/` its path meaning, so this write used to fail outright."""
+    """Zarr gives `/` its path meaning, so without `project_obs` this write fails."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     write_source(with_obs_columns(dataset(), *SLASH_COLS), source)
 
-    result = census2_dataset_writer.create(source, dest)
+    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is True
     assert result["dropped_obs_columns"] == SLASH_COLS  # source order
@@ -386,8 +598,9 @@ def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:
-        _, result = census2_dataset_writer.build(f)
+        _, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
     assert result["dropped_obs_columns"] == []
+    assert result["dropped_var_features"] == []
 
 
 def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
@@ -424,7 +637,10 @@ def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> No
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
 
-    assert census2_dataset_writer.create(source, dest, threads=2)["admitted"] is True
+    result = census2_dataset_writer.create(
+        source, dest, threads=2, refdata=tmp_path / "refdata"
+    )
+    assert result["admitted"] is True
     assert dask.config.get("num_workers", None) == before
 
 
@@ -439,11 +655,11 @@ def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
     dataset(400, 20).write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, _ = census2_dataset_writer.build(f)
+        adata, _ = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
         assert adata is not None
+        # The projected X too: blocked by rows, whole reference rows per block.
         assert isinstance(adata.X, da.Array), type(adata.X)
-        # Blocked by rows, whole rows per block.
-        assert adata.X.chunks[1] == (20,)
+        assert adata.X.chunks[1] == (len(REF_IDS),)
 
 
 def test_row_chunk_is_bounded_by_the_row_count(tmp_path: Path) -> None:

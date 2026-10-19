@@ -152,17 +152,17 @@ Writer version 1 writes `X` in anndata's default CSR, and the encoding is open
 (section 6.10). Plain CSR has no gene axis. A one-gene read from plain CSR reads
 98.7 MB. The same read from banded CSR reads 0.51 MB. A whole-cell read costs the
 same in both. See
-[evidence section 10](./census_zarr_design_evidence.md#10-layout-comparison).
+[evidence section 10](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 
 The SDK reads `obs_index` first. It skips a chunk when the index shows that the
 chunk has no matching cells. On the Census 1 human axis, the largest dataset
 occupies 2.6 percent of the cell-table chunks. The cell type of median frequency
 occupies 0.3 percent. See
-[evidence section 10.2](./census_zarr_design_evidence.md#10-layout-comparison).
+[evidence section 10.2](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 Section 6.2 decides whether the design keeps this index.
 
 The writer keeps cells in arrival order
-([evidence section 10.4](./census_zarr_design_evidence.md#10-layout-comparison)).
+([evidence section 10.4](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d)).
 
 The measurements used organism-wide stores. Plan Phase 6 must measure store
 size and read cost again on per-dataset stores, for two reasons:
@@ -193,7 +193,7 @@ AnnData for a reader outside the SDK.
 
 The human reference has 78,894 rows. The last build assayed 61,497 human genes.
 The additional rows do not add expression values for absent genes. See
-[evidence section 10.6](./census_zarr_design_evidence.md#106-the-gene-space-is-pinned-upstream-and-how-much-of-it-a-build-sees).
+[evidence section 10.6](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 
 Each release includes a presence matrix for each organism. This matrix records
 whether each dataset measured each gene.
@@ -633,7 +633,7 @@ The first Zarr release has two compatibility gates:
 2. A contributed embedding must join through the identity mapping. A failed
    join must return an error.
 
-See [evidence section 11](./census_zarr_design_evidence.md).
+See [evidence section 11](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 
 The R client continues to read TileDB releases until it can read the Zarr format.
 The proposed path uses
@@ -669,7 +669,7 @@ per-dataset stores.
 The `X` encoding is open (section 6.10). The tests compared banded CSR with
 plain CSR, gene-major CSC, and a dense array. Banded CSR used the least storage.
 A complete-cell read was within 0.4 percent of plain CSR. See
-[evidence section 10](./census_zarr_design_evidence.md#10-layout-comparison).
+[evidence section 10](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 
 ## 6. Open work
 
@@ -689,7 +689,7 @@ measurement needs a full ingest.
    query set includes the documented filters, the harness query corpus, and
    Census 1 usage logs if they exist. The documented filters open 10, 45, 92,
    and 447 human stores
-   ([evidence section 10.5](./census_zarr_design_evidence.md#105-one-store-uniform-obs-chunks-dataset-aligned-x-chunks)).
+   ([evidence section 10.5](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d)).
 2. Open cost as a function of store count. The test opens N stores from inside
    `us-west-2` at several concurrency levels. It records elapsed time, request
    count, transferred data, throttling, and errors. To open one store, the SDK
@@ -783,7 +783,7 @@ Hosted embeddings are per-dataset artifacts. A row key uses
 
 Existing embedding tables can move through the identity mapping. Conversion of
 the newest table for each model needs approximately 1.36 TB in total. See
-[evidence section 16](./census_zarr_design_evidence.md#16-the-hosted-embeddings-inventory-and-generation-mechanism).
+[evidence section 16](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 
 Inference for a new dataset is a local operation that the writer can call. The
 team must assign ownership for ingestion-time inference and model retraining. A
@@ -827,7 +827,7 @@ artifact under the same `dataset_version_id`. The key
 Writer version 1 writes `X` in anndata's default CSR. Plain CSR has no gene
 axis, so a gene-selective read costs the whole matrix. Banded CSR recovers the
 axis for a one-gene read and gains little on a scattered marker panel. See
-[evidence section 10.3](./census_zarr_design_evidence.md#103-x-encoding-banded-csr-recovers-the-gene-axis).
+[evidence section 10.3](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d).
 The Census 2 team decides the encoding with scverse, so that a plain anndata or
 anndataR reader can open the store. Every store written before the decision is
 rewritten at a new writer version.

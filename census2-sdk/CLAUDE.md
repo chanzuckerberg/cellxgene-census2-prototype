@@ -8,25 +8,26 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 ## Iteration 1 scaffolding
 
-The `ponytail:` comments in the code mark the source `var`, the `dataset_id` stamp, and the list
-columns.
+The `ponytail:` comments in the code mark the `dataset_id` stamp and the list columns.
 
-- The stores carry the source `var`. The SDK projects each store's genes onto the pinned reference
-  before it concatenates (disposition rows 12, 14, 16, 20, 24). When the writer projects
-  `var`, every store's `feature_id` set and order equal the reference, and the remap is an identity.
 - The stores hold no `dataset_id` column, so the catalog builder reads it from the receipt and the
   SDK stamps it into `obs` (disposition row 13).
-- The stores record no `gene_reference_version`, so the check of design 4.3 passes on the rows that
-  record none.
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
 - The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no
   `raw_sum`, `nnz`, or the other three columns of design 2.1.
 
-## Sharp edges: anndata and zarr
+## The gene reference
 
-anndata writes an absent `raw` as an array with `encoding-type: null`, not as a missing key. Test
-the encoding, not the key, to decide whether `raw/X` holds the counts.
+The writer projects each store onto the pinned gene reference of its organism: `X` holds the
+counts, and `var` is the reference in reference order. The receipt records `gene_reference_version`,
+and the catalog builder copies it into the catalog row. The store does not record it. The SDK holds only the version names,
+in `gene_reference.py`. These names must agree with the writer's pin in
+`census2_dataset_writer.genes`. The SDK refuses a row that records another version or no version.
+It also refuses a store whose `var` differs from the `var` of the first store that it opened. It
+does not remap genes.
+
+## Sharp edges: anndata and zarr
 
 `anndata.io.sparse_dataset` over a CSR group reads the full `indptr`. It then reads only the `data`
 and `indices` of the selected rows, so a query does not load the whole `X`. `obs` and `var` are read
@@ -37,9 +38,6 @@ zarr has no S3 client. A remote URI goes through `zarr.storage.ObjectStore` over
 the writer. `obstore` reads credentials from the environment and not from an AWS profile, so export
 them first with `aws configure export-credentials --format env`. Set `AWS_REGION` when the bucket
 region is not the default.
-
-The CSR column remap in `_align_genes` rewrites `indices` through the reference positions. It then
-sorts the indices, because a store's gene order is not the reference order.
 
 ## Sharp edges: types
 

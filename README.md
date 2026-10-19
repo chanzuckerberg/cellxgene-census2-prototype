@@ -31,15 +31,18 @@ Each component README holds the setup and use instructions for that component.
 
 ## Design documents
 
-The `docs/` directory holds the design documents. The markdown files are canonical. Notion pages
-mirror them and hold the review comments.
+The `docs/` directory holds the design record and the disposition table. These markdown files are
+canonical. Notion pages mirror them and hold the review comments.
 
 | Document | File | Notion |
 |---|---|---|
 | The design record, version 3 | [`census_zarr_design_v3_ste100.md`](docs/census_zarr_design_v3_ste100.md) | [page](https://app.notion.com/p/3d816a75378981f18f55c2bae3256a54) |
-| The evidence: measurements and methods | [`census_zarr_design_evidence.md`](docs/census_zarr_design_evidence.md) | [page](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d) |
-| The plan, 16 phases | [`census_zarr_plan.md`](docs/census_zarr_plan.md) | [page](https://app.notion.com/p/3b216a75378981c9b7f3d954789aefe4) |
 | The harmonization disposition table, task 4.1 | [`census_zarr_writer_dispositions.md`](docs/census_zarr_writer_dispositions.md) | [page](https://app.notion.com/p/3cf16a75378981cbaa97fab9b7586456) |
+
+Two documents are on Notion only. The
+[evidence](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d) holds the measurements and
+their methods. The [plan](https://app.notion.com/p/3b216a75378981c9b7f3d954789aefe4) holds the
+16 phases of the work.
 
 The review threads on the design record stay on the
 [earlier version 3 page](https://app.notion.com/p/3cf16a7537898109b010d8dfb6f920fa) until they are

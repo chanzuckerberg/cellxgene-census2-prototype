@@ -57,10 +57,12 @@ def _read_json(uri: str) -> dict[str, Any]:
 def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
     """One catalog row for each admitted receipt under `prefix`.
 
-    The receipt supplies `dataset_id`; the store supplies everything else.
+    The receipt supplies `dataset_id` and `gene_reference_version`; the store
+    supplies everything else.
     """
     # ponytail: dataset_id comes from the receipt until the writer stamps it into obs
-    # (disposition row 13).
+    # (disposition row 13). gene_reference_version comes from the receipt because
+    # the store does not record it.
     prefix = prefix.rstrip("/")
     rows: list[dict[str, Any]] = []
     for name in sorted(n for n in _list(prefix) if n.endswith(".json")):
@@ -75,8 +77,7 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
                 "dataset_version_id": version_id,
                 "store_uri": store_uri,
                 "curation_schema_version": receipt.get("schema_version"),
-                # The Iteration 1 stores carry the source var and record no version.
-                "gene_reference_version": None,
+                "gene_reference_version": receipt.get("gene_reference_version"),
                 **summarize(open_store(store_uri)),
             }
         )

@@ -79,6 +79,10 @@ jobs:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       AWS_REGION: us-west-2
+      # The version that HealthOmics runs, as manifest.nextflowVersion in
+      # bulk-ingest-nf/nextflow.config pins it. The installer and the launcher
+      # both read this variable. Change the two together.
+      NXF_VER: 25.10.0
     steps:
       - uses: actions/checkout@v4
 
@@ -133,6 +137,13 @@ jobs:
 
       - name: Seed the fixture datasets
         run: tools/seed-mock-s3.py
+
+      # The runtime image holds the census2-dataset-writer package, which pins
+      # the gene references that the tool fetches and checks.
+      - name: Stage the gene references
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -w /w \
+            census2-bulk-ingest:dev python tools/stage-refdata.py tests/refdata
 
       # `--tag` selects; nf-test cannot exclude a tag. `validation` is the
       # offline set and `ingest` is the set that reads from object storage. The
