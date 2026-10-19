@@ -10,7 +10,7 @@ reads the receipts and reports on the run.
 
 The [`census2-dataset-writer`](../census2-dataset-writer/README.md) package decides whether a
 dataset is admitted and what a store contains; the runtime image installs it as a dependency. This
-pipeline is the I/O around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline is put together.
+pipeline is the I/O around it. [`AGENTS.md`](AGENTS.md) records how the pipeline is put together.
 
 ## Requirements
 

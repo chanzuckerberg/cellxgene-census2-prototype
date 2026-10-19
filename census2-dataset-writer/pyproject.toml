@@ -44,7 +44,7 @@ packages = ["src/census2_dataset_writer"]
 [tool.mypy]
 # Strict, because this package is a published API and its types are part of the
 # contract. The glue scripts under bulk-ingest-nf are exempt; see the root
-# CLAUDE.md for where that line is drawn and why.
+# AGENTS.md for where that line is drawn and why.
 strict = true
 files = ["src", "tests"]
 
