@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# The project dashboard runs locally only. Build it with node dashboard/build.mjs.
+/dashboard/

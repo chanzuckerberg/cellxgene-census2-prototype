@@ -16,9 +16,8 @@ design in full.
   <img alt="The Census 2 query sequence, from the catalog read to one AnnData" src="docs/diagrams/census-query-sequence.light.png">
 </picture>
 
-Source: `docs/diagrams/census-query-sequence.workflow.json`. The
-[interactive diagram](https://scaling-dollop-pzyy6pk.pages.github.io/census-query-sequence.html) is
-on the dashboard site and follows the light or dark setting of the browser.
+Source: `docs/diagrams/census-query-sequence.workflow.json`. To see the interactive diagram, open
+`docs/diagrams/census-query-sequence.html` in a browser.
 
 ## Components
 
@@ -27,7 +26,6 @@ on the dashboard site and follows the light or dark setting of the browser.
 | [`census2-dataset-writer`](census2-dataset-writer/README.md) | A Python package that converts one Discover dataset into one store. It decides admission, the slot set, and harmonization. |
 | [`bulk-ingest-nf`](bulk-ingest-nf/README.md) | A Nextflow pipeline that runs the writer over many datasets, locally under Docker or on AWS HealthOmics. |
 | [`census2-sdk`](census2-sdk/README.md) | A Python package that queries stores through a catalog and returns one AnnData. |
-| [`dashboard`](dashboard/README.md) | The project dashboard on GitHub Pages. It shows the iterations and the tracker tasks. |
 
 Each component README holds the setup and use instructions for that component.
 
@@ -46,9 +44,7 @@ mirror them and hold the review comments.
 The review threads on the design record stay on the
 [earlier version 3 page](https://app.notion.com/p/3cf16a7537898109b010d8dfb6f920fa) until they are
 resolved. The [project page](https://app.notion.com/p/38f16a753789806b8fb0e21950fd3659) and the
-[tracker](https://app.notion.com/p/95716a7537898228b0150198eacd21dc) hold the epics and tasks. The
-[project dashboard](https://scaling-dollop-pzyy6pk.pages.github.io/) shows the iterations and the
-tracker status. It needs a GitHub sign-in with read access to this repository.
+[tracker](https://app.notion.com/p/95716a7537898228b0150198eacd21dc) hold the epics and tasks.
 
 A README, a docstring, or a pull request cites these documents in a fixed form. A design citation
 such as design 2.2 names a section of the design record. A plan citation such as plan Phase 6 names
