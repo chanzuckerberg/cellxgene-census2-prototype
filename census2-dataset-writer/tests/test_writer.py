@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import json
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,20 @@ from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
+
+# A Discover h5ad holds no identifiers, so every store needs these from its caller.
+IDS = {"dataset_id": "dataset-1", "dataset_version_id": "version-1"}
+
+
+def create(source: Any, dest: Any, **kwargs: Any) -> census2_dataset_writer.Result:
+    """`census2_dataset_writer.create`, with the test identifiers."""
+    return census2_dataset_writer.create(
+        source,
+        dest,
+        dataset_id=IDS["dataset_id"],
+        dataset_version_id=IDS["dataset_version_id"],
+        **kwargs,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +123,7 @@ def written(
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(**kwargs).write_h5ad(source)
-    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+    result = create(source, dest, refdata=tmp_path / "refdata")
     return dest, result
 
 
@@ -221,7 +236,7 @@ def test_non_genes_and_other_organisms_are_dropped(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     adata.write_h5ad(source)
 
-    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+    result = create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["dropped_var_features"] == ["ERCC-00002", "ENSSASG00005000002"]
     assert np.array_equal(stored_x(dest).toarray(), projected(adata))
@@ -237,7 +252,7 @@ def test_a_gene_outside_the_reference_is_refused(tmp_path: Path) -> None:
     with pytest.raises(
         census2_dataset_writer.genes.GeneReferenceMismatch, match="ENSG99999"
     ):
-        census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+        create(source, dest, refdata=tmp_path / "refdata")
     assert not dest.exists()
 
 
@@ -258,7 +273,7 @@ def test_a_reference_with_another_digest_is_refused(tmp_path: Path) -> None:
         TAXON: {**config["gene_references"][TAXON], "sha256": "0" * 64}
     }
     with pytest.raises(ValueError, match="digest"):
-        census2_dataset_writer.create(
+        create(
             source, tmp_path / "store.zarr", config=config, refdata=tmp_path / "refdata"
         )
 
@@ -267,7 +282,7 @@ def test_an_admitted_dataset_needs_refdata(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with pytest.raises(ValueError, match="refdata"):
-        census2_dataset_writer.create(source, tmp_path / "store.zarr")
+        create(source, tmp_path / "store.zarr")
 
 
 def test_select_counts_takes_raw_and_drops_it() -> None:
@@ -304,9 +319,69 @@ def test_default_references_pin_human_and_mouse() -> None:
 
 
 def test_consolidated_metadata_is_present(tmp_path: Path) -> None:
-    """Written last, so opening this way is also the completeness check."""
     dest, _ = written(tmp_path)
     assert zarr.open_consolidated(dest, mode="r") is not None
+
+
+# --- the summary record -----------------------------------------------------
+
+
+def test_summary_record_is_in_the_root_attributes(tmp_path: Path) -> None:
+    dest, result = written(tmp_path)
+    expected = {
+        "version": census2_dataset_writer.SUMMARY_VERSION,
+        **IDS,
+        "gene_reference_version": result["gene_reference_version"],
+    }
+    assert census2_dataset_writer.read_summary(dest) == expected
+    root = json.loads((dest / "zarr.json").read_text())
+    assert root["attributes"]["cellxgene-census2"]["summary"] == expected
+    # anndata's own attributes stay beside the record.
+    assert root["attributes"]["encoding-type"] == "anndata"
+
+
+def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
+    """The record rewrites the root zarr.json. The consolidated nodes must survive."""
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    with h5py.File(source) as f:
+        adata, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        assert adata is not None
+        adata.write_zarr(tmp_path / "plain.zarr")
+        summary = census2_dataset_writer.summary_record("d", "v", result)
+        census2_dataset_writer.write(adata, tmp_path / "store.zarr", summary=summary)
+
+    def nodes(path: Path) -> set[str]:
+        root = json.loads((path / "zarr.json").read_text())
+        return set(root["consolidated_metadata"]["metadata"])
+
+    assert nodes(tmp_path / "store.zarr") == nodes(tmp_path / "plain.zarr")
+    assert zarr.open_consolidated(tmp_path / "store.zarr", mode="r") is not None
+    assert anndata.read_zarr(tmp_path / "store.zarr").n_obs == adata.n_obs
+
+
+def test_a_store_without_a_summary_record_reads_as_partial(tmp_path: Path) -> None:
+    anndata.AnnData(X=np.zeros((2, 2))).write_zarr(tmp_path / "plain.zarr")
+    assert census2_dataset_writer.read_summary(tmp_path / "plain.zarr") is None
+
+
+def test_write_needs_a_summary_record(tmp_path: Path) -> None:
+    write: Any = census2_dataset_writer.write
+    with pytest.raises(TypeError, match="summary"):
+        write(anndata.AnnData(X=np.zeros((2, 2))), tmp_path / "store.zarr")
+
+
+def test_a_rejected_dataset_has_no_summary_record() -> None:
+    rejected: census2_dataset_writer.Result = {
+        "admitted": False,
+        "reason": "no cells on the assay allowlist",
+        "slots": [],
+        "dropped_obs_columns": [],
+        "dropped_var_features": [],
+        "gene_reference_version": None,
+    }
+    with pytest.raises(ValueError, match="not admitted"):
+        census2_dataset_writer.summary_record("d", "v", rejected)
 
 
 # --- slot policy ----------------------------------------------------------
@@ -331,7 +406,7 @@ def test_uns_keys_is_configurable(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
     keys = ["organism_ontology_term_id", "title"]
-    census2_dataset_writer.create(
+    create(
         source,
         dest,
         config={"all_slots": False, "uns_keys": keys},
@@ -376,7 +451,7 @@ def test_all_slots_carries_the_cell_axis_slots(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
     dataset(extras=True).write_h5ad(source)
-    result = census2_dataset_writer.create(
+    result = create(
         source, dest, config={"all_slots": True}, refdata=tmp_path / "refdata"
     )
 
@@ -430,7 +505,7 @@ def test_not_admitted_writes_nothing(
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
 
-    result = census2_dataset_writer.create(source, dest)
+    result = create(source, dest)
 
     assert result == {
         "admitted": False,
@@ -450,7 +525,7 @@ def test_an_organism_without_a_reference_is_rejected(tmp_path: Path) -> None:
     adata.uns["organism_ontology_term_id"] = "NCBITaxon:7955"
     adata.write_h5ad(source)
 
-    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+    result = create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is False
     assert "NCBITaxon:7955" in str(result["reason"])
@@ -478,7 +553,7 @@ def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     with_assay(dataset(), OFF_LIST).write_h5ad(source)
 
-    result = census2_dataset_writer.create(source, dest)
+    result = create(source, dest)
 
     assert result["admitted"] is False
     assert OFF_LIST in str(result["reason"])
@@ -491,7 +566,7 @@ def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     with_assay(dataset(), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
 
-    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+    result = create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is True
     assert zarr.open_consolidated(str(dest))["obs"] is not None
@@ -505,12 +580,7 @@ def test_missing_assay_column_is_admitted(tmp_path: Path) -> None:
     dataset().write_h5ad(source)
     assert "assay_ontology_term_id" not in dataset().obs
 
-    assert (
-        census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")[
-            "admitted"
-        ]
-        is True
-    )
+    assert create(source, dest, refdata=tmp_path / "refdata")["admitted"] is True
 
 
 def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
@@ -521,9 +591,7 @@ def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
     config = census2_dataset_writer.load_config()
     config["assay_allowlist"] = []
 
-    result = census2_dataset_writer.create(
-        source, dest, config=config, refdata=tmp_path / "refdata"
-    )
+    result = create(source, dest, config=config, refdata=tmp_path / "refdata")
     assert result["admitted"] is True
 
 
@@ -583,7 +651,7 @@ def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     write_source(with_obs_columns(dataset(), *SLASH_COLS), source)
 
-    result = census2_dataset_writer.create(source, dest, refdata=tmp_path / "refdata")
+    result = create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is True
     assert result["dropped_obs_columns"] == SLASH_COLS  # source order
@@ -609,7 +677,7 @@ def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
     dest = tmp_path / "store.zarr"
     write_source(with_assay(with_obs_columns(dataset(), *SLASH_COLS), OFF_LIST), source)
 
-    result = census2_dataset_writer.create(source, dest)
+    result = create(source, dest)
 
     assert result["admitted"] is False
     assert result["dropped_obs_columns"] == []
@@ -637,9 +705,7 @@ def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> No
     dest = tmp_path / "store.zarr"
     dataset().write_h5ad(source)
 
-    result = census2_dataset_writer.create(
-        source, dest, threads=2, refdata=tmp_path / "refdata"
-    )
+    result = create(source, dest, threads=2, refdata=tmp_path / "refdata")
     assert result["admitted"] is True
     assert dask.config.get("num_workers", None) == before
 

@@ -118,8 +118,8 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
 
     Every row must record the `gene_reference_version` that this SDK pins for the
     organism. The SDK does not remap a store onto another reference. A row that
-    records none has no receipt that names the reference of its store. A catalog
-    without the column records none.
+    records none has no summary record that names the reference of its store. A
+    catalog without the column records none.
 
     Spatial and non-spatial stores do not compose. A row that records no
     `spatial` value cannot prove that its store composes with another, so a

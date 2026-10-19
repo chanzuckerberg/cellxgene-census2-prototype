@@ -160,6 +160,10 @@ tools/census1-sample.py --census-version 2025-11-08 \
 <outdir>/<dataset_version_id>.json     the receipt, always
 ```
 
+The store holds its summary record, with the dataset's identifiers and the gene reference version,
+in the attributes of its root `zarr.json`; see the `census2-dataset-writer` README. The receipt is
+the run log of the pipeline, which the run report reads.
+
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.
 

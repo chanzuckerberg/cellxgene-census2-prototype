@@ -10,8 +10,8 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 The `ponytail:` comments in the code mark the `dataset_id` stamp and the list columns.
 
-- The stores hold no `dataset_id` column, so the catalog builder reads it from the receipt and the
-  SDK stamps it into `obs` (disposition row 13).
+- The stores hold no `dataset_id` column. The catalog builder reads `dataset_id` from each store's
+  summary record, and the SDK stamps it into `obs`. The writer will add the column itself.
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
 - The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no
@@ -20,9 +20,9 @@ The `ponytail:` comments in the code mark the `dataset_id` stamp and the list co
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the
-counts, and `var` is the reference in reference order. The receipt records `gene_reference_version`,
-and the catalog builder copies it into the catalog row. The store does not record it. The SDK holds only the version names,
-in `gene_reference.py`. These names must agree with the writer's pin in
+counts, and `var` is the reference in reference order. The store's summary record holds
+`gene_reference_version`, and the catalog builder copies it into the catalog row. The SDK holds
+only the version names, in `gene_reference.py`. These names must agree with the writer's pin in
 `census2_dataset_writer.genes`. The SDK refuses a row that records another version or no version.
 It also refuses a store whose `var` differs from the `var` of the first store that it opened. It
 does not remap genes.

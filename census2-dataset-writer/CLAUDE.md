@@ -20,8 +20,15 @@ local path hides the mistake because it works.
 AWS profiles, so `AWS_PROFILE` alone is not enough on a workstation.
 
 anndata consolidates Zarr metadata itself, through `write_zarr(consolidate_metadata=...)`; a
-second consolidation is redundant. Consolidated metadata is written last, so a reader that opens
-with `zarr.open_consolidated` fails on a partially written store instead of reading part of one.
+second consolidation is redundant. A reader that opens with `zarr.open_consolidated` thus fails on
+a store that anndata did not finish.
+
+`write` then adds the summary record to the root group's attributes, and that is the last write.
+anndata opens the root group with `mode="w"`, which clears the store, so an attribute set before
+`write_zarr` is lost. After `write_zarr`, `zarr.open_group(..., mode="r+")` loads the consolidated
+metadata with the root group, and `update_attributes` rewrites the root `zarr.json` with it intact.
+A group opened with `use_consolidated=False` drops that metadata, and an attribute update then
+writes a root `zarr.json` without it.
 
 anndata 0.13 made Zarr v3 the default write format with automatic sharding, so `pyproject.toml`
 declares `anndata>=0.13,<0.14`. The upper bound is the constraint that matters, and this is the
@@ -81,7 +88,7 @@ dependencies.
 dask types `Array.map_blocks` for a function of the blocks alone. `project_matrix` passes extra
 arguments, so it calls the method through `Any` and casts the result to `da.Array`.
 
-`Result` and `Receipt` are `TypedDict`s rather than named tuples, because both serialize into JSON
-and callers index them. A `TypedDict` is closed, which is why `Config` is not one: the config file
-format is undecided and must carry keys we have not named. When that format is designed it needs
-run-time validation, not annotations, because it is external input.
+`Result`, `SummaryRecord`, and `Receipt` are `TypedDict`s rather than named tuples, because they
+serialize into JSON and callers index them. A `TypedDict` is closed, which is why `Config` is not
+one: the config file format is undecided and must carry keys we have not named. When that format
+is designed it needs run-time validation, not annotations, because it is external input.

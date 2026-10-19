@@ -57,23 +57,34 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def ingest(src: str, dest: str, *, config=None, refdata=None, threads=None) -> dict:
+def ingest(
+    src: str, dest: str, rec: dict, *, config=None, refdata=None, threads=None
+) -> dict:
     """Ingest one h5ad into a Zarr store at `dest`, which may be remote.
 
     Returns the result from `census2_dataset_writer.create`, which reports
     whether the dataset was admitted. A rejection writes no store and is not an
-    error.
+    error. The identifiers come from the manifest record `rec`, because the h5ad
+    does not hold them, and they go into the store's summary record.
     """
     return census2_dataset_writer.create(
-        src, dest, config=config, refdata=refdata, threads=threads
+        src,
+        dest,
+        dataset_id=rec["dataset_id"],
+        dataset_version_id=rec["dataset_version_id"],
+        config=config,
+        refdata=refdata,
+        threads=threads,
     )
 
 
-def check(src: str, dst: str, written: dict) -> dict:
+def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
     `compared` lists what the comparison covered, so a check that silently
     covered nothing is visible in the receipt instead of reading as a pass.
+
+    `summary` is the summary record that the store must hold.
 
     `written` is the result of `census2_dataset_writer.create`. The obs columns
     are compared against the source minus exactly the `dropped_obs_columns`, so
@@ -115,6 +126,11 @@ def check(src: str, dst: str, written: dict) -> dict:
         # fsspec, which needs s3fs.
         zroot = zarr.open_consolidated(census2_dataset_writer.as_store(dst), mode="r")
         result["consolidated"] = True
+
+        result["compared"].append("summary")
+        stored = census2_dataset_writer.read_summary(dst)
+        if stored != summary:
+            fail("summary", f"the store holds {stored}, expected {summary}")
 
         dropped = set(written["dropped_obs_columns"])
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
@@ -201,15 +217,18 @@ def _obstore_url(path_or_uri: str) -> str:
 
 
 def verify_written(uri: str) -> None:
-    """Confirm a directly written store arrived and is readable.
+    """Confirm a directly written store arrived, is readable, and is complete.
 
     A local destination is a declared Nextflow output, so the workflow fails if
     it is missing. A direct write to object storage has no such check, so verify
-    it here.
+    it here. The summary record is the last write, so a store without one is
+    partial.
     """
     if store_bytes(uri) == 0:
         raise SystemExit(f"store is empty after writing: {uri}")
     zarr.open_consolidated(census2_dataset_writer.as_store(uri), mode="r")
+    if census2_dataset_writer.read_summary(uri) is None:
+        raise SystemExit(f"store has no summary record after writing: {uri}")
 
 
 def store_bytes(uri: str) -> int:
@@ -317,13 +336,14 @@ def main() -> int:
 
     log(f"ingest -> {store} (slots={'all' if config['all_slots'] else 'census'})")
     result = ingest(
-        src, dest, config=config, refdata=args.refdata, threads=args.threads
+        src, dest, rec, config=config, refdata=args.refdata, threads=args.threads
     )
 
     # The shape of a receipt is census2_dataset_writer.Receipt, so this script
     # and ingestion-report.py agree on it without importing each other. The
     # store-level facts come from the package, so they cannot disagree with the
-    # code that ran.
+    # code that ran. For an admitted dataset the receipt also holds a copy of the
+    # store's summary record, so that the report needs to open no store.
     receipt: census2_dataset_writer.Receipt = {
         **census2_dataset_writer.provenance(config),
         "dataset_id": rec["dataset_id"],
@@ -348,12 +368,15 @@ def main() -> int:
             dropped = result["dropped_var_features"]
             log(f"  dropped {len(dropped)} features that are not organism genes")
         log(f"  genes projected onto {result['gene_reference_version']}")
+        summary = census2_dataset_writer.summary_record(
+            rec["dataset_id"], version_id, result
+        )
         receipt.update(
             {
                 "slots_written": result["slots"],
                 "dropped_obs_columns": result["dropped_obs_columns"],
                 "dropped_var_features": result["dropped_var_features"],
-                "gene_reference_version": result["gene_reference_version"],
+                "summary": summary,
                 "store": store,
                 "output_bytes": store_bytes(dest),
                 "published_by": "workflow" if args.stage_local else "task",
@@ -363,7 +386,7 @@ def main() -> int:
             verify_written(dest)
         if args.check:
             log("check round trip")
-            receipt["check"] = check(src, dest, result)
+            receipt["check"] = check(src, dest, result, summary)
             if not receipt["check"]["passed"]:
                 for fmsg in receipt["check"].get("failures", []):
                     log(f"  FAIL {fmsg}")

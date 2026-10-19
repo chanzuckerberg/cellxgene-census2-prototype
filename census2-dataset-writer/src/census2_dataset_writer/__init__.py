@@ -8,23 +8,28 @@ aggregate cannot run here.
 
 Public calls
 ------------
-`create(source, dest, ...)` builds the store and writes it. It writes
-nothing when the dataset is not admitted, and returns a `Result` in both
-cases. `build` and `write` split the same work into two calls, so a caller
-can inspect the AnnData before the write:
+`create(source, dest, *, dataset_id, dataset_version_id, ...)` builds the
+store and writes it. It writes nothing when the dataset is not admitted, and
+returns a `Result` in both cases. A Discover h5ad does not hold its own
+identifiers, so the caller gives them. `build` and `write` split the same work
+into two calls, so a caller can inspect the AnnData before the write:
 
     with h5py.File("dataset.h5ad") as f:
         adata, result = census2_dataset_writer.build(f)
         if adata is not None:
-            census2_dataset_writer.write(adata, "store.zarr")
+            summary = census2_dataset_writer.summary_record(
+                dataset_id, dataset_version_id, result
+            )
+            census2_dataset_writer.write(adata, "store.zarr", summary=summary)
 
 Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
 
 `slots_of(adata)` lists what a store written from an AnnData will hold.
-`load_config(path)` returns the configuration mapping. `provenance(config)`
-returns the part of a receipt that this module knows. `as_store(dest)`
-adapts a remote URL for zarr, which ships no S3 client.
+`read_summary(dest)` returns the summary record of a store. `load_config(path)`
+returns the configuration mapping. `provenance(config)` returns the part of a
+receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
+which ships no S3 client.
 
 Decisions
 ---------
@@ -77,11 +82,25 @@ that is absent or that has another digest.
 `DEFAULTS`. Do not define a configuration schema before the step that needs
 it exists.
 
+Summary record
+--------------
+Every store holds a summary record: a small JSON object in the attributes of
+the store's root Zarr group, under `SUMMARY_NAMESPACE`. It holds the facts
+about the store that a catalog needs and that the store does not otherwise
+hold: the dataset's identifiers and the version of the gene reference.
+`SummaryRecord` declares its shape, and its `version` is `SUMMARY_VERSION`.
+
+`write` adds the record after anndata writes the store and its consolidated
+metadata, so the record is the last write. A store with a summary record is
+complete, and a store without one is partial.
+
 Receipt
 -------
-A receipt is the JSON a pipeline writes beside a store. `Receipt` declares
-its shape, and `provenance` fills the part this package knows; see their
-docstrings.
+A receipt is the JSON a pipeline writes beside a store, about one run of the
+pipeline. `Receipt` declares its shape, and `provenance` fills the part this
+package knows; see their docstrings. A receipt holds a copy of the store's
+summary record, so that a report on a run needs to open no store. Nothing
+outside the pipeline reads a receipt: the store is the source of its own facts.
 
 Memory
 ------
@@ -177,6 +196,30 @@ RECIPE = "v1"
 # have to infer it.
 ZARR_FORMAT = 3
 
+# Where the summary record is: a key of the root group's attributes, and a key
+# under it. The namespace keeps the record clear of anndata's own attributes.
+SUMMARY_NAMESPACE = "cellxgene-census2"
+SUMMARY_KEY = "summary"
+
+# The format of the summary record. Raise it when a field changes meaning or
+# goes away. A reader refuses a version that it does not know.
+SUMMARY_VERSION = 1
+
+
+class SummaryRecord(TypedDict):
+    """The facts about a store that a catalog needs, held in the store.
+
+    The store holds everything else that a catalog reads, such as the organism
+    and the curation schema version in `uns`, so the record does not copy it.
+    """
+
+    version: int
+    dataset_id: str
+    dataset_version_id: str
+    # The label of the gene reference in the store's `var`, as in
+    # `genes.REFERENCES`, for example "GENCODE v48".
+    gene_reference_version: str
+
 
 def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
     """Rows per dask block, sized so one block is about BLOCK_BYTES."""
@@ -259,20 +302,19 @@ class StoreProvenance(TypedDict):
 
 
 class Receipt(StoreProvenance, total=False):
-    """The JSON a pipeline writes beside a store.
+    """The JSON a pipeline writes beside a store, about one run.
 
-    Two readers use it today: the pipeline's report step, and the prototype
-    catalog builder (`census2-sdk/tools/build_catalog.py`), which takes
-    `dataset_id` and `gene_reference_version` from it until a store summary
-    record exists. The shape lives here because the script that writes one and
-    the script that reads one cannot import each other, and because
-    `provenance` fills the part that only this package knows.
+    The pipeline writes it, and its report step reads it. The shape lives here
+    because the script that writes one and the script that reads one cannot
+    import each other, and because `provenance` fills the part that only this
+    package knows. For an admitted dataset, `summary` is a copy of the store's
+    summary record, so that the report reads no store.
 
     The `StoreProvenance` keys are always present. The rest is what a writer
     knows about where the dataset came from and what it did, so it is optional
     here. `bulk-ingest-nf` fills all of them for an admitted dataset. A rejected
-    dataset gets no `slots_written`, `store`, `output_bytes`, or `published_by`,
-    and `check` appears only when the task runs with `--check`.
+    dataset gets no `slots_written`, `summary`, `store`, `output_bytes`, or
+    `published_by`, and `check` appears only when the task runs with `--check`.
     """
 
     dataset_id: str
@@ -287,7 +329,7 @@ class Receipt(StoreProvenance, total=False):
     slots_written: list[str]
     dropped_obs_columns: list[str]
     dropped_var_features: list[str]
-    gene_reference_version: str | None
+    summary: SummaryRecord
     store: str
     output_bytes: int
     published_by: str
@@ -609,17 +651,21 @@ def write(
     adata: anndata.AnnData,
     dest: StoreLike,
     *,
+    summary: SummaryRecord,
     consolidate: bool = True,
     threads: int | None = None,
 ) -> None:
-    """Write an AnnData to a Zarr store at `dest`.
+    """Write an AnnData to a Zarr store at `dest`, then its summary record.
 
     anndata consolidates the metadata itself, so this passes the choice through.
     Leave it on. Consolidated metadata is not part of the Zarr v3 specification,
     so zarr warns about it. Readers such as `anndata.experimental.read_lazy`
-    still need it for tolerable remote latency. anndata also writes it last, so a
-    reader that opens with `zarr.open_consolidated` fails on a partially written
-    store rather than reading part of one.
+    still need it for tolerable remote latency.
+
+    The summary record goes into the root group's attributes after anndata
+    finishes, so it is the last write, and a store that has one is complete.
+    The root group opens with its consolidated metadata, and the attribute
+    update rewrites the root `zarr.json` with that metadata intact.
 
     Writing computes the lazy matrix, which anndata does with the dask threaded
     scheduler. `threads` is how many threads it may use. Give it the CPU count
@@ -631,8 +677,34 @@ def write(
     limit = (
         dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
     )
+    store = as_store(dest)
     with limit:
-        adata.write_zarr(as_store(dest), consolidate_metadata=consolidate)
+        adata.write_zarr(store, consolidate_metadata=consolidate)
+    root = zarr.open_group(store, mode="r+")
+    root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
+
+
+def summary_record(
+    dataset_id: str, dataset_version_id: str, result: Result
+) -> SummaryRecord:
+    """The summary record of an admitted dataset, from its identifiers and result."""
+    if not result["admitted"] or result["gene_reference_version"] is None:
+        raise ValueError("a dataset that is not admitted has no store and no record")
+    return {
+        "version": SUMMARY_VERSION,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "gene_reference_version": result["gene_reference_version"],
+    }
+
+
+def read_summary(dest: StoreLike) -> SummaryRecord | None:
+    """The summary record of the store at `dest`, or None for a partial store."""
+    root = zarr.open_group(as_store(dest), mode="r")
+    namespace = root.attrs.get(SUMMARY_NAMESPACE)
+    if not isinstance(namespace, dict) or SUMMARY_KEY not in namespace:
+        return None
+    return cast("SummaryRecord", namespace[SUMMARY_KEY])
 
 
 @contextlib.contextmanager
@@ -649,6 +721,8 @@ def create(
     source: Source,
     dest: StoreLike,
     *,
+    dataset_id: str,
+    dataset_version_id: str,
     consolidate: bool = True,
     config: Config | None = None,
     refdata: PathLike | None = None,
@@ -660,7 +734,8 @@ def create(
     is not admitted. That is a normal outcome, not an error.
 
     `source` is a path to an h5ad or an open `h5py.File`. `dest` is a path, a
-    remote URL, or a zarr Store. The source stays open across the write, because
+    remote URL, or a zarr Store. `dataset_id` and `dataset_version_id` go into
+    the store's summary record. The source stays open across the write, because
     the expression matrix is read lazily. `threads` bounds the write; see
     `write`.
     """
@@ -668,5 +743,6 @@ def create(
         adata, result = build(f, config=config, refdata=refdata)
         if adata is None:
             return result
-        write(adata, dest, consolidate=consolidate, threads=threads)
+        summary = summary_record(dataset_id, dataset_version_id, result)
+        write(adata, dest, summary=summary, consolidate=consolidate, threads=threads)
     return result
