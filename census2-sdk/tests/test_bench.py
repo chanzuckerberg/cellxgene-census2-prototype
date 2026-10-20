@@ -136,3 +136,13 @@ def test_only_the_first_record_is_published(
     assert run.publish({"status": "memory_limit"}) is True
     assert run.publish({"status": "ok"}) is False
     assert capsys.readouterr().out.splitlines() == ['{"status": "memory_limit"}']
+
+
+def test_a_run_over_the_limit_between_checks_is_not_ok() -> None:
+    record = {"status": "ok", "peak_rss_mb": 2048.0}
+    over, code = run.final_record(record, limit_mb=1024.0)
+    assert over["status"] == "memory_limit"
+    assert over["limit_mb"] == 1024.0
+    assert code == run.MEMORY_LIMIT_EXIT
+    assert run.final_record(record, limit_mb=4096.0) == (record, None)
+    assert run.final_record(record, limit_mb=None) == (record, None)

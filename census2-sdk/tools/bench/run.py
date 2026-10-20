@@ -226,6 +226,19 @@ def guard_memory(
     threading.Thread(target=watch, daemon=True).start()
 
 
+def final_record(
+    record: dict[str, Any], limit_mb: float | None
+) -> tuple[dict[str, Any], int | None]:
+    """The record of a finished run, and its exit code when the run passed the limit.
+
+    The watchdog checks at intervals, so a run can pass the limit and finish between
+    two checks. This check of the final peak catches that run.
+    """
+    if limit_mb is None or record["peak_rss_mb"] <= limit_mb:
+        return record, None
+    return {**record, "status": "memory_limit", "limit_mb": limit_mb}, MEMORY_LIMIT_EXIT
+
+
 def run(
     catalog: str, shape: str, workers: int, cell_type: str | None
 ) -> dict[str, Any]:
@@ -295,10 +308,12 @@ def main() -> int:
     p.add_argument("--cell-type", default=None)
     p.add_argument("--max-rss-gb", type=float, default=None)
     args = p.parse_args()
-    if args.max_rss_gb is not None:
+    limit_mb = None if args.max_rss_gb is None else args.max_rss_gb * 1024
+    if limit_mb is not None:
         base = {"catalog": args.catalog, "shape": args.shape, "workers": args.workers}
-        guard_memory(args.max_rss_gb * 1024, base)
-    publish(run(args.catalog, args.shape, args.workers, args.cell_type))
+        guard_memory(limit_mb, base)
+    record = run(args.catalog, args.shape, args.workers, args.cell_type)
+    publish(*final_record(record, limit_mb))
     return 0
 
 
