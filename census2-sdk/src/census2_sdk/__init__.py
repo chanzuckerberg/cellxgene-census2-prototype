@@ -94,8 +94,7 @@ class Census:
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        # ponytail: the default stays at one store at a time until task 6.4
-        # measures the open cost and picks a default.
+        # ponytail: serial by default; raise the default from the 6.4 results.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(pool.map(lambda row: _read_store(row, normalized), records))
         uris = list(rows["store_uri"].astype(str))

@@ -245,9 +245,8 @@ def test_concurrent_reads_match_one_at_a_time(
     census = census2_sdk.open_census([corpus["catalog"]])
     one = query(census, obs_filter)
 
-    # Each read waits until all three reads run, so a serial read times out.
-    # After its read, each store waits for the next store in catalog order to
-    # finish, so the first store finishes last.
+    # Each read waits for all three, so a serial read times out. Each store then
+    # waits for the next one in catalog order, so the first store finishes last.
     read_store = census2_sdk._read_store
     order = list(STORES)
     all_running = threading.Barrier(len(order), timeout=10)
