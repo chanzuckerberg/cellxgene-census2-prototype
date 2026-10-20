@@ -73,10 +73,4 @@ Do not open a public issue for a security issue. Send an email to
 
 ## License
 
-The contents of this repository are available under the [MIT license](LICENSE). The file
-`docs/diagrams/census-query-sequence.html` also holds two third-party parts with their own licenses:
-
-- The JetBrains Mono font uses the SIL Open Font License 1.1. The HTML file holds the text of that
-  license.
-- The Archify viewer code uses the MIT license of its authors, in
-  [LICENSE-archify](docs/diagrams/LICENSE-archify).
+The contents of this repository are available under the [MIT license](LICENSE).
