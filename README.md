@@ -15,8 +15,7 @@ design in full.
   <img alt="The Census 2 query sequence, from the catalog read to one AnnData" src="docs/diagrams/census-query-sequence.light.png">
 </picture>
 
-Source: `docs/diagrams/census-query-sequence.workflow.json`. To see the interactive diagram, open
-`docs/diagrams/census-query-sequence.html` in a browser.
+Source: `docs/diagrams/census-query-sequence.workflow.json`.
 
 ## Components
 
