@@ -136,7 +136,13 @@ nextflow_pipeline {
         tag "validation"
 
         when {
-            params { outdir = "./out" }
+            // Nextflow 25.10 refuses params.container in the profile's config
+            // unless the test sets it. The outdir check runs first, so the
+            // container check does not hide it.
+            params {
+                outdir    = "./out"
+                container = null
+            }
         }
         then {
             assert workflow.failed
