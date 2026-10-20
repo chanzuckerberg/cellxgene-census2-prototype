@@ -229,11 +229,12 @@ Cross-release cell identity remains an upstream problem. See
 and
 [single-cell-curation issue 522](https://github.com/chanzuckerberg/single-cell-curation/issues/522).
 
-Census 1 work can use `soma_joinid`, which is a build row number. A mapping table
-for each organism converts the old row number to
-`(dataset_id, observation_joinid)`. The release builder creates the mapping from the
-last TileDB release and publishes it with each release. An unresolved lookup
-returns an error.
+Census 1 work can use `soma_joinid`, which is a row number inside one experiment of
+one build. A mapping table for each experiment converts the old row number to
+`(dataset_id, observation_joinid)`. An experiment is one organism and one spatial
+type, so a lookup names the experiment and the row number. The release builder
+creates the mappings from the last TileDB release and publishes them with each
+release. An unresolved lookup returns an error.
 
 ## 2. Catalog
 
@@ -470,7 +471,10 @@ These questions are open:
 The writer receives three inputs for each dataset. It fetches nothing at run time.
 
 1. The dataset: the published `.h5ad` in the Discover asset bucket. In the curation
-   pipeline, the file is local to the pipeline.
+   pipeline, the file is local to the pipeline. The caller also gives the
+   `dataset_id`, the `dataset_version_id`, and the curation schema version that
+   Discover declares for the dataset version. The file does not hold the
+   identifiers, and the writer does not call the Discover API.
 2. Reference data: bulk files with their own release schedule.
    - The pinned gene reference for each organism, with feature id, name, length, and
      biotype (section 1.5).
