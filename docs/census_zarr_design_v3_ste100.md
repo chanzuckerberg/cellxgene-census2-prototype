@@ -134,7 +134,7 @@ Each store is AnnData on Zarr v3. The tree shows one store and the files next to
 
 ```text
 <store>/                    address from dataset_version_id and writer_version
-├── summary record          five numeric ranges, gene_reference_version, assayed gene set
+├── summary record          five numeric ranges, tissue_general values, gene_reference_version, assayed gene set
 ├── inventory               path, size, and checksum of every object
 ├── obs/                    one Zarr array per column
 │   ├── <column>/           chunks of 8,192 rows, shards of 65,536 rows
@@ -320,9 +320,9 @@ Discover does not provide these values:
 - gene reference version
 - bitmap encoding
 
-The writer puts the numeric ranges and gene reference version in the store
-summary record. The catalog builder reads this record, but it does not read
-array data.
+The writer puts the numeric ranges, the `tissue_general` values, and the gene
+reference version in the store summary record. The catalog builder reads this
+record, but it does not read array data.
 
 A store enters the catalog after the Discover response lists the Zarr artifact.
 
@@ -632,7 +632,9 @@ TileDB release until support ends.
 The first Zarr release has two compatibility gates:
 
 1. Both storage stacks must return the same cells, genes, values, and metadata
-   columns for the differential query corpus.
+   columns for the differential query corpus. A declared list of expected
+   differences holds the exceptions: the reference genes that Census 1 does not
+   carry, and the `feature_version` column (section 1.5).
 2. A contributed embedding must join through the identity mapping. A failed
    join must return an error.
 
@@ -871,9 +873,10 @@ The plan and tracker use these decision numbers.
    operation. The current design uses one writer library from the curation
    pipeline and the reconciliation job.
 9. **Code location.** Select a repository for the writer, catalog builder,
-   release builder, and SDK. This repository remains the Census 1 oracle until
-   cutover. A public pull request in this repository retains its commits. The
-   shared writer must be in a location that both callers can use.
+   release builder, and SDK. The prototype code is in cellxgene-census2-prototype.
+   The cellxgene-census repository remains the Census 1 oracle until cutover, and
+   a public pull request there retains its commits. The shared writer must be in
+   a location that both callers can use.
 
 ## 8. Required design details
 
