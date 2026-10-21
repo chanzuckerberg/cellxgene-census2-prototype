@@ -20,8 +20,8 @@ zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only
 ## Build the catalog
 
 The catalog is a Parquet table with one row for each store. The Census 2 team publishes it, and the
-SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder. It
-reads a prefix that holds `<dataset_version_id>.zarr` stores and the receipts next to them.
+SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder.
+It reads a prefix that holds `<dataset_version_id>.zarr` stores. It reads no receipt.
 
 ```bash
 eval "$(aws configure export-credentials --profile <profile> --format env)"
@@ -29,9 +29,11 @@ python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 ```
 
 Each row holds the identity of the dataset, the organism, the spatial flag, `n_obs`, and the
-`gene_reference_version`. It also holds the distinct values of the 18 indexed columns of design
-2.2. The stores hold no summary record, so the builder reads `obs` and `uns` from each store, and
-`dataset_id` and `gene_reference_version` from the receipt.
+`gene_reference_version`. It also holds the distinct values of the 18 indexed columns of design 2.2.
+Each store's summary record, in the attributes of its root group, gives `dataset_id`,
+`dataset_version_id`, and `gene_reference_version`. The `census2-dataset-writer` README describes
+the record. The builder reads the other fields from the store's `obs` and `uns`. It refuses a store
+that has no summary record.
 
 ## Query
 
@@ -98,12 +100,16 @@ is tracker task 6.2.
 
 ```bash
 cd census2-sdk
-pip install -e '.[dev,s3]'
+pip install -e ../census2-dataset-writer -e '.[dev,s3]'
 pytest
 mypy
 ```
 
+The catalog builder in `tools/` imports `census2-dataset-writer` for the summary record: its type,
+its location in the store, and the check of its fields. The tests and mypy therefore need the
+writer installed. The SDK package itself does not depend on it.
+
 Run both from this directory. `pytest` and `mypy` read their settings from `pyproject.toml` here. The tests write
 small stores to a temporary directory and need no network and no credentials. Lint and format with `pipx run ruff check --fix .` and `pipx run ruff format .` from the
-repository root. CI runs the unpinned `ruff check` and `ruff format --check` on this directory. See `CLAUDE.md` here for the anndata and zarr
+repository root. CI runs the unpinned `ruff check` and `ruff format --check` on this directory. See `AGENTS.md` here for the anndata and zarr
 behavior that shaped this code.
