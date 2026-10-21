@@ -142,5 +142,5 @@ Run pytest and mypy from this directory; mypy finds its configuration only here.
 editable, or the tests import the copy in site-packages. The tests need no network, no
 credentials, and no container.
 
-See the repository root [`CLAUDE.md`](../CLAUDE.md) for the lint, format, and type-check policy,
-and [`CLAUDE.md`](CLAUDE.md) here for the anndata and zarr behavior behind this code.
+See the repository root [`AGENTS.md`](../AGENTS.md) for the lint, format, and type-check policy,
+and [`AGENTS.md`](AGENTS.md) here for the anndata and zarr behavior behind this code.

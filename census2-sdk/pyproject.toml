@@ -47,7 +47,7 @@ pythonpath = ["tools"]
 
 [tool.mypy]
 # Strict, because this package is a published API and its types are part of the
-# contract. Run mypy from this directory; see the root CLAUDE.md.
+# contract. Run mypy from this directory; see the root AGENTS.md.
 strict = true
 # tools/build_catalog.py and the harness modules that the tests import are checked
 # as well. The Census 1 comparison script and the oracle runner are not:
