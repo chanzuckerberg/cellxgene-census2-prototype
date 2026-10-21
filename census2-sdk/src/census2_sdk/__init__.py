@@ -28,6 +28,7 @@ from the catalog because the stores do not hold the column.
 
 import os
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import anndata
@@ -73,21 +74,29 @@ class Census:
             )
 
     def get_anndata(
-        self, organism: str, obs_filter: Filter | None = None
+        self,
+        organism: str,
+        obs_filter: Filter | None = None,
+        *,
+        max_workers: int = 1,
     ) -> anndata.AnnData | None:
         """Return the selected cells of `organism` as one AnnData.
 
         Return None when no cell matches, whether or not the catalog excluded
         every store.
+
+        `max_workers` is the largest number of stores that the SDK reads at the
+        same time, and it must be a positive integer. The result is the same for
+        every allowed value: the stores keep their catalog order.
         """
         normalized = _catalog.normalize(obs_filter)
         rows = _catalog.exclude(self.catalog, organism, normalized)
         _check_composition(rows, ORGANISMS[organism]["version"])
 
-        parts = [
-            _read_store(row, normalized)
-            for row in cast("list[dict[str, Any]]", rows.to_dict("records"))
-        ]
+        records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+        # ponytail: serial by default; raise the default from the 6.4 results.
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            parts = list(pool.map(lambda row: _read_store(row, normalized), records))
         uris = list(rows["store_uri"].astype(str))
         _check_var(parts, uris)
         if not sum(part.n_obs for part in parts):

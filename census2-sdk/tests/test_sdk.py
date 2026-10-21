@@ -7,6 +7,7 @@ dataset's identifiers and `gene_reference_version`. Each store measured a differ
 reference genes, so the others are zero columns.
 """
 
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -248,6 +249,52 @@ def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
     assert X(result).dtype == np.float32
     # var is the stores' var, with its reference columns.
     assert list(result.var.columns) == list(reference_var(REFERENCE_IDS).columns)
+
+
+def test_concurrent_reads_match_one_at_a_time(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    obs_filter = {"tissue": ["lung", "kidney"]}  # selects all three stores
+    census = census2_sdk.open_census([corpus["catalog"]])
+    one = query(census, obs_filter)
+
+    # Each read waits for all three, so a serial read times out. Each store then
+    # waits for the next one in catalog order, so the first store finishes last.
+    read_store = census2_sdk._read_store
+    order = list(STORES)
+    all_running = threading.Barrier(len(order), timeout=10)
+    done = {dataset_id: threading.Event() for dataset_id in order}
+    finished: list[str] = []
+
+    def overlapping(row: dict[str, Any], normalized: Any) -> anndata.AnnData:
+        all_running.wait()
+        part = read_store(row, normalized)
+        position = order.index(row["dataset_id"])
+        if position + 1 < len(order):
+            assert done[order[position + 1]].wait(timeout=10)
+        finished.append(str(row["dataset_id"]))
+        done[str(row["dataset_id"])].set()
+        return part
+
+    monkeypatch.setattr(census2_sdk, "_read_store", overlapping)
+    many = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
+    assert many is not None
+    assert finished == list(reversed(STORES))
+    assert list(many.obs_names) == list(one.obs_names)  # catalog order
+    pd.testing.assert_frame_equal(
+        cast("pd.DataFrame", many.obs), cast("pd.DataFrame", one.obs)
+    )
+    assert np.array_equal(X(many).toarray(), X(one).toarray())
+    assert many.uns["census2"] == one.uns["census2"]
+
+
+@pytest.mark.parametrize("max_workers", [0, -1])
+def test_max_workers_must_be_positive(
+    corpus: dict[str, Path], max_workers: int
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="max_workers"):
+        census.get_anndata("homo_sapiens", {"tissue": "lung"}, max_workers=max_workers)
 
 
 def test_empty_result(corpus: dict[str, Path]) -> None:

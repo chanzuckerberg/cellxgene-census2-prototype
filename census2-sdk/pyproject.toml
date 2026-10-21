@@ -59,5 +59,6 @@ files = [
     "tools/harness/corpus.py",
     "tools/harness/canonical.py",
     "tools/harness/comparator.py",
+    "tools/bench",
 ]
 mypy_path = ["tools"]
