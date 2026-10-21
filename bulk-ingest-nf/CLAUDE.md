@@ -19,10 +19,14 @@ contains; its README and module docstring cover the three decisions and their st
 written.
 
 `cxg-ingest.py` handles what running that package as a pipeline needs: fetching the source,
-publishing, and the receipt. The receipt's shape is `census2_dataset_writer.Receipt`, and its
-store-level facts come from `census2_dataset_writer.provenance`, so the script that writes a
-receipt and the script that reads one agree on it. Policy that a caller might choose lives in the
-configuration rather than in function arguments, so there is one place to look.
+publishing, and the receipt. It gives the writer the dataset's identifiers from the manifest
+record, and the writer puts the facts about a store into the store, in its summary record. The
+receipt is the pipeline's run log. Only `ingestion-report.py` reads it, and the catalog reads the
+store. For an admitted dataset, the receipt holds a copy of the summary record, so that the report
+opens no store. The receipt's shape is `census2_dataset_writer.Receipt`, and its store-level facts
+come from `census2_dataset_writer.provenance`, so the script that writes a receipt and the script
+that reads one agree on it. Policy that a caller might choose lives in the configuration rather than
+in function arguments, so there is one place to look.
 
 These arrangements suit the harmonization steps that exist: the `obs` projection and the gene
 projection. Expect to revisit them when more steps are known, particularly if a step needs data
@@ -73,12 +77,13 @@ The slashes measured were all in `obs`. The store's `var` is the pinned gene ref
 source `var`, so a `/` in a source `var` column does not reach the store.
 
 `census2_dataset_writer.project_genes` puts the counts (`raw/X`, else `X`) in the store's `X`, on
-the pinned gene reference. The store has no `raw`. The receipt records `gene_reference_version`,
-and it records the dropped non-gene features in `dropped_var_features`. Thus the round-trip check
-does not compare the matrix byte for byte. It reads the store's `X` at the reference position of
-each kept source feature, and compares the values with the source. It also requires equal nonzero
-counts. It does this one block of rows at a time. A gene that is not in the reference fails the
-task, because the writer does not map genes across reference versions.
+the pinned gene reference. The store has no `raw`. The store's summary record holds
+`gene_reference_version`. The receipt records the dropped non-gene features in
+`dropped_var_features`. Thus the round-trip check does not compare the matrix
+byte for byte. It reads the store's `X` at the reference position of each kept source feature, and
+compares the values with the source. It also requires equal nonzero counts. It does this one block
+of rows at a time. A gene that is not in the reference fails the task, because the writer does not
+map genes across reference versions.
 
 anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by default, so anndata also
 refuses to *write* such a name to an h5ad as well. The corpus datasets that carry one predate it.

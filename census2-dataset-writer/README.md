@@ -25,12 +25,20 @@ The `s3` extra is unnecessary for a local conversion.
 import census2_dataset_writer
 
 # build and write in one call; writes nothing if the dataset is not admitted
-result = census2_dataset_writer.create("dataset.h5ad", "store.zarr", refdata="refdata/")
+result = census2_dataset_writer.create(
+    "dataset.h5ad",
+    "store.zarr",
+    dataset_id="...",
+    dataset_version_id="...",
+    refdata="refdata/",
+)
 if not result["admitted"]:
     print("skipped:", result["reason"])
 ```
 
-`build` and `write` can also be called separately; the module docstring covers that.
+A Discover h5ad does not hold its own identifiers, so the caller gives `dataset_id` and
+`dataset_version_id`. They go into the store's summary record. `build` and `write` can also be
+called separately; the module docstring covers that.
 
 `refdata` is a directory that holds the pinned gene reference files, `genes_homo_sapiens.csv.gz`
 and `genes_mus_musculus.csv.gz` from the `single-cell-curation` tag `v7.0.0`. The writer does not
@@ -59,8 +67,8 @@ A store holds the dataset's cells, with the counts on the organism's pinned gene
 - The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
   gene that is not in the reference fails the dataset. The writer does not map genes across
   reference versions.
-- The result reports the reference version and the dropped features, and the pipeline records
-  both in the receipt.
+- The result reports the reference version and the dropped features. The store's summary record
+  holds the reference version.
 
 The assay criterion rejects a dataset with no cell on the assay allowlist, which defaults to the
 Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk ingestion
@@ -74,11 +82,45 @@ Ingestion reads one dataset at a time and not the corpus. A harmonization step t
 corpus-wide aggregate must be redesigned or eliminated. This constraint lets many Census releases
 reuse one store.
 
+## Summary record
+
+Every store holds a summary record: the facts about the store that a catalog needs and that the
+store does not otherwise hold. The record is a JSON object in the attributes of the store's root
+Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
+
+```json
+"cellxgene-census2": {
+  "summary": {
+    "version": 1,
+    "dataset_id": "...",
+    "dataset_version_id": "...",
+    "gene_reference_version": "GENCODE v48"
+  }
+}
+```
+
+- `version` gives the format of the record. Its value is `SUMMARY_VERSION`, and a reader refuses a
+  version that it does not know.
+- `SummaryRecord` types the record, and `read_summary(dest)` reads it. A record comes from a
+  store, so `read_summary` checks it at run time with `validate_summary`. That function raises
+  `SummaryRecordError` for a missing, unknown, or wrongly typed field. `write` checks its record
+  in the same way, before it writes anything.
+- `gene_reference_version` is the label of the gene reference in the store's `var`, from
+  `genes.REFERENCES`. No ontology names an annotation release. The label follows the GENCODE
+  release that the pinned `single-cell-curation` tag declares.
+- The store holds the organism and the curation schema version in `uns`, so the record does not
+  copy them.
+
+`write` adds the record after anndata writes the store and its consolidated metadata, so the
+record is the last write.
+
 ## Receipts
 
-A receipt is the JSON a pipeline writes beside a store. `Receipt` types its shape, `provenance()`
-supplies the part this package knows, and the pipeline adds where the dataset came from and what
-it did.
+A receipt is the JSON a pipeline writes beside a store, about one run of the pipeline. `Receipt`
+types its shape, `provenance()` supplies the part this package knows, and the pipeline adds where
+the dataset came from and what it did. For an admitted dataset it holds a copy of the store's
+summary record, so that a report on the run opens no store. Nothing outside the pipeline reads a
+receipt.
 
 ```python
 census2_dataset_writer.provenance()
@@ -86,9 +128,6 @@ census2_dataset_writer.provenance()
 #  'census2_dataset_writer_version': ..., 'anndata_version': ...,
 #  'zarr_version': ...}
 ```
-
-Registering a store in a catalog, with metadata a reader outside the run can rely on, is a
-separate job and is not implemented yet.
 
 ## Develop
 
