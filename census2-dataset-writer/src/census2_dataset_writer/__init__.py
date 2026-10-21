@@ -92,8 +92,7 @@ hold: the dataset's identifiers and the version of the gene reference.
 `SummaryRecord` declares its shape, and its `version` is `SUMMARY_VERSION`.
 
 `write` adds the record after anndata writes the store and its consolidated
-metadata, so the record is the last write. A store with a summary record is
-complete, and a store without one is partial.
+metadata, so the record is the last write.
 
 Receipt
 -------
@@ -700,7 +699,7 @@ def write(
     still need it for tolerable remote latency.
 
     The summary record goes into the root group's attributes after anndata
-    finishes, so it is the last write, and a store that has one is complete.
+    finishes, so it is the last write.
     The root group opens with its consolidated metadata, and the attribute
     update rewrites the root `zarr.json` with that metadata intact.
 
