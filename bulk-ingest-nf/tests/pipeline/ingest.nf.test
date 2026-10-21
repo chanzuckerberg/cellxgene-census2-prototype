@@ -30,9 +30,11 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
-                // A pass means nothing unless the check compared the matrices.
+                // A pass means nothing unless the check compared the matrices
+                // and the summary record.
                 assert rec.check.compared.contains("X")
                 assert rec.check.compared.contains("var")
+                assert rec.check.compared.contains("summary")
                 // Both datasets have raw, so X holds the counts from raw/X.
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
@@ -42,8 +44,8 @@ nextflow_pipeline {
                 assert rec.slot_policy == "census"
                 assert rec.slots_written.contains("X")
                 assert !rec.slots_written.contains("raw")
-                assert rec.gene_reference_version == "GENCODE v48"
                 assert rec.dropped_var_features instanceof List
+                assert rec.summary.gene_reference_version == "GENCODE v48"
             }
         }
     }
@@ -146,9 +148,20 @@ nextflow_pipeline {
             def stores = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
             assert stores.size() == 2
             stores.each { s ->
-                // The root group metadata. anndata writes the consolidated
-                // metadata into it last.
+                // The root group metadata holds the consolidated metadata and,
+                // in its attributes, the summary record.
                 assert path("${s}/zarr.json").exists()
+                def root = new groovy.json.JsonSlurper().parse(path("${s}/zarr.json").toFile())
+                assert root.consolidated_metadata
+                def summary = root.attributes["cellxgene-census2"].summary
+                def versionId = s.fileName.toString().replace(".zarr", "")
+                def rec = new groovy.json.JsonSlurper().parse(path("${outputDir}/${versionId}.json").toFile())
+                assert summary.version == 1
+                assert summary.dataset_version_id == versionId
+                assert summary.dataset_id == rec.dataset_id
+                assert summary.gene_reference_version == "GENCODE v48"
+                // The receipt holds a copy of the record.
+                assert rec.summary == summary
                 assert path("${s}/obs").exists()
                 assert path("${s}/var").exists()
                 assert path("${s}/X").exists()

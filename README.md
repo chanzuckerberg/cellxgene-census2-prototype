@@ -48,7 +48,7 @@ a phase of the plan. A tracker citation such as tracker 6.1 names a task.
 
 ## Develop
 
-[`CLAUDE.md`](CLAUDE.md) holds the lint, format, type-check, and documentation policy. CI runs
+[`AGENTS.md`](AGENTS.md) holds the lint, format, type-check, and documentation policy. CI runs
 `ruff` on each Python component and the tests of each package. The documentation policy applies to
 every markdown file, docstring, and code comment in this repository.
 

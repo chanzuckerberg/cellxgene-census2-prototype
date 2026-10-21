@@ -2,20 +2,23 @@
 
 The fixture writes three small stores in the form that the writer produces: the
 counts in `X`, a shared 20-gene reference as `var`, `observation_joinid` in `obs`,
-and no `dataset_id`. The receipt beside each store records `gene_reference_version`. Each store measured a
-different subset of the reference genes, so the others are zero columns.
+and no `dataset_id`. Each store's summary record, in the attributes of its root group, holds the
+dataset's identifiers and `gene_reference_version`. Each store measured a different subset of the
+reference genes, so the others are zero columns.
 """
 
-import json
+import threading
 from pathlib import Path
 from typing import Any, cast
 
 import anndata
 import build_catalog
+import census2_dataset_writer
 import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
+import zarr
 
 import census2_sdk
 from census2_sdk import catalog
@@ -89,20 +92,33 @@ def write_one(
     prefix: Path,
     adata: anndata.AnnData,
     dataset_id: str,
-    version: str | None = "GENCODE v48",
 ) -> None:
-    """One store and its receipt, as the ingestion pipeline writes them."""
+    """One store and its summary record, as the writer writes them."""
     version_id = f"v-{dataset_id}"
-    adata.write_zarr(prefix / f"{version_id}.zarr")
-    receipt = {
-        "admitted": True,
+    path = prefix / f"{version_id}.zarr"
+    adata.write_zarr(path)
+    record: census2_dataset_writer.SummaryRecord = {
+        "version": census2_dataset_writer.SUMMARY_VERSION,
         "dataset_id": dataset_id,
         "dataset_version_id": version_id,
-        "schema_version": "7.1.0",
+        "gene_reference_version": "GENCODE v48",
     }
-    if version is not None:
-        receipt["gene_reference_version"] = version
-    (prefix / f"{version_id}.json").write_text(json.dumps(receipt))
+    set_summary(path, dict(record))
+
+
+def set_summary(path: Path, record: dict[str, Any] | None) -> None:
+    """Set or remove the summary record in the store's root attributes.
+
+    It writes the record as given, unchecked, so that a test can write a malformed one.
+    """
+    namespace = census2_dataset_writer.SUMMARY_NAMESPACE
+    root = zarr.open_group(path, mode="r+")
+    attrs = dict(root.attrs)
+    attrs.pop(namespace, None)
+    if record is not None:
+        attrs[namespace] = {census2_dataset_writer.SUMMARY_KEY: record}
+    root.attrs.clear()
+    root.update_attributes(attrs)
 
 
 @pytest.fixture(scope="module")
@@ -112,7 +128,6 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     prefix.mkdir()
     for seed, (dataset_id, spec) in enumerate(STORES.items()):
         write_one(prefix, make_store(dataset_id, *spec, seed=seed), dataset_id)
-    (prefix / "v-rejected.json").write_text(json.dumps({"admitted": False}))
     frame = build_catalog.build(str(prefix), root / "catalog.parquet")
     assert len(frame) == 3
     return {"root": root, "prefix": prefix, "catalog": root / "catalog.parquet"}
@@ -122,11 +137,10 @@ def one_store_catalog(
     tmp_path: Path,
     adata: anndata.AnnData,
     dataset_id: str,
-    version: str | None = "GENCODE v48",
 ) -> Path:
     prefix = tmp_path / "out"
     prefix.mkdir()
-    write_one(prefix, adata, dataset_id, version)
+    write_one(prefix, adata, dataset_id)
     build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
     return tmp_path / "catalog.parquet"
 
@@ -237,6 +251,52 @@ def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
     assert list(result.var.columns) == list(reference_var(REFERENCE_IDS).columns)
 
 
+def test_concurrent_reads_match_one_at_a_time(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    obs_filter = {"tissue": ["lung", "kidney"]}  # selects all three stores
+    census = census2_sdk.open_census([corpus["catalog"]])
+    one = query(census, obs_filter)
+
+    # Each read waits for all three, so a serial read times out. Each store then
+    # waits for the next one in catalog order, so the first store finishes last.
+    read_store = census2_sdk._read_store
+    order = list(STORES)
+    all_running = threading.Barrier(len(order), timeout=10)
+    done = {dataset_id: threading.Event() for dataset_id in order}
+    finished: list[str] = []
+
+    def overlapping(row: dict[str, Any], normalized: Any) -> anndata.AnnData:
+        all_running.wait()
+        part = read_store(row, normalized)
+        position = order.index(row["dataset_id"])
+        if position + 1 < len(order):
+            assert done[order[position + 1]].wait(timeout=10)
+        finished.append(str(row["dataset_id"]))
+        done[str(row["dataset_id"])].set()
+        return part
+
+    monkeypatch.setattr(census2_sdk, "_read_store", overlapping)
+    many = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
+    assert many is not None
+    assert finished == list(reversed(STORES))
+    assert list(many.obs_names) == list(one.obs_names)  # catalog order
+    pd.testing.assert_frame_equal(
+        cast("pd.DataFrame", many.obs), cast("pd.DataFrame", one.obs)
+    )
+    assert np.array_equal(X(many).toarray(), X(one).toarray())
+    assert many.uns["census2"] == one.uns["census2"]
+
+
+@pytest.mark.parametrize("max_workers", [0, -1])
+def test_max_workers_must_be_positive(
+    corpus: dict[str, Path], max_workers: int
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="max_workers"):
+        census.get_anndata("homo_sapiens", {"tissue": "lung"}, max_workers=max_workers)
+
+
 def test_empty_result(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     assert census.get_anndata("homo_sapiens", {"tissue": "brain"}) is None
@@ -286,9 +346,17 @@ def test_store_with_another_var_refused(
 
 
 def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
-    """A receipt that names no reference gives a catalog row that the SDK refuses."""
+    """A catalog row that names no reference is refused.
+
+    The builder refuses a summary record without a reference, so the test removes the
+    value from the catalog row.
+    """
     adata = make_store("ds-u", 5, REFERENCE_IDS, ["lung"], ["normal"], 7)
-    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-u", None)])
+    path = one_store_catalog(tmp_path, adata, "ds-u")
+    frame = catalog.load(path)
+    frame["gene_reference_version"] = None
+    frame.to_parquet(path, index=False)
+    census = census2_sdk.open_census([path])
     with pytest.raises(census2_sdk.SourceConflict, match="no gene_reference_version"):
         census.get_anndata("homo_sapiens")
 
@@ -405,3 +473,82 @@ def test_recorded_reference_must_match_the_pin(
     frame.to_parquet(tmp_path / "v48.parquet", index=False)
     census = census2_sdk.open_census([tmp_path / "v48.parquet"])
     assert query(census, {"tissue": "lung"}).n_obs > 0
+
+
+# --- the catalog builder and the summary record -------------------------------
+
+
+def builder_prefix(tmp_path: Path) -> tuple[Path, Path]:
+    adata = make_store("ds-s", 5, REFERENCE_IDS, ["lung"], ["normal"], 9)
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    write_one(prefix, adata, "ds-s")
+    return prefix, prefix / "v-ds-s.zarr"
+
+
+def test_builder_reads_the_summary_record(tmp_path: Path) -> None:
+    prefix, _ = builder_prefix(tmp_path)
+    row = build_catalog.build(str(prefix)).iloc[0]
+    assert row["dataset_id"] == "ds-s"
+    assert row["dataset_version_id"] == "v-ds-s"
+    assert row["gene_reference_version"] == "GENCODE v48"
+    assert row["curation_schema_version"] == "7.1.0"
+    assert not list(prefix.glob("*.json"))
+
+
+def test_builder_refuses_a_store_without_a_summary_record(tmp_path: Path) -> None:
+    prefix, store = builder_prefix(tmp_path)
+    set_summary(store, None)
+    with pytest.raises(ValueError, match="v-ds-s.zarr: no summary record"):
+        build_catalog.build(str(prefix))
+
+
+def test_builder_refuses_an_unknown_record_version(tmp_path: Path) -> None:
+    prefix, store = builder_prefix(tmp_path)
+    record = {
+        "version": 2,
+        "dataset_id": "ds-s",
+        "dataset_version_id": "v-ds-s",
+        "gene_reference_version": "GENCODE v48",
+    }
+    set_summary(store, record)
+    with pytest.raises(ValueError, match="summary record version 2"):
+        build_catalog.build(str(prefix))
+
+
+def test_builder_refuses_a_record_for_another_store(tmp_path: Path) -> None:
+    prefix, store = builder_prefix(tmp_path)
+    record = {
+        "version": 1,
+        "dataset_id": "ds-s",
+        "dataset_version_id": "v-other",
+        "gene_reference_version": "GENCODE v48",
+    }
+    set_summary(store, record)
+    with pytest.raises(ValueError, match="names dataset version 'v-other'"):
+        build_catalog.build(str(prefix))
+
+
+def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
+    prefix, store = builder_prefix(tmp_path)
+    record = {
+        "version": 1,
+        "dataset_id": 7,
+        "dataset_version_id": "v-ds-s",
+        "gene_reference_version": "GENCODE v48",
+    }
+    set_summary(store, record)
+    with pytest.raises(ValueError, match="v-ds-s.zarr: summary record dataset_id is 7"):
+        build_catalog.build(str(prefix))
+
+
+def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
+    """The spatial flag follows the writer's list of spatial assays."""
+    adata = make_store("ds-v", 5, REFERENCE_IDS, ["lung"], ["normal"], 11)
+    visium = "EFO:0022857"  # Visium Spatial Gene Expression V1
+    assert visium in census2_dataset_writer.assays.SPATIAL
+    adata.obs["assay_ontology_term_id"] = pd.Categorical([visium] * adata.n_obs)
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    write_one(prefix, adata, "ds-v")
+    assert bool(build_catalog.build(str(prefix)).iloc[0]["spatial"]) is True

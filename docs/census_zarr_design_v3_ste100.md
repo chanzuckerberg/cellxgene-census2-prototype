@@ -3,7 +3,7 @@
 **Version 3. Status:** DRAFT, the current design record. **Last edited:** 2026-10-19.
 
 This document is the design record for Census 2. It follows ASD-STE100 and the
-[Census 2 documentation policy](https://github.com/chanzuckerberg/cellxgene-census2-prototype/blob/main/CLAUDE.md#documentation-policy).
+[Census 2 documentation policy](https://github.com/chanzuckerberg/cellxgene-census2-prototype/blob/main/AGENTS.md#documentation-policy).
 It replaces the
 [earlier version 3 (internal)](https://app.notion.com/p/3cf16a7537898109b010d8dfb6f920fa). The
 review comment threads stay on that internal Notion page until they are resolved.

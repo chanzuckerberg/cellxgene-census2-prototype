@@ -35,7 +35,7 @@ jobs:
 
       # From the repository root, so one invocation covers both trees. The
       # directive is `pipx run ruff`, unpinned, so this runs what a committer
-      # runs. See the root CLAUDE.md, "Python style".
+      # runs. See the root AGENTS.md, "Python style".
       - name: Lint
         run: pipx run ruff check .
 
@@ -63,7 +63,7 @@ jobs:
       - name: Unit tests
         run: pytest -q
 
-      # Strict, per the root CLAUDE.md. Settings come from this package's own
+      # Strict, per the root AGENTS.md. Settings come from this package's own
       # pyproject, which is why this runs from the package directory.
       - name: Type check
         run: mypy

@@ -73,7 +73,7 @@ def main() -> int:
         ),
         # More than one value means the stores do not concatenate by position.
         "gene_reference_version": sorted(
-            {str(r.get("gene_reference_version")) for r in admitted}
+            {str(r["summary"]["gene_reference_version"]) for r in admitted}
         ),
         # The gene projection drops the features that are not organism genes,
         # such as ERCC spike-ins. The report gives a count and not the list,

@@ -10,7 +10,7 @@ reads the receipts and reports on the run.
 
 The [`census2-dataset-writer`](../census2-dataset-writer/README.md) package decides whether a
 dataset is admitted and what a store contains; the runtime image installs it as a dependency. This
-pipeline is the I/O around it. [`CLAUDE.md`](CLAUDE.md) records how the pipeline is put together.
+pipeline is the I/O around it. [`AGENTS.md`](AGENTS.md) records how the pipeline is put together.
 
 ## Requirements
 
@@ -159,6 +159,10 @@ tools/census1-sample.py --census-version 2025-11-08 \
 <outdir>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
 <outdir>/<dataset_version_id>.json     the receipt, always
 ```
+
+The store holds its summary record, with the dataset's identifiers and the gene reference version,
+in the attributes of its root `zarr.json`. The `census2-dataset-writer` README describes the
+record. The receipt is the run log of the pipeline, and the run report reads it.
 
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.
