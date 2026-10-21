@@ -35,6 +35,18 @@ REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 IDS = {"dataset_id": "dataset-1", "dataset_version_id": "version-1"}
 
 
+def build(
+    f: h5py.File, **kwargs: Any
+) -> tuple[anndata.AnnData | None, census2_dataset_writer.Result]:
+    """`census2_dataset_writer.build`, with the test identifiers."""
+    return census2_dataset_writer.build(
+        f,
+        dataset_id=IDS["dataset_id"],
+        dataset_version_id=IDS["dataset_version_id"],
+        **kwargs,
+    )
+
+
 def create(source: Any, dest: Any, **kwargs: Any) -> census2_dataset_writer.Result:
     """`census2_dataset_writer.create`, with the test identifiers."""
     return census2_dataset_writer.create(
@@ -347,9 +359,9 @@ def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:
-        adata, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        adata, result = build(f, refdata=tmp_path / "refdata")
         assert adata is not None
-        summary = census2_dataset_writer.summary_record("d", "v", result)
+        summary = census2_dataset_writer.summary_record(result)
         census2_dataset_writer.write(adata, tmp_path / "store.zarr", summary=summary)
         # After `write`, so that both hold the dataset_id column that it adds.
         adata.write_zarr(tmp_path / "plain.zarr")
@@ -431,6 +443,8 @@ def test_write_needs_a_summary_record(tmp_path: Path) -> None:
 
 def test_a_rejected_dataset_has_no_summary_record() -> None:
     rejected: census2_dataset_writer.Result = {
+        "dataset_id": "d",
+        "dataset_version_id": "v",
         "admitted": False,
         "reason": "no cells on the assay allowlist",
         "slots": [],
@@ -439,7 +453,7 @@ def test_a_rejected_dataset_has_no_summary_record() -> None:
         "gene_reference_version": None,
     }
     with pytest.raises(ValueError, match="not admitted"):
-        census2_dataset_writer.summary_record("d", "v", rejected)
+        census2_dataset_writer.summary_record(rejected)
 
 
 # --- slot policy ----------------------------------------------------------
@@ -494,7 +508,7 @@ def test_unwanted_uns_keys_are_never_read(
     # By name: read_elem is imported by the module, not exported from it.
     monkeypatch.setattr("census2_dataset_writer.read_elem", spy)
     with h5py.File(source) as f:
-        built, _ = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        built, _ = build(f, refdata=tmp_path / "refdata")
 
     assert built is not None
     assert "spatial" not in built.uns
@@ -540,7 +554,7 @@ def test_slots_report_what_harmonize_left(
     dataset().write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, result = census2_dataset_writer.build(f)
+        adata, result = build(f)
 
     assert adata is not None
     assert "layers/harmonized" in result["slots"]
@@ -566,6 +580,7 @@ def test_not_admitted_writes_nothing(
     result = create(source, dest)
 
     assert result == {
+        **IDS,
         "admitted": False,
         "reason": "no thanks",
         "slots": [],
@@ -724,7 +739,7 @@ def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:
-        _, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        _, result = build(f, refdata=tmp_path / "refdata")
     assert result["dropped_obs_columns"] == []
     assert result["dropped_var_features"] == []
 
@@ -779,7 +794,7 @@ def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
     dataset(400, 20).write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, _ = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        adata, _ = build(f, refdata=tmp_path / "refdata")
         assert adata is not None
         # The projected X too: blocked by rows, whole reference rows per block.
         assert isinstance(adata.X, da.Array), type(adata.X)
@@ -868,3 +883,28 @@ def test_add_dataset_id_refuses_an_existing_column() -> None:
     )
     with pytest.raises(ValueError, match="already has a dataset_id column"):
         census2_dataset_writer.add_dataset_id(adata, "d")
+
+
+def test_build_returns_the_object_that_the_store_holds(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    with h5py.File(source) as f:
+        adata, result = build(f, refdata=tmp_path / "refdata")
+    assert adata is not None
+    obs = cast("pd.DataFrame", adata.obs)
+    assert obs.columns[0] == "dataset_id"
+    assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
+    assert (result["dataset_id"], result["dataset_version_id"]) == (
+        IDS["dataset_id"],
+        IDS["dataset_version_id"],
+    )
+
+
+def test_write_refuses_obs_for_another_dataset(tmp_path: Path) -> None:
+    adata = anndata.AnnData(
+        X=np.zeros((2, 2)), obs=pd.DataFrame({"dataset_id": ["other", "other"]})
+    )
+    write: Any = census2_dataset_writer.write
+    with pytest.raises(ValueError, match="must hold only the summary record's d"):
+        write(adata, tmp_path / "store.zarr", summary=dict(GOOD_RECORD))
+    assert not (tmp_path / "store.zarr").exists()

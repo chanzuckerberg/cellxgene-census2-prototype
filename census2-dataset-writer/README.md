@@ -37,7 +37,8 @@ if not result["admitted"]:
 ```
 
 A Discover h5ad does not hold its own identifiers, so the caller gives `dataset_id` and
-`dataset_version_id`. They go into the store's summary record. `build` and `write` can also be
+`dataset_version_id`. They go into the store's summary record, and `dataset_id` also goes into
+`obs`. `build` and `write` can also be
 called separately; the module docstring covers that.
 
 `refdata` is a directory that holds the pinned gene reference files, `genes_homo_sapiens.csv.gz`
@@ -114,10 +115,10 @@ Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
 `write` adds the record after anndata writes the store and its consolidated metadata, so the
 record is the last write.
 
-`write` also adds the record's `dataset_id` to `obs` as the first column, so that each cell names
-its dataset when stores are concatenated. The column is categorical with one category.
-`project_obs` removes a source column named `dataset_id`, and the result reports it in
-`dropped_obs_columns`.
+`build` adds `dataset_id` to `obs` as the first column, so that each cell names its dataset when
+stores are concatenated. The column is categorical with one category. `project_obs` removes a
+source column named `dataset_id`, and the result reports it in `dropped_obs_columns`. `write`
+refuses an AnnData whose `dataset_id` column does not hold the summary record's `dataset_id`.
 
 ## Receipts
 

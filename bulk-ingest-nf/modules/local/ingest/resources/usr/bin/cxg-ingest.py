@@ -376,9 +376,7 @@ def main() -> int:
             dropped = result["dropped_var_features"]
             log(f"  dropped {len(dropped)} features that are not organism genes")
         log(f"  genes projected onto {result['gene_reference_version']}")
-        summary = census2_dataset_writer.summary_record(
-            rec["dataset_id"], version_id, result
-        )
+        summary = census2_dataset_writer.summary_record(result)
         receipt.update(
             {
                 "slots_written": result["slots"],

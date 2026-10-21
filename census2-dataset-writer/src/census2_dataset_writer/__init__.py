@@ -15,11 +15,11 @@ identifiers, so the caller gives them. `build` and `write` split the same work
 into two calls, so a caller can inspect the AnnData before the write:
 
     with h5py.File("dataset.h5ad") as f:
-        adata, result = census2_dataset_writer.build(f)
+        adata, result = census2_dataset_writer.build(
+            f, dataset_id=dataset_id, dataset_version_id=dataset_version_id
+        )
         if adata is not None:
-            summary = census2_dataset_writer.summary_record(
-                dataset_id, dataset_version_id, result
-            )
+            summary = census2_dataset_writer.summary_record(result)
             census2_dataset_writer.write(adata, "store.zarr", summary=summary)
 
 Keep `f` open until `write` returns, because `X` is a dask graph until then
@@ -91,8 +91,8 @@ the store's root Zarr group, under `SUMMARY_NAMESPACE`. It holds the facts
 about the store that a catalog needs and that the store does not otherwise
 hold: the dataset's identifiers and the version of the gene reference.
 `SummaryRecord` declares its shape, and its `version` is `SUMMARY_VERSION`.
-`write` also adds the record's `dataset_id` to `obs`, as the first column, so
-that a cell keeps its dataset when stores are concatenated.
+`build` also adds `dataset_id` to `obs`, as the first column, so that a cell
+keeps its dataset when stores are concatenated.
 
 `write` adds the record after anndata writes the store and its consolidated
 metadata, so the record is the last write.
@@ -169,6 +169,9 @@ class Result(TypedDict):
     that a read of an undeclared key fails the type check.
     """
 
+    # The identifiers that the caller gave `build`. A Discover h5ad holds none.
+    dataset_id: str
+    dataset_version_id: str
     admitted: bool
     reason: str | None
     slots: list[str]
@@ -209,8 +212,8 @@ SUMMARY_KEY = "summary"
 # goes away. A reader refuses a version that it does not know.
 SUMMARY_VERSION = 1
 
-# The `obs` column that names each cell's dataset. `write` adds it from the
-# summary record, so a cell keeps its dataset when stores are concatenated.
+# The `obs` column that names each cell's dataset. `build` adds it after
+# harmonization, so a cell keeps its dataset when stores are concatenated.
 DATASET_ID_COLUMN = "dataset_id"
 
 
@@ -594,15 +597,18 @@ def slots_of(adata: anndata.AnnData) -> list[str]:
 def build(
     f: h5py.File,
     *,
+    dataset_id: str,
+    dataset_version_id: str,
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> tuple[anndata.AnnData | None, Result]:
     """Read one Discover dataset and return (AnnData to store, result).
 
     The AnnData is `None` when the dataset is not admitted, which is a normal
-    outcome. `result` always carries `admitted`, `reason`, and `slots`. `slots`
-    describes the object after `harmonize`, so it reports what a store will
-    hold.
+    outcome. `result` always carries the identifiers, `admitted`, `reason`, and
+    `slots`. `slots` describes the object after `harmonize`, so it reports what
+    a store will hold. After `harmonize`, `build` adds the `dataset_id` column
+    to `obs`; see `add_dataset_id`. The AnnData is thus what the store holds.
 
     `f` must stay open until the returned object is written.
     """
@@ -632,6 +638,8 @@ def build(
     reason = admit(adata, config, refdata)
     if reason is not None:
         return None, {
+            "dataset_id": dataset_id,
+            "dataset_version_id": dataset_version_id,
             "admitted": False,
             "reason": reason,
             "slots": [],
@@ -659,10 +667,13 @@ def build(
     adata = harmonize(adata, config, refdata)
     kept = set(adata.obs.columns)
     stored = set(adata.var.index.astype(str))
+    add_dataset_id(adata, dataset_id)
     # harmonize projects onto the reference that `gene_references` names for
     # the organism, which admission requires.
     spec = _gene_references(config).get(str(adata.uns.get("organism_ontology_term_id")))
     return adata, {
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
         "admitted": True,
         "reason": None,
         "slots": slots_of(adata),
@@ -708,9 +719,9 @@ def write(
     so zarr warns about it. Readers such as `anndata.experimental.read_lazy`
     still need it for tolerable remote latency.
 
-    Before the write, `write` adds the `dataset_id` column to `adata.obs`, from
-    the summary record; see `add_dataset_id`. The summary record goes into the
-    root group's attributes after anndata finishes, so it is the last write.
+    `adata.obs` must hold the `dataset_id` column that `build` adds, with the
+    summary record's `dataset_id`. The summary record goes into the root group's
+    attributes after anndata finishes, so it is the last write.
     The root group opens with its consolidated metadata, and the attribute
     update rewrites the root `zarr.json` with that metadata intact.
 
@@ -727,7 +738,14 @@ def write(
     # Refuse a malformed record before anything is written, so that a caller with
     # no type checker cannot leave a store with one.
     validate_summary(summary)
-    add_dataset_id(adata, summary["dataset_id"])
+    obs = cast("pd.DataFrame", adata.obs)
+    if DATASET_ID_COLUMN not in obs.columns or set(
+        obs[DATASET_ID_COLUMN].astype(str)
+    ) != {summary["dataset_id"]}:
+        raise ValueError(
+            f"obs {DATASET_ID_COLUMN} must hold only the summary record's "
+            f"{summary['dataset_id']}; `build` adds that column"
+        )
     store = as_store(dest)
     with limit:
         adata.write_zarr(store, consolidate_metadata=consolidate)
@@ -738,9 +756,9 @@ def write(
 def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
     """Add the `dataset_id` column to `adata.obs`, as its first column.
 
-    The column is categorical with one category, so it costs one code per cell.
-    `project_obs` removes a source column of that name, so `obs` must not hold
-    one here.
+    `build` calls this after `harmonize`. The column is categorical with one
+    category, so it costs one code per cell. `project_obs` removes a source
+    column of that name, so `obs` must not hold one here.
     """
     obs = cast("pd.DataFrame", adata.obs)
     if DATASET_ID_COLUMN in obs.columns:
@@ -752,16 +770,14 @@ def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
     obs.insert(0, DATASET_ID_COLUMN, column)
 
 
-def summary_record(
-    dataset_id: str, dataset_version_id: str, result: Result
-) -> SummaryRecord:
-    """The summary record of an admitted dataset, from its identifiers and result."""
+def summary_record(result: Result) -> SummaryRecord:
+    """The summary record of an admitted dataset, from its result."""
     if not result["admitted"] or result["gene_reference_version"] is None:
         raise ValueError("a dataset that is not admitted has no store and no record")
     return {
         "version": SUMMARY_VERSION,
-        "dataset_id": dataset_id,
-        "dataset_version_id": dataset_version_id,
+        "dataset_id": result["dataset_id"],
+        "dataset_version_id": result["dataset_version_id"],
         "gene_reference_version": result["gene_reference_version"],
     }
 
@@ -820,9 +836,15 @@ def create(
     `write`.
     """
     with _opened(source) as f:
-        adata, result = build(f, config=config, refdata=refdata)
+        adata, result = build(
+            f,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+            config=config,
+            refdata=refdata,
+        )
         if adata is None:
             return result
-        summary = summary_record(dataset_id, dataset_version_id, result)
+        summary = summary_record(result)
         write(adata, dest, summary=summary, consolidate=consolidate, threads=threads)
     return result
