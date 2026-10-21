@@ -2,7 +2,7 @@
 
 The fixture writes three small stores in the form that the writer produces: the
 counts in `X`, a shared 20-gene reference as `var`, `observation_joinid` in `obs`,
-and no `dataset_id`. Each store's summary record, in the attributes of its root group, holds the
+and `dataset_id` first in `obs`. Each store's summary record, in the attributes of its root group, holds the
 dataset's identifiers and `gene_reference_version`. Each store measured a different subset of the
 reference genes, so the others are zero columns.
 """
@@ -72,6 +72,7 @@ def make_store(
     x = sp.csr_matrix(kept)
     obs = pd.DataFrame(
         {
+            "dataset_id": pd.Categorical([dataset_id] * n_obs),
             "tissue": pd.Categorical(rng.choice(tissues, n_obs)),
             "disease": pd.Categorical(rng.choice(diseases, n_obs)),
             "assay_ontology_term_id": pd.Categorical(["EFO:0009922"] * n_obs),
@@ -170,7 +171,6 @@ def expected(
                 mask &= series.isin(wanted).to_numpy()
         sub = adata[mask].copy()
         obs = cast("pd.DataFrame", sub.obs).copy()
-        obs.insert(0, "dataset_id", dataset_id)
         obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
         var = cast("pd.DataFrame", sub.var)
         parts.append(anndata.AnnData(X=X(sub), obs=obs, var=var))
@@ -552,3 +552,22 @@ def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
     prefix.mkdir()
     write_one(prefix, adata, "ds-v")
     assert bool(build_catalog.build(str(prefix)).iloc[0]["spatial"]) is True
+
+
+# --- the dataset_id column ------------------------------------------------------
+
+
+def test_store_without_a_dataset_id_column_is_refused(tmp_path: Path) -> None:
+    adata = make_store("ds-n", 5, REFERENCE_IDS, ["lung"], ["normal"], 13)
+    adata.obs = cast("pd.DataFrame", adata.obs).drop(columns="dataset_id")
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-n")])
+    with pytest.raises(ValueError, match="v-ds-n.zarr: obs has no dataset_id column"):
+        census.get_anndata("homo_sapiens")
+
+
+def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
+    adata = make_store("ds-m", 5, REFERENCE_IDS, ["lung"], ["normal"], 14)
+    adata.obs["dataset_id"] = pd.Categorical(["ds-other"] * adata.n_obs)
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-m")])
+    with pytest.raises(ValueError, match="holds \\['ds-other'\\].*names ds-m"):
+        census.get_anndata("homo_sapiens")

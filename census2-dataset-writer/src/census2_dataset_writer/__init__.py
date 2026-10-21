@@ -52,9 +52,10 @@ Decisions
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs three steps in order. `project_obs`
-   decides which `obs` columns a store carries, and removes only the columns
-   that Zarr cannot name. `select_counts` puts the counts in `X`: `raw.X`
-   when the dataset has `raw`, else `X`. The store has no `raw`.
+   decides which `obs` columns a store carries. It removes the columns that
+   Zarr cannot name, and a source column named `dataset_id`. `select_counts`
+   puts the counts in `X`: `raw.X` when the dataset has `raw`, else `X`. The
+   store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
    dataset's organism. Thus every store of one organism has the same `var`,
    in the same order. See `census2_dataset_writer.genes`.
@@ -90,6 +91,8 @@ the store's root Zarr group, under `SUMMARY_NAMESPACE`. It holds the facts
 about the store that a catalog needs and that the store does not otherwise
 hold: the dataset's identifiers and the version of the gene reference.
 `SummaryRecord` declares its shape, and its `version` is `SUMMARY_VERSION`.
+`write` also adds the record's `dataset_id` to `obs`, as the first column, so
+that a cell keeps its dataset when stores are concatenated.
 
 `write` adds the record after anndata writes the store and its consolidated
 metadata, so the record is the last write.
@@ -134,6 +137,7 @@ import anndata
 import dask
 import h5py
 import numpy as np
+import pandas as pd
 import zarr
 from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
@@ -143,7 +147,6 @@ from . import assays, genes
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
-    import pandas as pd
 
 # What the public functions accept. The prose above describes these unions; the
 # aliases are the same statement in a form a type checker and an editor can use.
@@ -205,6 +208,10 @@ SUMMARY_KEY = "summary"
 # The format of the summary record. Raise it when a field changes meaning or
 # goes away. A reader refuses a version that it does not know.
 SUMMARY_VERSION = 1
+
+# The `obs` column that names each cell's dataset. `write` adds it from the
+# summary record, so a cell keeps its dataset when stores are concatenated.
+DATASET_ID_COLUMN = "dataset_id"
 
 
 class SummaryRecord(TypedDict):
@@ -460,9 +467,12 @@ def project_obs(
     """Project `obs` onto the columns a store carries.
 
     THIS IS A MINIMAL STUB. It removes the `obs` columns whose names hold a
-    `/`, and keeps every other column. It is not production-ready projection
-    logic. Zarr gives `/` its path meaning, so a column named that way fails
-    the write. Removing it is what lets the dataset be stored at all.
+    `/`, and a source column named `dataset_id`, and keeps every other column.
+    It is not production-ready projection logic. Zarr gives `/` its path
+    meaning, so a column named that way fails the write. Removing it is what
+    lets the dataset be stored at all. In a store, `dataset_id` names the
+    dataset, and `write` adds that column, so a source column of that name
+    goes.
 
     Census 1 projects `obs` onto a closed schema: about 20 named CxG fields,
     plus columns it computes. It carries no author-chosen column, because its
@@ -479,7 +489,7 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    dropped = [c for c in obs.columns if "/" in str(c)]
+    dropped = [c for c in obs.columns if "/" in str(c) or c == DATASET_ID_COLUMN]
     if dropped:
         adata.obs = obs.drop(columns=dropped)
     return adata
@@ -698,8 +708,9 @@ def write(
     so zarr warns about it. Readers such as `anndata.experimental.read_lazy`
     still need it for tolerable remote latency.
 
-    The summary record goes into the root group's attributes after anndata
-    finishes, so it is the last write.
+    Before the write, `write` adds the `dataset_id` column to `adata.obs`, from
+    the summary record; see `add_dataset_id`. The summary record goes into the
+    root group's attributes after anndata finishes, so it is the last write.
     The root group opens with its consolidated metadata, and the attribute
     update rewrites the root `zarr.json` with that metadata intact.
 
@@ -716,11 +727,29 @@ def write(
     # Refuse a malformed record before anything is written, so that a caller with
     # no type checker cannot leave a store with one.
     validate_summary(summary)
+    add_dataset_id(adata, summary["dataset_id"])
     store = as_store(dest)
     with limit:
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
     root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
+
+
+def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
+    """Add the `dataset_id` column to `adata.obs`, as its first column.
+
+    The column is categorical with one category, so it costs one code per cell.
+    `project_obs` removes a source column of that name, so `obs` must not hold
+    one here.
+    """
+    obs = cast("pd.DataFrame", adata.obs)
+    if DATASET_ID_COLUMN in obs.columns:
+        raise ValueError(
+            f"obs already has a {DATASET_ID_COLUMN} column; project_obs removes a "
+            "source column of that name"
+        )
+    column = pd.Series(pd.Categorical([dataset_id] * len(obs)), index=obs.index)
+    obs.insert(0, DATASET_ID_COLUMN, column)
 
 
 def summary_record(

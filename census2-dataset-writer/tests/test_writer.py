@@ -16,7 +16,7 @@ import hashlib
 import json
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import anndata
 import census2_dataset_writer
@@ -176,7 +176,9 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # the layout instead is misleading: obs/_index reads back as a group.
     obs: Any = read_elem(store["obs"])
     assert list(obs.index) == list(source.obs.index)
-    assert list(obs.columns) == list(source.obs.columns)
+    # The store adds `dataset_id`, first, and keeps every source column.
+    assert list(obs.columns) == ["dataset_id", *source.obs.columns]
+    assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
     assert obs["cell_type"].dtype == source.obs["cell_type"].dtype
 
     # X is the counts on the reference genes, and sparse even from a dense source.
@@ -347,9 +349,10 @@ def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
     with h5py.File(source) as f:
         adata, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
         assert adata is not None
-        adata.write_zarr(tmp_path / "plain.zarr")
         summary = census2_dataset_writer.summary_record("d", "v", result)
         census2_dataset_writer.write(adata, tmp_path / "store.zarr", summary=summary)
+        # After `write`, so that both hold the dataset_id column that it adds.
+        adata.write_zarr(tmp_path / "plain.zarr")
 
     def nodes(path: Path) -> set[str]:
         root = json.loads((path / "zarr.json").read_text())
@@ -712,7 +715,7 @@ def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
     assert result["dropped_obs_columns"] == SLASH_COLS  # source order
     store = zarr.open_consolidated(str(dest))
     obs: Any = read_elem(store["obs"])
-    assert list(obs.columns) == ["cell_type"]
+    assert list(obs.columns) == ["dataset_id", "cell_type"]
 
 
 def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
@@ -830,3 +833,38 @@ def test_as_store_adapts_a_remote_url() -> None:
     pytest.importorskip("obstore")
     store = census2_dataset_writer.as_store("s3://bucket/prefix.zarr")
     assert isinstance(store, zarr.storage.ObjectStore)
+
+
+# --- the dataset_id column ------------------------------------------------------
+
+
+def test_store_obs_names_its_dataset(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
+    assert obs.columns[0] == "dataset_id"
+    assert isinstance(obs["dataset_id"].dtype, pd.CategoricalDtype)
+    assert list(obs["dataset_id"].cat.categories) == [IDS["dataset_id"]]
+    assert (obs["dataset_id"] == IDS["dataset_id"]).all()
+
+
+def test_a_source_dataset_id_column_is_replaced(tmp_path: Path) -> None:
+    """A source column named dataset_id is dropped and reported, and the store's
+    column names the dataset."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset()
+    adata.obs["dataset_id"] = "curator-label"
+    adata.write_h5ad(source)
+    result = create(source, dest, refdata=tmp_path / "refdata")
+    assert result["dropped_obs_columns"] == ["dataset_id"]
+    obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
+    assert list(obs.columns).count("dataset_id") == 1
+    assert (obs["dataset_id"] == IDS["dataset_id"]).all()
+
+
+def test_add_dataset_id_refuses_an_existing_column() -> None:
+    adata = anndata.AnnData(
+        X=np.zeros((2, 2)), obs=pd.DataFrame({"dataset_id": ["a", "b"]})
+    )
+    with pytest.raises(ValueError, match="already has a dataset_id column"):
+        census2_dataset_writer.add_dataset_id(adata, "d")

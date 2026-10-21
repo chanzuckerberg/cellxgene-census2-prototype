@@ -22,8 +22,8 @@ None.
 The writer projects each store onto the reference. Thus every selected store has
 the same `var`. The SDK checks this, and concatenates by position.
 
-Iteration 1 scaffolding, marked `ponytail:` in the code: the SDK reads `dataset_id`
-from the catalog because the stores do not hold the column.
+Each store's `obs` holds `dataset_id`, which the writer adds. The SDK refuses a
+store whose `dataset_id` differs from the dataset of its catalog row.
 """
 
 import os
@@ -200,6 +200,8 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
     group = open_store(row["store_uri"])
     obs = cast("pd.DataFrame", read_elem(group["obs"]))
     _check_cell_key(obs, str(row["store_uri"]))
+    dataset_id = str(row["dataset_id"])
+    _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
     var_group = group["var"]
@@ -208,16 +210,20 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _rows(group["X"], keep)
 
-    # ponytail: the stores hold no dataset_id column; it comes from the writer
-    # once disposition row 13 lands in harmonize.
-    dataset_id = str(row["dataset_id"])
-    obs.insert(
-        0,
-        "dataset_id",
-        pd.Series(pd.Categorical([dataset_id] * len(obs)), index=obs.index),
-    )
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
     return anndata.AnnData(X=x, obs=obs, var=var)
+
+
+def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:
+    """The store's `dataset_id` column names the dataset of its catalog row."""
+    if "dataset_id" not in obs.columns:
+        raise ValueError(f"{store_uri}: obs has no dataset_id column")
+    found = set(obs["dataset_id"].astype(str))
+    if found != {dataset_id}:
+        raise ValueError(
+            f"{store_uri}: obs dataset_id holds {sorted(found)}, and the catalog row "
+            f"names {dataset_id}"
+        )
 
 
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:

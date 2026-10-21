@@ -114,6 +114,11 @@ Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
 `write` adds the record after anndata writes the store and its consolidated metadata, so the
 record is the last write.
 
+`write` also adds the record's `dataset_id` to `obs` as the first column, so that each cell names
+its dataset when stores are concatenated. The column is categorical with one category.
+`project_obs` removes a source column named `dataset_id`, and the result reports it in
+`dropped_obs_columns`.
+
 ## Receipts
 
 A receipt is the JSON a pipeline writes beside a store, about one run of the pipeline. `Receipt`

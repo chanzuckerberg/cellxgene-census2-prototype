@@ -52,7 +52,7 @@ The result holds:
 
 - `X`, the counts
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
-- `obs`, the columns that all selected stores hold, plus `dataset_id` and `observation_joinid`
+- `obs`, the columns that all selected stores hold, which include `dataset_id` and `observation_joinid`
 - `obs_names`, `<dataset_id>_<observation_joinid>`
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
 
