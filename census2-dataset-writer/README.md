@@ -112,8 +112,7 @@ Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
   copy them.
 
 `write` adds the record after anndata writes the store and its consolidated metadata, so the
-record is the last write. A store with a summary record is complete, and a store without one is
-partial.
+record is the last write.
 
 ## Receipts
 

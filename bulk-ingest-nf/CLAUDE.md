@@ -137,11 +137,9 @@ the running tasks end but starts no new one, so `REPORT` never runs and the run 
 after-action report. A 100 dataset run lost its report to 10 such tasks. The report is most wanted
 when tasks fail, so this needs a design that collects the receipts that do exist.
 
-A task that raises part way through a write leaves a partial store. The writer adds the summary
-record after anndata writes the store and its consolidated metadata, so the absence of the summary
-record in the root `zarr.json` identifies a partial store. `verify_written` refuses one, and the
-catalog builder does too. One run of 100 datasets left 8 partial stores, and one complete store
-whose task then failed its check.
+A task that raises part way through a write leaves a partial store. anndata writes consolidated
+metadata last, so the absence of `consolidated_metadata` in the root `zarr.json` identifies one.
+The same run left 8 partial stores, and one complete store whose task then failed its check.
 
 An empty manifest gives a successful run that writes nothing: no task runs, `collect()` on an
 empty channel emits nothing, and `REPORT` is skipped. `main.nf` fails early instead.

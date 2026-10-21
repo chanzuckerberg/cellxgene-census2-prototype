@@ -221,12 +221,11 @@ def _obstore_url(path_or_uri: str) -> str:
 
 
 def verify_written(uri: str) -> None:
-    """Confirm a directly written store arrived, is readable, and is complete.
+    """Confirm a directly written store arrived, is readable, and has its summary record.
 
     A local destination is a declared Nextflow output, so the workflow fails if
     it is missing. A direct write to object storage has no such check, so verify
-    it here. The summary record is the last write, so a store without one is
-    partial.
+    it here.
     """
     if store_bytes(uri) == 0:
         raise SystemExit(f"store is empty after writing: {uri}")

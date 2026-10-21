@@ -738,7 +738,7 @@ def summary_record(
 
 
 def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
-    """The summary record of a store, or None for a partial store.
+    """The summary record of a store, or None when the store has none.
 
     `dest` is a store's location, or its root group already open. A record that is
     present but malformed raises `SummaryRecordError`; see `validate_summary`.

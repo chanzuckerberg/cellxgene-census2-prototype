@@ -49,15 +49,15 @@ def summary_record(
     """The summary record of the store `name`. Refuse a store that has no usable one.
 
     `census2-dataset-writer` defines the record, reads it, and checks its fields.
-    The writer adds the record last, so a store without one is partial. A catalog
-    that dropped such a store quietly would drop its cells from every query.
+    A catalog that dropped a store without a record quietly would drop its cells
+    from every query.
     """
     try:
         record = census2_dataset_writer.read_summary(group)
     except census2_dataset_writer.SummaryRecordError as e:
         raise ValueError(f"{name}: {e}") from e
     if record is None:
-        raise ValueError(f"{name}: no summary record; the store is partial")
+        raise ValueError(f"{name}: no summary record")
     if f"{record['dataset_version_id']}.zarr" != name:
         raise ValueError(
             f"{name}: the summary record names dataset version "

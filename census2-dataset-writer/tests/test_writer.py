@@ -360,7 +360,7 @@ def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
     assert anndata.read_zarr(tmp_path / "store.zarr").n_obs == adata.n_obs
 
 
-def test_a_store_without_a_summary_record_reads_as_partial(tmp_path: Path) -> None:
+def test_a_store_without_a_summary_record_reads_as_none(tmp_path: Path) -> None:
     anndata.AnnData(X=np.zeros((2, 2))).write_zarr(tmp_path / "plain.zarr")
     assert census2_dataset_writer.read_summary(tmp_path / "plain.zarr") is None
 

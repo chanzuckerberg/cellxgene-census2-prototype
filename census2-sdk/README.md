@@ -33,7 +33,7 @@ Each row holds the identity of the dataset, the organism, the spatial flag, `n_o
 Each store's summary record, in the attributes of its root group, gives `dataset_id`,
 `dataset_version_id`, and `gene_reference_version`. The `census2-dataset-writer` README describes
 the record. The builder reads the other fields from the store's `obs` and `uns`. It refuses a store
-that has no summary record, because such a store is partial.
+that has no summary record.
 
 ## Query
 
