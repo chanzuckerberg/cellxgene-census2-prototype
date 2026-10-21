@@ -3,7 +3,7 @@
 **Status:** task 4.1 is done, and this table follows the writer on `main`. **Last edited:** 2026-10-19.
 
 This table assigns one disposition to each transformation of the Census 1 builder.
-[Evidence section 15](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d) lists the
+[Evidence section 15 (internal)](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d) lists the
 39 steps and the validation suite, read from `tools/cellxgene_census_builder` in the
 [cellxgene-census](https://github.com/chanzuckerberg/cellxgene-census) repository. Step numbers and section numbers
 follow evidence section 15. Design section numbers refer to the

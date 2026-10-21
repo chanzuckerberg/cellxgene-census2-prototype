@@ -31,22 +31,16 @@ Each component README holds the setup and use instructions for that component.
 ## Design documents
 
 The `docs/` directory holds the design record and the disposition table. These markdown files are
-canonical. Notion pages mirror them and hold the review comments.
+canonical.
 
-| Document | File | Notion |
-|---|---|---|
-| The design record, version 3 | [`census_zarr_design_v3_ste100.md`](docs/census_zarr_design_v3_ste100.md) | [page](https://app.notion.com/p/3d816a75378981f18f55c2bae3256a54) |
-| The harmonization disposition table, task 4.1 | [`census_zarr_writer_dispositions.md`](docs/census_zarr_writer_dispositions.md) | [page](https://app.notion.com/p/3cf16a75378981cbaa97fab9b7586456) |
+| Document | File |
+|---|---|
+| The design record, version 3 | [`census_zarr_design_v3_ste100.md`](docs/census_zarr_design_v3_ste100.md) |
+| The harmonization disposition table, task 4.1 | [`census_zarr_writer_dispositions.md`](docs/census_zarr_writer_dispositions.md) |
 
-Two documents are on Notion only. The
-[evidence](https://app.notion.com/p/3b216a75378981a8b76fe2955c600c4d) holds the measurements and
-their methods. The [plan](https://app.notion.com/p/3b216a75378981c9b7f3d954789aefe4) holds the
-16 phases of the work.
-
-The review threads on the design record stay on the
-[earlier version 3 page](https://app.notion.com/p/3cf16a7537898109b010d8dfb6f920fa) until they are
-resolved. The [project page](https://app.notion.com/p/38f16a753789806b8fb0e21950fd3659) and the
-[tracker](https://app.notion.com/p/95716a7537898228b0150198eacd21dc) hold the epics and tasks.
+The evidence, the plan, and the tracker are internal Biohub documents. The evidence holds the
+measurements and their methods. The plan holds the 16 phases of the work, and the tracker holds
+their tasks.
 
 A README, a docstring, or a pull request cites these documents in a fixed form. A design citation
 such as design 2.2 names a section of the design record. A plan citation such as plan Phase 6 names
