@@ -1,8 +1,8 @@
 """The gene reference that this SDK pins for each organism.
 
 The writer projects every store onto the reference of its organism: the store's
-`var` is the reference, in reference order, and the receipt records its version.
-Stores of one organism therefore concatenate by position (design 1.5).
+`var` is the reference, in reference order, and the store's summary record names
+its version. Stores of one organism therefore concatenate by position (design 1.5).
 The SDK holds only the version names. It refuses a store whose catalog row records
 another version, and it does not remap genes during a query (design 4.3).
 """

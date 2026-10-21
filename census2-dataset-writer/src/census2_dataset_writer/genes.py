@@ -54,7 +54,7 @@ class Reference(TypedDict):
     """One organism's reference file, as the configuration names it."""
 
     file: str  # resolved against `refdata`
-    version: str  # reported in the result and the receipt
+    version: str  # reported in the result and the summary record
     sha256: str
     url: str  # where `stage-refdata.py` fetches the file; the writer never does
 

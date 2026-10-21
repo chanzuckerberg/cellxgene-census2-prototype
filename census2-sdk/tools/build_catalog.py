@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """Build the prototype catalog from the Iteration 1 stores: one Parquet row for each store.
 
-The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 2
-team publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for
-that builder. It reads a prefix that holds `<dataset_version_id>.zarr` stores and the
-receipts next to them. It takes the indexed values from each store's `obs`, because the
-stores have no summary record yet. The real builder reads the Discover API and the
-summary records and opens no array data.
+The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 2 team
+publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for that
+builder. It reads a prefix that holds `<dataset_version_id>.zarr` stores. Each store's
+summary record, in the attributes of its root group, gives the dataset's identifiers and
+the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
+The builder reads no receipt.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
 A remote prefix needs the `s3` extra and credentials in the environment.
 """
 
-import json
 import pathlib
 import sys
-from typing import Any, cast
+from typing import Any
 
+import census2_dataset_writer
 import pandas as pd
 import zarr
 from anndata.io import read_elem
@@ -25,60 +25,65 @@ from anndata.io import read_elem
 from census2_sdk.catalog import INDEXED, is_remote, open_store
 from census2_sdk.gene_reference import TAXON_TO_ORGANISM
 
-# Assays that the curation schema lists as spatial.
-SPATIAL_ASSAYS = frozenset({"EFO:0010961", "EFO:0030062"})
 
-
-def _list(prefix: str) -> list[str]:
-    """Names of the objects directly under `prefix`."""
+def _stores(prefix: str) -> list[str]:
+    """Names of the `.zarr` stores directly under `prefix`."""
     if is_remote(prefix):
         import obstore
         import obstore.store
 
         store = obstore.store.from_url(prefix)
         listing = obstore.list_with_delimiter(store, "")
-        return [str(o["path"]) for o in listing["objects"]]
-    return [p.name for p in pathlib.Path(prefix).iterdir()]
-
-
-def _read_json(uri: str) -> dict[str, Any]:
-    if is_remote(uri):
-        import obstore
-        import obstore.store
-
-        base, _, name = uri.rpartition("/")
-        store = obstore.store.from_url(base)
-        data = bytes(obstore.get(store, name).bytes())
+        names = [p.rstrip("/") for p in listing["common_prefixes"]]
     else:
-        data = pathlib.Path(uri).read_bytes()
-    return cast("dict[str, Any]", json.loads(data))
+        names = [p.name for p in pathlib.Path(prefix).iterdir() if p.is_dir()]
+    return sorted(n for n in names if n.endswith(".zarr"))
+
+
+def summary_record(
+    group: zarr.Group, name: str
+) -> census2_dataset_writer.SummaryRecord:
+    """The summary record of the store `name`. Refuse a store that has no usable one.
+
+    `census2-dataset-writer` defines the record, reads it, and checks its fields.
+    A catalog that dropped a store without a record quietly would drop its cells
+    from every query.
+    """
+    try:
+        record = census2_dataset_writer.read_summary(group)
+    except census2_dataset_writer.SummaryRecordError as e:
+        raise ValueError(f"{name}: {e}") from e
+    if record is None:
+        raise ValueError(f"{name}: no summary record")
+    if f"{record['dataset_version_id']}.zarr" != name:
+        raise ValueError(
+            f"{name}: the summary record names dataset version "
+            f"{record['dataset_version_id']!r}"
+        )
+    return record
 
 
 def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
-    """One catalog row for each admitted receipt under `prefix`.
+    """One catalog row for each store under `prefix`.
 
-    The receipt supplies `dataset_id` and `gene_reference_version`; the store
-    supplies everything else.
+    The store's summary record supplies `dataset_id`, `dataset_version_id`, and
+    `gene_reference_version`. The store's `obs` and `uns` supply the rest.
     """
-    # ponytail: dataset_id comes from the receipt until the writer stamps it into obs
-    # (disposition row 13). gene_reference_version comes from the receipt because
-    # the store does not record it.
+    # ponytail: dataset_id comes from the summary record until the writer stamps it
+    # into obs (disposition row 13).
     prefix = prefix.rstrip("/")
     rows: list[dict[str, Any]] = []
-    for name in sorted(n for n in _list(prefix) if n.endswith(".json")):
-        receipt = _read_json(f"{prefix}/{name}")
-        if not receipt.get("admitted"):
-            continue
-        version_id = str(receipt["dataset_version_id"])
-        store_uri = f"{prefix}/{version_id}.zarr"
+    for name in _stores(prefix):
+        store_uri = f"{prefix}/{name}"
+        group = open_store(store_uri)
+        record = summary_record(group, name)
         rows.append(
             {
-                "dataset_id": str(receipt["dataset_id"]),
-                "dataset_version_id": version_id,
+                "dataset_id": record["dataset_id"],
+                "dataset_version_id": record["dataset_version_id"],
                 "store_uri": store_uri,
-                "curation_schema_version": receipt.get("schema_version"),
-                "gene_reference_version": receipt.get("gene_reference_version"),
-                **summarize(open_store(store_uri)),
+                "gene_reference_version": record["gene_reference_version"],
+                **summarize(group),
             }
         )
     frame = pd.DataFrame(rows)
@@ -121,10 +126,14 @@ def summarize(group: zarr.Group) -> dict[str, Any]:
 
     uns = group["uns"]
     assert isinstance(uns, zarr.Group)
+    row["curation_schema_version"] = (
+        str(read_elem(uns["schema_version"])) if "schema_version" in uns else None
+    )
     taxon = str(read_elem(uns["organism_ontology_term_id"]))
     row["organism"] = TAXON_TO_ORGANISM.get(taxon, taxon)
     assays = row.get("assay_ontology_term_id") or []
-    row["spatial"] = bool(SPATIAL_ASSAYS & set(assays))
+    # The writer's list of spatial assays, which is the Census 1 list.
+    row["spatial"] = bool(census2_dataset_writer.assays.SPATIAL & set(assays))
     return row
 
 
