@@ -30,9 +30,11 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
-                // A pass means nothing unless the check compared the matrices.
+                // A pass means nothing unless the check compared the matrices
+                // and the summary record.
                 assert rec.check.compared.contains("X")
                 assert rec.check.compared.contains("var")
+                assert rec.check.compared.contains("summary")
                 // Both datasets have raw, so X holds the counts from raw/X.
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
