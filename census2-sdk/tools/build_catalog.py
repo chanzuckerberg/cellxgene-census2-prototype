@@ -25,9 +25,6 @@ from anndata.io import read_elem
 from census2_sdk.catalog import INDEXED, is_remote, open_store
 from census2_sdk.gene_reference import TAXON_TO_ORGANISM
 
-# Assays that the curation schema lists as spatial.
-SPATIAL_ASSAYS = frozenset({"EFO:0010961", "EFO:0030062"})
-
 
 def _stores(prefix: str) -> list[str]:
     """Names of the `.zarr` stores directly under `prefix`."""
@@ -135,7 +132,8 @@ def summarize(group: zarr.Group) -> dict[str, Any]:
     taxon = str(read_elem(uns["organism_ontology_term_id"]))
     row["organism"] = TAXON_TO_ORGANISM.get(taxon, taxon)
     assays = row.get("assay_ontology_term_id") or []
-    row["spatial"] = bool(SPATIAL_ASSAYS & set(assays))
+    # The writer's list of spatial assays, which is the Census 1 list.
+    row["spatial"] = bool(census2_dataset_writer.assays.SPATIAL & set(assays))
     return row
 
 

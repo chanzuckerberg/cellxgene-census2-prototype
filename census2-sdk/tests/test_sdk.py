@@ -493,3 +493,15 @@ def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
     set_summary(store, record)
     with pytest.raises(ValueError, match="v-ds-s.zarr: summary record dataset_id is 7"):
         build_catalog.build(str(prefix))
+
+
+def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
+    """The spatial flag follows the writer's list of spatial assays."""
+    adata = make_store("ds-v", 5, REFERENCE_IDS, ["lung"], ["normal"], 11)
+    visium = "EFO:0022857"  # Visium Spatial Gene Expression V1
+    assert visium in census2_dataset_writer.assays.SPATIAL
+    adata.obs["assay_ontology_term_id"] = pd.Categorical([visium] * adata.n_obs)
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    write_one(prefix, adata, "ds-v")
+    assert bool(build_catalog.build(str(prefix)).iloc[0]["spatial"]) is True
