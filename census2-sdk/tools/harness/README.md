@@ -12,11 +12,13 @@ repository, branch `spike/validation-harness`, `tools/validation_harness/`.
 | `oracle_runner.py`, `requirements-oracle.lock`, `snapshot_manifest.json` | 2.2 | Records the Census 1 answers in the canonical form |
 | `canonical.py` | 2.3 | The canonical result form: rows by identity, decoded categoricals, sorted CSR, `.npy` parts, a digest |
 | `comparator.py` | 2.3 | The diff between two canonical results. Its corruption suite is `tests/test_harness.py` |
+| `sdk_adapter.py` | 6.2 | Answers a bound query through the Census 2 SDK, or names why the SDK cannot |
+| `compare_stacks.py` | 6.2 | Runs the corpus through the SDK, compares with the recorded Census 1 answers, and names the task that owns each finding |
 
 Not ported: the fixture reader over converted TileDB data (`zarr_adapter.py`,
-`make_fixtures.py`, `compare_stacks.py`), the benchmark rig (2.5), and the catalog
-prototype. The writer's stores and the SDK replace the first group. The rig returns in
-Iteration 3.
+`make_fixtures.py`, and the fixture driver of the same name as `compare_stacks.py`), the
+benchmark rig (2.5), and the catalog prototype. The writer's stores and the SDK replace the
+first group. The rig returns in Iteration 3.
 
 ## The pins
 
@@ -58,15 +60,15 @@ corpus version bump.
 
 ## The human sample of corpus v1.1
 
-The SDK run (task 6.2) compares Census 1 with the Iteration 1 stores, so the human sample
-must hold datasets that both stacks have. 73 of the 96 stores are in release 2025-11-08.
-The human sample is three of them, chosen so that the silent-failure entries select
-cells on both stacks:
+The SDK run (task 6.2) compares Census 1 with 103 stores. `bulk-ingest-nf/manifests/`
+lists their datasets: 100 human datasets sampled from release 2025-11-08, and the three
+datasets of this sample. The three datasets let the silent-failure entries select cells
+on both stacks:
 
 | Dataset | Cells | Reason |
 | --- | --- | --- |
-| `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | 12,822 | The only one of the 73 with a multi-valued disease. All its cells are primary data. |
-| `6e00ccf7-0749-46ef-a999-dba785630d52` | 5,499 | The smallest dataset with primary data and brain or lung cells |
+| `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | 12,822 | The only one of the 103 with a multi-valued disease. All its cells are primary data. |
+| `6e00ccf7-0749-46ef-a999-dba785630d52` | 5,499 | Primary data with brain or lung cells |
 | `62315937-e268-4fa5-a032-8f7d776f3a3f` | 4,778 | The control: the SDK and Census 1 agreed on every value of this dataset (task 6.1) |
 
 To rebuild the manifest with this pick:
@@ -89,9 +91,47 @@ colliding feature name) keep their v1.0 values.
   sample that holds the term, and the corpus filter selects those values. A stack with
   membership semantics takes the bare term.
 
-No dataset of the 73 holds vasculature cells, so `documented_narrow` selects no cells on
-either stack. The steps of the previous section produce the whole v1.1 snapshot, 74
+No dataset of the sample holds vasculature cells, so `documented_narrow` selects no cells
+on either stack. The steps of the previous section produce the whole v1.1 snapshot, 74
 results. To regenerate the human results only, add `--only census_data/homo_sapiens`.
+
+## Run the SDK against Census 1
+
+`compare_stacks.py` reads the catalog of the stores under test and the oracle snapshot.
+The recorded run, `results/sdk_vs_census1.json`, reads the 103 stores of
+`bulk-ingest-nf/manifests/`, and it holds the SHA-256 of its catalog. `build_catalog.py`
+builds each catalog row from the summary record of a store, so it refuses a store without
+one. `obstore` reads S3 credentials from the environment. To regenerate the record, from
+`census2-sdk/tools/`:
+
+```sh
+eval "$(aws configure export-credentials --profile <profile> --format env)"
+export AWS_REGION=<region>
+../.venv/bin/python build_catalog.py s3://bucket/prefix/ /tmp/catalog.parquet
+../.venv/bin/python -m harness.compare_stacks /tmp/catalog.parquet --out results/sdk_vs_census1.json
+```
+
+The driver prints one line for each query:
+
+| Status | Meaning |
+| --- | --- |
+| `pass` | No finding, other than the genes that only the SDK holds |
+| `fail` | At least one finding. The first five follow the line. |
+| `vacuous` | Neither side holds a cell. The findings stay on record. |
+| `unsupported` | The SDK cannot express the query. The line names the reason. |
+| `skip` | The catalog holds no store of the experiment's clamp sample |
+
+The adapter translates equality and membership clauses into the SDK's filter mapping and
+adds the clamp as a `dataset_id` filter. The SDK has no var filter, so a `feature_id`
+filter selects genes from the result after the read. A numeric or `!=` clause, a column
+that the catalog does not index, and the `get_obs`, `get_var`, and presence accessors are
+unsupported.
+
+The SDK's `var` is the whole pinned reference, and the comparator compares no X value
+while the gene sets differ. The driver thus restricts both sides to the shared genes. The
+genes that only the SDK holds are an expected finding, and a Census 1 gene that the SDK
+does not hold fails the query. Each finding names the task that owns it (the `OWNERS`
+table in `compare_stacks.py`).
 
 ## Scope limits
 

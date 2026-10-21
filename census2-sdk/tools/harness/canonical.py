@@ -145,6 +145,30 @@ def write_result(out_dir: pathlib.Path, arrays: Arrays, meta: dict[str, Any]) ->
     return digest
 
 
+IDENTITY = {"obs": ("dataset_id", "observation_joinid"), "var": ("feature_id",)}
+
+
+def identity_order(kind: str, frame: pd.DataFrame) -> np.ndarray:
+    """The row order of the canonical form: by the identity columns of the axis, as text.
+
+    The oracle runner and the stack under test share this one definition. Two orders
+    that differ make the comparator report a `row-set` finding on equal identity sets.
+    """
+    missing = set(IDENTITY[kind]) - set(frame.columns)
+    assert not missing, f"identity columns missing from {kind}: {sorted(missing)}"
+    return np.lexsort(
+        [frame[name].astype(str).to_numpy() for name in reversed(IDENTITY[kind])]
+    )
+
+
+def canonicalize_frame(kind: str, frame: pd.DataFrame) -> Arrays:
+    """The canonical arrays of an `obs` or `var` frame, with the rows in identity order."""
+    frame = frame.reset_index(drop=True)
+    return frame_arrays(
+        kind, frame.iloc[identity_order(kind, frame)].reset_index(drop=True)
+    )
+
+
 def canonicalize_anndata(adata: anndata.AnnData) -> Arrays:
     """The canonical arrays of an AnnData that holds `obs`, `var`, and layers.
 
@@ -153,18 +177,8 @@ def canonicalize_anndata(adata: anndata.AnnData) -> Arrays:
     """
     obs = cast("pd.DataFrame", adata.obs).reset_index(drop=True)
     var = cast("pd.DataFrame", adata.var).reset_index(drop=True)
-    assert {"dataset_id", "observation_joinid"} <= set(obs.columns), (
-        "identity columns missing from obs"
-    )
-    assert "feature_id" in var.columns, "feature_id missing from var"
-
-    obs_order = np.lexsort(
-        (
-            obs["observation_joinid"].astype(str).to_numpy(),
-            obs["dataset_id"].astype(str).to_numpy(),
-        )
-    )
-    var_order = np.argsort(var["feature_id"].astype(str).to_numpy(), kind="stable")
+    obs_order = identity_order("obs", obs)
+    var_order = identity_order("var", var)
     obs = obs.iloc[obs_order].reset_index(drop=True)
     var = var.iloc[var_order].reset_index(drop=True)
 
