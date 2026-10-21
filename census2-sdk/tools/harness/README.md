@@ -99,15 +99,16 @@ results. To regenerate the human results only, add `--only census_data/homo_sapi
 
 `compare_stacks.py` reads the catalog of the stores under test and the oracle snapshot.
 The recorded run, `results/sdk_vs_census1.json`, reads the 103 stores of
-`bulk-ingest-nf/manifests/`, and it holds the SHA-256 of its catalog and the store prefix.
-`obstore` reads S3 credentials from the environment. To regenerate the record, from
+`bulk-ingest-nf/manifests/`, and it holds the SHA-256 of its catalog. `build_catalog.py`
+builds each catalog row from the summary record of a store, so it refuses a store without
+one. `obstore` reads S3 credentials from the environment. To regenerate the record, from
 `census2-sdk/tools/`:
 
 ```sh
-eval "$(aws configure export-credentials --profile single-cell-dev --format env)"
-export AWS_REGION=us-west-2
-../.venv/bin/python build_catalog.py s3://mlin-census-scratch/census1-lts-100-v2/out/ /tmp/catalog-census1-lts-100-v2.parquet
-../.venv/bin/python -m harness.compare_stacks /tmp/catalog-census1-lts-100-v2.parquet --out results/sdk_vs_census1.json
+eval "$(aws configure export-credentials --profile <profile> --format env)"
+export AWS_REGION=<region>
+../.venv/bin/python build_catalog.py s3://bucket/prefix/ /tmp/catalog.parquet
+../.venv/bin/python -m harness.compare_stacks /tmp/catalog.parquet --out results/sdk_vs_census1.json
 ```
 
 The driver prints one line for each query:

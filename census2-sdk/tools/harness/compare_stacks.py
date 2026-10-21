@@ -20,7 +20,6 @@ import argparse
 import collections
 import hashlib
 import json
-import os
 import pathlib
 import re
 import sys
@@ -266,14 +265,12 @@ def main() -> int:
             print(
                 f"    [{f['kind']}] {f['where']}: {f['detail']}  (owner {f['owner']})"
             )
-    uris = sorted(census.catalog["store_uri"].astype(str))
     catalog = {
         "file": pathlib.Path(args.catalog).name,
         "sha256": None
         if census2_sdk.catalog.is_remote(args.catalog)
         else hashlib.sha256(pathlib.Path(args.catalog).read_bytes()).hexdigest(),
-        "stores": len(uris),
-        "store_prefix": os.path.commonprefix(uris),
+        "stores": len(census.catalog),
     }
     report: dict[str, Any] = {
         "catalog": catalog,

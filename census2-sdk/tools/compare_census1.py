@@ -17,7 +17,7 @@ hold. The exit code is 0 when the values on the intersection are equal.
 
 Needs AWS credentials in the environment for the stores (obstore reads no profile):
 
-    eval "$(aws configure export-credentials --profile single-cell-dev --format env)"
+    eval "$(aws configure export-credentials --profile <profile> --format env)"
 """
 
 import argparse

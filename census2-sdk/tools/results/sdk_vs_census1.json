@@ -2,8 +2,7 @@
  "catalog": {
   "file": "catalog-census1-lts-100-v2.parquet",
   "sha256": "95cf9701663eb20600d2a86f78e0d270967134e355b7d0c136e43e95ade421d4",
-  "stores": 103,
-  "store_prefix": "s3://mlin-census-scratch/census1-lts-100-v2/out/"
+  "stores": 103
  },
  "summary": {
   "status": {
