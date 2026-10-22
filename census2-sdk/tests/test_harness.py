@@ -16,6 +16,7 @@ import pytest
 import scipy.sparse as sp
 from harness.canonical import (
     canonicalize_anndata,
+    canonicalize_frame,
     frame_arrays,
     layer_arrays,
     load_result,
@@ -85,6 +86,29 @@ def test_row_order_is_invisible(truth: ad.AnnData) -> None:
     shuffled = truth[RNG.permutation(truth.n_obs)].copy()
     shuffled.uns["x_layer_name"] = "raw"
     assert compare(canonicalize_anndata(truth), canonicalize_anndata(shuffled)) == []
+
+
+def test_frames_and_anndata_share_the_identity_order(truth: ad.AnnData) -> None:
+    obs = pd.DataFrame(
+        {
+            "dataset_id": ["d2", "d1", "d1"],
+            "observation_joinid": [0, 10, 9],
+            "x": [1, 2, 3],
+        }
+    )
+    assert list(canonicalize_frame("obs", obs)["obs.x"]) == [2, 3, 1]  # "10" < "9"
+    genes = pd.Categorical(["b", "c", "a"], categories=["c", "b", "a"])
+    var = pd.DataFrame({"feature_id": genes, "x": [2, 3, 1]})
+    assert list(canonicalize_frame("var", var)["var.x"]) == [
+        1,
+        2,
+        3,
+    ]  # not category order
+    shuffled = cast("pd.DataFrame", truth.obs).iloc[RNG.permutation(truth.n_obs)]
+    whole = canonicalize_anndata(truth)
+    assert canonicalize_frame("obs", shuffled).keys() <= whole.keys()
+    for name, arr in canonicalize_frame("obs", shuffled).items():
+        np.testing.assert_array_equal(arr, whole[name])
 
 
 def test_dropped_row(truth: ad.AnnData) -> None:
