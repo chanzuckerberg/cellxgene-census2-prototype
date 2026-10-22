@@ -26,11 +26,11 @@ Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
 
 `slots_of(adata)` lists what a store written from an AnnData will hold.
-`read_summary(dest)` returns the summary record of a store, and
-`validate_summary(obj)` checks one read from elsewhere. `load_config(path)`
+`read_summary(dest)` returns the summary record of a store. `load_config(path)`
 returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
-which ships no S3 client.
+which ships no S3 client. `census2_dataset_writer.store_format` names what a
+store holds beyond AnnData-Zarr, for the writer and for a reader of a store.
 
 Decisions
 ---------
@@ -87,10 +87,10 @@ it exists.
 Summary record
 --------------
 Every store holds a summary record: a small JSON object in the attributes of
-the store's root Zarr group, under `SUMMARY_NAMESPACE`. It holds the facts
-about the store that a catalog needs and that the store does not otherwise
-hold: the dataset's identifiers and the version of the gene reference.
-`SummaryRecord` declares its shape, and its `version` is `SUMMARY_VERSION`.
+the store's root Zarr group. It holds the facts about the store that a catalog
+needs and that the store does not otherwise hold: the dataset's identifiers and
+the version of the gene reference. `store_format` defines the record, where it
+is, and its check.
 `build` also adds `dataset_id` to `obs`, as the first column, so that a cell
 keeps its dataset when stores are concatenated.
 
@@ -143,7 +143,7 @@ from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
 from zarr.abc.store import Store
 
-from . import assays, genes
+from . import assays, genes, store_format
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
@@ -202,69 +202,6 @@ RECIPE = "v1"
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
 # have to infer it.
 ZARR_FORMAT = 3
-
-# Where the summary record is: a key of the root group's attributes, and a key
-# under it. The namespace keeps the record clear of anndata's own attributes.
-SUMMARY_NAMESPACE = "cellxgene-census2"
-SUMMARY_KEY = "summary"
-
-# The format of the summary record. Raise it when a field changes meaning or
-# goes away. A reader refuses a version that it does not know.
-SUMMARY_VERSION = 1
-
-# The `obs` column that names each cell's dataset. `build` adds it after
-# harmonization, so a cell keeps its dataset when stores are concatenated.
-DATASET_ID_COLUMN = "dataset_id"
-
-
-class SummaryRecord(TypedDict):
-    """The facts about a store that a catalog needs, held in the store.
-
-    The store holds everything else that a catalog reads, such as the organism
-    and the curation schema version in `uns`, so the record does not copy it.
-    """
-
-    version: int
-    dataset_id: str
-    dataset_version_id: str
-    # The label of the gene reference in the store's `var`, as in
-    # `genes.REFERENCES`, for example "GENCODE v48".
-    gene_reference_version: str
-
-
-class SummaryRecordError(ValueError):
-    """A summary record that is malformed: a missing, unknown, or wrongly typed field."""
-
-
-def validate_summary(obj: object) -> SummaryRecord:
-    """Return `obj` as a summary record, or raise `SummaryRecordError` saying why not.
-
-    A summary record is read from a store, which is external input, so its type is
-    checked here at run time and not only asserted. The record must have exactly
-    the fields of `SummaryRecord`, `version` must be `SUMMARY_VERSION`, and the
-    other fields must be strings that are not empty.
-    """
-    if not isinstance(obj, dict):
-        raise SummaryRecordError(
-            f"a summary record is a JSON object, not {type(obj).__name__}"
-        )
-    fields = set(SummaryRecord.__annotations__)
-    if set(obj) != fields:
-        missing, extra = sorted(fields - set(obj)), sorted(set(obj) - fields)
-        raise SummaryRecordError(
-            f"summary record fields: missing {missing}, unknown {extra}"
-        )
-    version = obj["version"]
-    if type(version) is not int or version != SUMMARY_VERSION:
-        raise SummaryRecordError(
-            f"summary record version {version!r}; this package reads {SUMMARY_VERSION}"
-        )
-    for field in sorted(fields - {"version"}):
-        if not isinstance(obj[field], str) or not obj[field]:
-            raise SummaryRecordError(
-                f"summary record {field} is {obj[field]!r}, not a string"
-            )
-    return cast("SummaryRecord", obj)
 
 
 def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
@@ -375,7 +312,7 @@ class Receipt(StoreProvenance, total=False):
     slots_written: list[str]
     dropped_obs_columns: list[str]
     dropped_var_features: list[str]
-    summary: SummaryRecord
+    summary: store_format.SummaryRecord
     store: str
     output_bytes: int
     published_by: str
@@ -492,7 +429,9 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    dropped = [c for c in obs.columns if "/" in str(c) or c == DATASET_ID_COLUMN]
+    dropped = [
+        c for c in obs.columns if "/" in str(c) or c == store_format.DATASET_ID_COLUMN
+    ]
     if dropped:
         adata.obs = obs.drop(columns=dropped)
     return adata
@@ -708,7 +647,7 @@ def write(
     adata: anndata.AnnData,
     dest: StoreLike,
     *,
-    summary: SummaryRecord,
+    summary: store_format.SummaryRecord,
     consolidate: bool = True,
     threads: int | None = None,
 ) -> None:
@@ -737,20 +676,22 @@ def write(
     )
     # Refuse a malformed record before anything is written, so that a caller with
     # no type checker cannot leave a store with one.
-    validate_summary(summary)
+    store_format.validate_summary(summary)
     obs = cast("pd.DataFrame", adata.obs)
-    if DATASET_ID_COLUMN not in obs.columns or set(
-        obs[DATASET_ID_COLUMN].astype(str)
+    if store_format.DATASET_ID_COLUMN not in obs.columns or set(
+        obs[store_format.DATASET_ID_COLUMN].astype(str)
     ) != {summary["dataset_id"]}:
         raise ValueError(
-            f"obs {DATASET_ID_COLUMN} must hold only the summary record's "
+            f"obs {store_format.DATASET_ID_COLUMN} must hold only the summary record's "
             f"{summary['dataset_id']}; `build` adds that column"
         )
     store = as_store(dest)
     with limit:
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
-    root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
+    root.update_attributes(
+        {store_format.SUMMARY_NAMESPACE: {store_format.SUMMARY_KEY: dict(summary)}}
+    )
 
 
 def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
@@ -761,46 +702,49 @@ def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
     column of that name, so `obs` must not hold one here.
     """
     obs = cast("pd.DataFrame", adata.obs)
-    if DATASET_ID_COLUMN in obs.columns:
+    if store_format.DATASET_ID_COLUMN in obs.columns:
         raise ValueError(
-            f"obs already has a {DATASET_ID_COLUMN} column; project_obs removes a "
-            "source column of that name"
+            f"obs already has a {store_format.DATASET_ID_COLUMN} column; "
+            "project_obs removes a source column of that name"
         )
     column = pd.Series(pd.Categorical([dataset_id] * len(obs)), index=obs.index)
-    obs.insert(0, DATASET_ID_COLUMN, column)
+    obs.insert(0, store_format.DATASET_ID_COLUMN, column)
 
 
-def summary_record(result: Result) -> SummaryRecord:
+def summary_record(result: Result) -> store_format.SummaryRecord:
     """The summary record of an admitted dataset, from its result."""
     if not result["admitted"] or result["gene_reference_version"] is None:
         raise ValueError("a dataset that is not admitted has no store and no record")
     return {
-        "version": SUMMARY_VERSION,
+        "version": store_format.SUMMARY_VERSION,
         "dataset_id": result["dataset_id"],
         "dataset_version_id": result["dataset_version_id"],
         "gene_reference_version": result["gene_reference_version"],
     }
 
 
-def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
+def read_summary(dest: StoreLike | zarr.Group) -> store_format.SummaryRecord | None:
     """The summary record of a store, or None when the store has none.
 
     `dest` is a store's location, or its root group already open. A record that is
-    present but malformed raises `SummaryRecordError`; see `validate_summary`.
+    present but malformed raises `store_format.SummaryRecordError`; see
+    `store_format.validate_summary`.
     """
     root = (
         dest
         if isinstance(dest, zarr.Group)
         else zarr.open_group(as_store(dest), mode="r")
     )
-    namespace = root.attrs.get(SUMMARY_NAMESPACE)
+    namespace = root.attrs.get(store_format.SUMMARY_NAMESPACE)
     if namespace is None:
         return None
     if not isinstance(namespace, dict):
-        raise SummaryRecordError(f"{SUMMARY_NAMESPACE} attribute is not a JSON object")
-    if SUMMARY_KEY not in namespace:
+        raise store_format.SummaryRecordError(
+            f"{store_format.SUMMARY_NAMESPACE} attribute is not a JSON object"
+        )
+    if store_format.SUMMARY_KEY not in namespace:
         return None
-    return validate_summary(namespace[SUMMARY_KEY])
+    return store_format.validate_summary(namespace[store_format.SUMMARY_KEY])
 
 
 @contextlib.contextmanager

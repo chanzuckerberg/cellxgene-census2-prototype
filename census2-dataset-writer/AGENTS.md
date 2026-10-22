@@ -72,6 +72,17 @@ obs-major in practice; the format supports other layouts, so that is a property 
 rather than of TileDB-SOMA. Efficient gene-axis queries are unsolved on both sides, and neither
 corpus can be presented as the answer for them.
 
+## The store format module
+
+`store_format.py` names what a store holds beyond AnnData-Zarr: the `dataset_id` column, the
+summary record and its check, and the gene reference labels. A reader of a store relies on these
+names, so they live apart from how the writer makes a store. The module imports only the standard
+library, and a test enforces that: a reader can then depend on it without the writer's
+dependencies. Keep it so. A definition that needs anndata, zarr, or numpy belongs elsewhere.
+
+The package does not re-export these names, so a caller writes `store_format.SummaryRecord`. The
+SDK does not depend on the writer, so it still repeats `dataset_id` and the gene reference labels.
+
 ## Sharp edges: types
 
 `read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both return

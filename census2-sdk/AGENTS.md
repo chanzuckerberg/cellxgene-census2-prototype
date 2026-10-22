@@ -24,13 +24,13 @@ install it. The tests and mypy do need it, and CI installs it.
 
 ## The gene reference
 
-The writer projects each store onto the pinned gene reference of its organism: `X` holds the
-counts, and `var` is the reference in reference order. The store's summary record holds
-`gene_reference_version`, and the catalog builder copies it into the catalog row. The SDK holds
-only the version names, in `gene_reference.py`. These names must agree with the writer's pin in
-`census2_dataset_writer.genes`. The SDK refuses a row that records another version or no version.
-It also refuses a store whose `var` differs from the `var` of the first store that it opened. It
-does not remap genes.
+The writer projects each store onto the pinned gene reference of its organism: `X` holds the counts,
+and `var` is the reference in reference order. The store's summary record holds
+`gene_reference_version`, and the catalog builder copies it into the catalog row. The SDK holds only
+the version names, in `gene_reference.py`. These names must agree with the writer's
+`census2_dataset_writer.store_format.GENE_REFERENCE_VERSIONS`. The SDK refuses a row that records
+another version or no version. It also refuses a store whose `var` differs from the `var` of the
+first store that it opened. It does not remap genes.
 
 ## Sharp edges: anndata and zarr
 

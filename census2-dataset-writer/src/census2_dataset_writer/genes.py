@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from . import store_format
+
 # The pin: one single-cell-curation tag. Every organism's reference file and its
 # annotation version come from this tag. A new tag is a reference migration, and
 # it changes the store format.
@@ -65,13 +67,13 @@ class Reference(TypedDict):
 REFERENCES: dict[str, Reference] = {
     "NCBITaxon:9606": {
         "file": "genes_homo_sapiens.csv.gz",
-        "version": "GENCODE v48",
+        "version": store_format.GENE_REFERENCE_VERSIONS["NCBITaxon:9606"],
         "sha256": "2ef2138de00aa2b6def4f8779195e40d98bcb4d00556400b40b9cc8d51b4e047",
         "url": f"{_BASE}/genes_homo_sapiens.csv.gz",
     },
     "NCBITaxon:10090": {
         "file": "genes_mus_musculus.csv.gz",
-        "version": "GENCODE M37",
+        "version": store_format.GENE_REFERENCE_VERSIONS["NCBITaxon:10090"],
         "sha256": "a6c827698cb3130df51e2394eae8dfc247c18a6c59a54d55da494891d166fef4",
         "url": f"{_BASE}/genes_mus_musculus.csv.gz",
     },

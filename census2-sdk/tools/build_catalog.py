@@ -42,7 +42,7 @@ def _stores(prefix: str) -> list[str]:
 
 def summary_record(
     group: zarr.Group, name: str
-) -> census2_dataset_writer.SummaryRecord:
+) -> census2_dataset_writer.store_format.SummaryRecord:
     """The summary record of the store `name`. Refuse a store that has no usable one.
 
     `census2-dataset-writer` defines the record, reads it, and checks its fields.
@@ -51,7 +51,7 @@ def summary_record(
     """
     try:
         record = census2_dataset_writer.read_summary(group)
-    except census2_dataset_writer.SummaryRecordError as e:
+    except census2_dataset_writer.store_format.SummaryRecordError as e:
         raise ValueError(f"{name}: {e}") from e
     if record is None:
         raise ValueError(f"{name}: no summary record")
