@@ -8,15 +8,8 @@ Census 2 publishes one AnnData-Zarr store for each dataset that it admits. The c
 store independently, next to the other artifacts of the dataset. A catalog holds one summary row
 for each dataset. At query time, the SDK uses the catalog to exclude the stores that cannot match.
 It opens the stores that remain and returns one AnnData. A release pins the exact dataset versions
-and a catalog snapshot. The [design record](docs/census_zarr_design_v3_ste100.md) states the
+and a catalog snapshot. The [design record](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki/Design-record) on the project wiki states the
 design in full.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/census-query-sequence.dark.png">
-  <img alt="The Census 2 query sequence, from the catalog read to one AnnData" src="docs/diagrams/census-query-sequence.light.png">
-</picture>
-
-Source: `docs/diagrams/census-query-sequence.workflow.json`.
 
 ## Components
 
@@ -30,13 +23,12 @@ Each component README holds the setup and use instructions for that component.
 
 ## Design documents
 
-The `docs/` directory holds the design record and the disposition table. These markdown files are
-canonical.
+The design documents are on the [project wiki](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki).
 
-| Document | File |
+| Document | Wiki page |
 |---|---|
-| The design record, version 3 | [`census_zarr_design_v3_ste100.md`](docs/census_zarr_design_v3_ste100.md) |
-| The harmonization disposition table, task 4.1 | [`census_zarr_writer_dispositions.md`](docs/census_zarr_writer_dispositions.md) |
+| The design record, version 3 | [Design record](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki/Design-record) |
+| The harmonization disposition table, task 4.1 | [Disposition table](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki/Disposition-table) |
 
 The evidence, the plan, and the tracker are internal Biohub documents. The evidence holds the
 measurements and their methods. The plan holds the 16 phases of the work, and the tracker holds
