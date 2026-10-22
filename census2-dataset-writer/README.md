@@ -38,8 +38,7 @@ if not result["admitted"]:
 
 A Discover h5ad does not hold its own identifiers, so the caller gives `dataset_id` and
 `dataset_version_id`. They go into the store's summary record, and `dataset_id` also goes into
-`obs`. `build` and `write` can also be
-called separately; the module docstring covers that.
+`obs`. `build` and `write` can also be called separately; the module docstring covers that.
 
 `refdata` is a directory that holds the pinned gene reference files, `genes_homo_sapiens.csv.gz`
 and `genes_mus_musculus.csv.gz` from the `single-cell-curation` tag `v7.0.0`. The writer does not

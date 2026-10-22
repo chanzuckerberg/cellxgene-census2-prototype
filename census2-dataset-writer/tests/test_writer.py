@@ -363,7 +363,6 @@ def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
         assert adata is not None
         summary = census2_dataset_writer.summary_record(result)
         census2_dataset_writer.write(adata, tmp_path / "store.zarr", summary=summary)
-        # After `write`, so that both hold the dataset_id column that it adds.
         adata.write_zarr(tmp_path / "plain.zarr")
 
     def nodes(path: Path) -> set[str]:
