@@ -139,7 +139,8 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         dropped = set(written["dropped_obs_columns"])
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
-        # The writer adds dataset_id as the first column, from the summary record.
+        # The writer adds dataset_id as the first column. Its value must be the
+        # summary record's dataset_id.
         id_column = census2_dataset_writer.DATASET_ID_COLUMN
         kept = [c for c in a.columns if c not in dropped]
         expected = [id_column, *kept]

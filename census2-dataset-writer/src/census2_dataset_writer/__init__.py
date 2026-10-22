@@ -36,6 +36,7 @@ Decisions
 ---------
 `build` runs four steps in order: assemble the core slots (`obs`, `var`,
 `X`, `raw`, the carried `uns` keys), admit, apply the slot policy, harmonize.
+It then adds the `dataset_id` column to `obs`.
 
 1. Admission (`admit`) decides whether the dataset belongs in Census 2. A
    rejection is a normal result: `build` returns no AnnData and a reason,
@@ -473,9 +474,9 @@ def project_obs(
     `/`, and a source column named `dataset_id`, and keeps every other column.
     It is not production-ready projection logic. Zarr gives `/` its path
     meaning, so a column named that way fails the write. Removing it is what
-    lets the dataset be stored at all. In a store, `dataset_id` names the
-    dataset, and `write` adds that column, so a source column of that name
-    goes.
+    lets the dataset be stored at all. In a store, the `dataset_id` column holds
+    the dataset's identifier, which `build` adds after harmonization. A source
+    column of that name would collide with it.
 
     Census 1 projects `obs` onto a closed schema: about 20 named CxG fields,
     plus columns it computes. It carries no author-chosen column, because its
@@ -766,7 +767,10 @@ def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
             f"obs already has a {DATASET_ID_COLUMN} column; project_obs removes a "
             "source column of that name"
         )
-    column = pd.Series(pd.Categorical([dataset_id] * len(obs)), index=obs.index)
+    # From the codes, so that no list of one string per cell is made.
+    codes = np.zeros(len(obs), dtype=np.int8)
+    categorical = pd.Categorical.from_codes(codes, categories=pd.Index([dataset_id]))
+    column = pd.Series(categorical, index=obs.index)
     obs.insert(0, DATASET_ID_COLUMN, column)
 
 

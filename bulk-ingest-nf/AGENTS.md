@@ -72,7 +72,8 @@ to 102.
 receipt records the names in `dropped_obs_columns`, and the run report totals them, because a store
 that holds less than its dataset should not be invisible. The round-trip check compares `obs`
 against the source minus exactly those names, so an unreported drop still fails. The writer adds a
-`dataset_id` column first, from the summary record, and the check requires it and its value.
+`dataset_id` column first. The check requires the column, and requires that it holds the summary
+record's `dataset_id`.
 
 The slashes measured were all in `obs`. The store's `var` is the pinned gene reference, not the
 source `var`, so a `/` in a source `var` column does not reach the store.
