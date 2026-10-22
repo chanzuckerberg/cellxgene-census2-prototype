@@ -140,9 +140,10 @@ out-of-memory code up to `maxRetries`, and then ignores the task. The run contin
 reads the receipts that exist.
 
 An ignored dataset has no receipt, and the run still succeeds. Compare the receipts with the
-manifest after a run. `trace.txt` lists each failed attempt as `FAILED`. Keep `maxRetries` at 3 or
-more, because Nextflow ends the run when the strategy asks for a retry that `maxRetries` does not
-allow. `REPORT` keeps `'finish'`, so a failed check still fails the run.
+manifest after a run. `trace.txt` lists each failed attempt as `FAILED`. If every task is ignored,
+`collect()` emits nothing, so `main.nf` fails the run. The strategy compares the attempt with
+`task.maxRetries`, because Nextflow ends the run when the strategy asks for a retry that
+`maxRetries` does not allow. `REPORT` keeps `'finish'`, so a failed check still fails the run.
 
 A task that raises part way through a write leaves a partial store. anndata writes consolidated
 metadata last, so the absence of `consolidated_metadata` in the root `zarr.json` identifies one.

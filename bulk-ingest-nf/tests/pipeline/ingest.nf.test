@@ -126,12 +126,17 @@ nextflow_pipeline {
 
     test("a task that fails is retried once and ignored, and the report still runs") {
         // The second record names a source that does not exist, so its download
-        // exits 1, an exit code that the out-of-memory retries do not cover.
+        // exits 1, an exit code that the out-of-memory retries do not cover. The
+        // first record is a copy of a record in manifest.jsonl, so the mock S3
+        // serves it. Update it when you regenerate manifest.jsonl.
         when {
             params {
                 manifest   = "$projectDir/tests/fixtures/manifest-missing.jsonl"
                 outdir     = "$outputDir/stores"
                 report_dir = "$outputDir/reports"
+                // A retry doubles the memory request, and a CI runner has less
+                // than 8 GB, so the local executor refuses the second attempt.
+                max_memory = "4.GB"
             }
         }
         then {
@@ -142,6 +147,21 @@ nextflow_pipeline {
             def receipts = path("$outputDir/stores").list().findAll { it.toString().endsWith(".json") }
             assert receipts.size() == 1
             assert path("$outputDir/reports/ingestion_report.json").exists()
+        }
+    }
+
+    test("fails when every task is ignored, because no receipt reaches REPORT") {
+        when {
+            params {
+                manifest   = "$projectDir/tests/fixtures/manifest-missing-only.jsonl"
+                outdir     = "$outputDir"
+                max_memory = "4.GB"
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.trace.failed().size() == 2
+            assert workflow.stdout.any { it.contains("No INGEST task wrote a receipt") }
         }
     }
 
