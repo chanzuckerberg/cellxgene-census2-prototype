@@ -88,7 +88,7 @@ nextflow run . -profile docker \
 | `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
 | `--all_slots` | `false` | Carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`, instead of the default Census slot set. |
-| `--check` | `false` | Verify each output against its source: `obs`, and the counts at their gene reference positions. A failure goes into the receipt, and `REPORT` fails the run. |
+| `--check` | `false` | Verify each output against its source: `obs`, and the counts at their gene reference positions. Each slot that the store holds is compared, or the receipt lists it in `not_compared`. A failure goes into the receipt, and `REPORT` fails the run. |
 | `--config` | none | Ingestion configuration file, staged into every task. The file format is not defined yet. |
 | `--refdata` | none, required | Directory or `s3://` prefix that holds the gene references from `tools/stage-refdata.py`, staged into every task. |
 | `--report_dir` | none | Where the run report publishes. The `healthomics` profile sets it. |
