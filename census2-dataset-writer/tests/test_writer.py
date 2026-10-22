@@ -861,19 +861,15 @@ def test_store_obs_names_its_dataset(tmp_path: Path) -> None:
     assert (obs["dataset_id"] == IDS["dataset_id"]).all()
 
 
-def test_a_source_dataset_id_column_is_replaced(tmp_path: Path) -> None:
-    """A source column named dataset_id is dropped and reported, and the store's
-    column names the dataset."""
+def test_a_source_dataset_id_column_fails_the_build(tmp_path: Path) -> None:
+    """The name belongs to the store, so the writer refuses to guess."""
     source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
     adata = dataset()
     adata.obs["dataset_id"] = "curator-label"
     adata.write_h5ad(source)
-    result = create(source, dest, refdata=tmp_path / "refdata")
-    assert result["dropped_obs_columns"] == ["dataset_id"]
-    obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
-    assert list(obs.columns).count("dataset_id") == 1
-    assert (obs["dataset_id"] == IDS["dataset_id"]).all()
+    with pytest.raises(ValueError, match="source obs has a dataset_id column"):
+        create(source, tmp_path / "store.zarr", refdata=tmp_path / "refdata")
+    assert not (tmp_path / "store.zarr").exists()
 
 
 def test_add_dataset_id_refuses_an_existing_column() -> None:
