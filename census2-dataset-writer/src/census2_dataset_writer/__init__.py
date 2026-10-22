@@ -36,7 +36,8 @@ Decisions
 ---------
 `build` runs four steps in order: assemble the core slots (`obs`, `var`,
 `X`, `raw`, the carried `uns` keys), admit, apply the slot policy, harmonize.
-It then adds the `dataset_id` column to `obs`.
+It then adds the `dataset_id` column to `obs`. A source `obs` that already has
+a `dataset_id` column is an error, because that name belongs to the store.
 
 1. Admission (`admit`) decides whether the dataset belongs in Census 2. A
    rejection is a normal result: `build` returns no AnnData and a reason,
@@ -53,10 +54,9 @@ It then adds the `dataset_id` column to `obs`.
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs three steps in order. `project_obs`
-   decides which `obs` columns a store carries. It removes the columns that
-   Zarr cannot name, and a source column named `dataset_id`. `select_counts`
-   puts the counts in `X`: `raw.X` when the dataset has `raw`, else `X`. The
-   store has no `raw`.
+   decides which `obs` columns a store carries, and removes only the columns
+   that Zarr cannot name. `select_counts` puts the counts in `X`: `raw.X`
+   when the dataset has `raw`, else `X`. The store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
    dataset's organism. Thus every store of one organism has the same `var`,
    in the same order. See `census2_dataset_writer.genes`.
@@ -408,12 +408,9 @@ def project_obs(
     """Project `obs` onto the columns a store carries.
 
     THIS IS A MINIMAL STUB. It removes the `obs` columns whose names hold a
-    `/`, and a source column named `dataset_id`, and keeps every other column.
-    It is not production-ready projection logic. Zarr gives `/` its path
-    meaning, so a column named that way fails the write. Removing it is what
-    lets the dataset be stored at all. In a store, the `dataset_id` column holds
-    the dataset's identifier, which `build` adds after harmonization. A source
-    column of that name would collide with it.
+    `/`, and keeps every other column. It is not production-ready projection
+    logic. Zarr gives `/` its path meaning, so a column named that way fails
+    the write. Removing it is what lets the dataset be stored at all.
 
     Census 1 projects `obs` onto a closed schema: about 20 named CxG fields,
     plus columns it computes. It carries no author-chosen column, because its
@@ -430,9 +427,7 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    dropped = [
-        c for c in obs.columns if "/" in str(c) or c == store_format.DATASET_ID_COLUMN
-    ]
+    dropped = [c for c in obs.columns if "/" in str(c)]
     if dropped:
         adata.obs = obs.drop(columns=dropped)
     return adata
@@ -550,6 +545,10 @@ def build(
     a store will hold. After `harmonize`, `build` adds the `dataset_id` column
     to `obs`; see `add_dataset_id`. The AnnData is thus what the store holds.
 
+    Raises `ValueError` when the source `obs` already has a `dataset_id` column.
+    That name belongs to the store, and the writer does not decide what to do
+    with a source column of that name.
+
     `f` must stay open until the returned object is written.
     """
     config = dict(DEFAULTS) if config is None else config
@@ -561,6 +560,11 @@ def build(
     # this is cheap even for a dataset that turns out not to be admitted.
     # `read_elem` returns a wide union, so name what these are.
     obs = cast("pd.DataFrame", read_elem(f["obs"]))
+    if store_format.DATASET_ID_COLUMN in obs.columns:
+        raise ValueError(
+            f"the source obs has a {store_format.DATASET_ID_COLUMN} column, and "
+            "that name belongs to the store"
+        )
     var = cast("pd.DataFrame", read_elem(f["var"]))
     n_rows = int(obs.shape[0])
 
@@ -699,15 +703,12 @@ def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
     """Add the `dataset_id` column to `adata.obs`, as its first column.
 
     `build` calls this after `harmonize`. The column is categorical with one
-    category, so it costs one code per cell. `project_obs` removes a source
-    column of that name, so `obs` must not hold one here.
+    category, so it costs one code per cell. `obs` must not hold a column of
+    that name already.
     """
     obs = cast("pd.DataFrame", adata.obs)
     if store_format.DATASET_ID_COLUMN in obs.columns:
-        raise ValueError(
-            f"obs already has a {store_format.DATASET_ID_COLUMN} column; "
-            "project_obs removes a source column of that name"
-        )
+        raise ValueError(f"obs already has a {store_format.DATASET_ID_COLUMN} column")
     # From the codes, so that no list of one string per cell is made.
     codes = np.zeros(len(obs), dtype=np.int8)
     categorical = pd.Categorical.from_codes(codes, categories=pd.Index([dataset_id]))
