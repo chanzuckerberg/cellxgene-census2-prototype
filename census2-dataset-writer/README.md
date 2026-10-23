@@ -97,9 +97,11 @@ copies: `assay`, `assay_ontology_term_id`, `cell_type`, `cell_type_ontology_term
   sorted, as strings.
 - No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
   not boolean, or has an `observation_joinid` that is not unique fails the build.
-- Every other source column goes, and the result names it in `dropped_obs_columns`.
-- Census 1 also holds `soma_joinid`, `tissue_general`, `tissue_general_ontology_term_id`, and five
-  statistics of the counts. A store does not hold them yet.
+- A store does not yet hold any other source column. The result names each one that it drops,
+  in `dropped_obs_columns`.
+- Census 1 also holds `tissue_general`, `tissue_general_ontology_term_id`, and five statistics of
+  the counts, which a store does not hold yet. It also holds `soma_joinid`, a corpus-wide number
+  that a store for one dataset cannot assign.
 
 ## Summary record
 

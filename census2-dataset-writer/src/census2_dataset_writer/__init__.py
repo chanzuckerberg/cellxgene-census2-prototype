@@ -420,8 +420,8 @@ def project_obs(
     `observation_joinid` is not unique. The CxG schema requires each of these,
     so the writer does not choose a repair.
 
-    It does not add Census 1's `tissue_general` pair or the statistics of the
-    counts. `build` adds `dataset_id` after harmonization.
+    It does not yet add Census 1's `tissue_general` pair or the statistics of
+    the counts. `build` adds `dataset_id` after harmonization.
 
     This step consumes `adata`, as `harmonize` states.
     """

@@ -105,9 +105,10 @@ STRING = "string"
 
 # The columns of a store's `obs`, in order. They are the columns that Census 1
 # copies from every CxG h5ad, in Census 1's order, after `dataset_id`. A store
-# holds no other `obs` column. Census 1 also writes `soma_joinid`, the
-# `tissue_general` pair, and five statistics of the counts; a store does not
-# hold those yet. No value is null: the CxG schema requires each of these.
+# holds no other `obs` column yet. Census 1 also writes the `tissue_general`
+# pair and five statistics of the counts, which a store does not hold yet, and
+# `soma_joinid`, a corpus-wide number that a store for one dataset cannot
+# assign. No value is null: the CxG schema requires each of these.
 OBS_COLUMNS: tuple[tuple[str, str], ...] = (
     (DATASET_ID_COLUMN, CATEGORY),
     ("assay", CATEGORY),
