@@ -61,22 +61,21 @@ version have the same size. `tools/census1-sample.py` asserts this for each reco
 script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
 a source build, which fails.
 
-Some datasets name an `obs` column with a `/` in it. Zarr gives `/` its path meaning, so the
-write fails on that column. The names seen are clinical units (`SCr_(mg/dl)`,
-`eGFR_(ml/min/1.73m2)`), compound cell types (`T/NK_cycling`), and deconvolution factors
-(`q05_spot_factorsStem-like/TA`); the last two are cell2location output on Visium datasets, one
-column per cell type. 6 of 100 randomly sampled human datasets hold one, 1 or 2 columns out of 60
-to 102.
+`census2_dataset_writer.project_obs` projects `obs` onto `store_format.OBS_COLUMNS`: `dataset_id`
+and the 19 CxG columns that Census 1 copies, each with a fixed kind. Every other source column
+goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets that
+drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
+order, each of its kind, with the source's values and the summary record's `dataset_id`.
 
-`census2_dataset_writer.project_obs` removes those columns, and `harmonize` calls it. The
-receipt records the names in `dropped_obs_columns`, and the run report totals them, because a store
-that holds less than its dataset should not be invisible. The round-trip check compares `obs`
-against the source minus exactly those names, so an unreported drop still fails. The writer adds a
-`dataset_id` column first. The check requires the column, and requires that it holds the summary
-record's `dataset_id`.
-
-The slashes measured were all in `obs`. The store's `var` is the pinned gene reference, not the
-source `var`, so a `/` in a source `var` column does not reach the store.
+A breadcrumb for when the projection carries more columns, for example the perturbation fields that
+schema 7.1.0 adds, or author columns: some datasets name an `obs` column with a `/` in it, and Zarr
+gives `/` its path meaning, so the write fails on that column. The names seen are clinical units
+(`SCr_(mg/dl)`, `eGFR_(ml/min/1.73m2)`), compound cell types (`T/NK_cycling`), and deconvolution
+factors (`q05_spot_factorsStem-like/TA`); the last two are cell2location output on Visium datasets,
+one column per cell type. 6 of 100 randomly sampled human datasets held one, 1 or 2 columns out of
+60 to 102. The schema's column names hold no `/`, so the problem does not arise now. The slashes
+measured were all in `obs`, and the store's `var` is the pinned gene reference, so a `/` in a
+source `var` column does not reach the store.
 
 `census2_dataset_writer.project_genes` puts the counts (`raw/X`, else `X`) in the store's `X`, on
 the pinned gene reference. The store has no `raw`. The store's summary record holds
@@ -87,10 +86,10 @@ compares the values with the source. It also requires equal nonzero counts. It d
 of rows at a time. A gene that is not in the reference fails the task, because the writer does not
 map genes across reference versions.
 
-anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by default, so anndata also
-refuses to *write* such a name to an h5ad as well. The corpus datasets that carry one predate it.
-A test fixture that needs one must turn the setting off; zarr has no equivalent opt-out, because
-there the restriction belongs to the format.
+Part of the same breadcrumb: anndata 0.12 added a `disallow_forward_slash_in_h5ad` setting, on by
+default, so anndata also refuses to *write* such a name to an h5ad. The corpus datasets that carry
+one predate it. A test fixture that needs one must turn the setting off; zarr has no equivalent
+opt-out, because there the restriction belongs to the format.
 
 Peak memory depends on the encoding of the matrix that the store holds. The store's `X` holds the
 counts: `raw.X` when the source has `raw`, else `X`. Census 1 reads the same matrix. Some datasets

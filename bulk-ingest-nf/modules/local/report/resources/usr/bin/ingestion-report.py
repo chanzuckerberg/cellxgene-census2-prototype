@@ -64,13 +64,10 @@ def main() -> int:
         "zarr_version": sorted({r["zarr_version"] for r in receipts}),
         "checked": len(checked),
         "check_failures": [r["dataset_version_id"] for r in failed],
-        # Harmonization drops an obs column that Zarr cannot name. Reported,
-        # because a store that quietly holds less than its dataset should not
-        # be invisible in the run summary.
+        # The obs projection drops every source column outside the store's
+        # schema, so most datasets drop some. The report gives the count; each
+        # receipt names its dataset's columns.
         "datasets_with_dropped_obs_columns": len(dropped),
-        "dropped_obs_columns": sorted(
-            {c for r in dropped for c in r["dropped_obs_columns"]}
-        ),
         # More than one value means the stores do not concatenate by position.
         "gene_reference_version": sorted(
             {str(r["summary"]["gene_reference_version"]) for r in admitted}
@@ -108,8 +105,7 @@ def main() -> int:
         )
     if dropped:
         print(
-            f"report: {len(dropped)} datasets had obs columns dropped: "
-            f"{', '.join(report['dropped_obs_columns'])}",
+            f"report: {len(dropped)} datasets had obs columns outside the schema",
             file=sys.stderr,
         )
     if dropped_var:

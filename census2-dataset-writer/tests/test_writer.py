@@ -29,6 +29,7 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
+OBS_NAMES = [name for name, _ in census2_dataset_writer.store_format.OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
 # A Discover h5ad holds no identifiers, so every store needs these from its caller.
@@ -78,6 +79,42 @@ def refdata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+def cxg_obs(n_obs: int, rng: np.random.Generator) -> pd.DataFrame:
+    """The CxG obs columns that every Discover dataset holds, and no other."""
+
+    def labels(*values: str) -> Any:
+        return pd.Categorical(rng.choice(list(values), n_obs))
+
+    return pd.DataFrame(
+        {
+            "assay": pd.Categorical(["10x 3' v3"] * n_obs),
+            "assay_ontology_term_id": pd.Categorical(["EFO:0009922"] * n_obs),
+            "cell_type": labels("a", "b"),
+            "cell_type_ontology_term_id": labels("CL:0000236", "CL:0000624"),
+            "development_stage": pd.Categorical(["adult"] * n_obs),
+            "development_stage_ontology_term_id": pd.Categorical(
+                ["HsapDv:0000087"] * n_obs
+            ),
+            "disease": pd.Categorical(["normal"] * n_obs),
+            "disease_ontology_term_id": pd.Categorical(["PATO:0000461"] * n_obs),
+            "donor_id": labels("d1", "d2"),
+            "is_primary_data": np.ones(n_obs, dtype=bool),
+            "observation_joinid": [f"j{i}" for i in range(n_obs)],
+            "self_reported_ethnicity": pd.Categorical(["unknown"] * n_obs),
+            "self_reported_ethnicity_ontology_term_id": pd.Categorical(
+                ["unknown"] * n_obs
+            ),
+            "sex": pd.Categorical(["female"] * n_obs),
+            "sex_ontology_term_id": pd.Categorical(["PATO:0000383"] * n_obs),
+            "suspension_type": pd.Categorical(["cell"] * n_obs),
+            "tissue": pd.Categorical(["lung"] * n_obs),
+            "tissue_ontology_term_id": pd.Categorical(["UBERON:0002048"] * n_obs),
+            "tissue_type": pd.Categorical(["tissue"] * n_obs),
+        },
+        index=[f"cell{i}" for i in range(n_obs)],
+    )
+
+
 def dataset(
     n_obs: int = 40,
     n_var: int = 12,
@@ -100,10 +137,7 @@ def dataset(
             n_obs, n_var, density=0.3, format="csr", dtype="float32", random_state=seed
         )
     )
-    obs = pd.DataFrame(
-        {"cell_type": pd.Categorical(rng.choice(["a", "b"], n_obs))},
-        index=[f"cell{i}" for i in range(n_obs)],
-    )
+    obs = cxg_obs(n_obs, rng)
     var = pd.DataFrame(
         {
             "feature_name": [f"gene{j}" for j in range(n_var)],
@@ -188,10 +222,12 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # the layout instead is misleading: obs/_index reads back as a group.
     obs: Any = read_elem(store["obs"])
     assert list(obs.index) == list(source.obs.index)
-    # The store adds `dataset_id`, first, and keeps every source column.
-    assert list(obs.columns) == ["dataset_id", *source.obs.columns]
+    # The store holds the schema's columns, `dataset_id` first, with the
+    # source's values.
+    assert list(obs.columns) == OBS_NAMES
     assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
-    assert obs["cell_type"].dtype == source.obs["cell_type"].dtype
+    for name in census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS:
+        assert list(obs[name].astype(str)) == list(source.obs[name].astype(str))
 
     # X is the counts on the reference genes, and sparse even from a dense source.
     x = stored_x(dest)
@@ -653,15 +689,12 @@ def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
     assert zarr.open_consolidated(str(dest))["obs"] is not None
 
 
-def test_missing_assay_column_is_admitted(tmp_path: Path) -> None:
+def test_admit_ignores_a_missing_assay_column(refdata: Path) -> None:
     """An AnnData without the column is not a Discover dataset, so the
-    criterion does not apply. Every other test here relies on this."""
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    dataset().write_h5ad(source)
-    assert "assay_ontology_term_id" not in dataset().obs
-
-    assert create(source, dest, refdata=tmp_path / "refdata")["admitted"] is True
+    criterion does not apply. The obs projection then refuses it."""
+    adata = dataset()
+    adata.obs = cast("pd.DataFrame", adata.obs).drop(columns="assay_ontology_term_id")
+    assert census2_dataset_writer.admit(adata, refdata=refdata) is None
 
 
 def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
@@ -701,16 +734,11 @@ def write_source(adata: anndata.AnnData, path: Path) -> None:
         adata.write_h5ad(path)
 
 
-def test_project_obs_removes_only_the_slash_columns() -> None:
-    adata = with_obs_columns(dataset(), *SLASH_COLS)
+def test_project_obs_drops_the_author_columns() -> None:
+    """Names with a `/` go with every other author column."""
+    adata = with_obs_columns(dataset(), "leiden", *SLASH_COLS)
     kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
-    assert kept == ["cell_type"]
-
-
-def test_project_obs_keeps_a_clean_frame_untouched() -> None:
-    adata = dataset()
-    before = list(adata.obs.columns)
-    assert list(census2_dataset_writer.project_obs(adata).obs.columns) == before
+    assert kept == list(census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS)
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
@@ -719,26 +747,27 @@ def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
     adata = with_obs_columns(dataset(), *SLASH_COLS)
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
-    assert list(harmonized.obs.columns) == ["cell_type"]
+    assert list(harmonized.obs.columns) == list(
+        census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS
+    )
     assert list(harmonized.var.index) == REF_IDS
     assert harmonized.raw is None
     x: Any = harmonized.X
     assert np.array_equal(x.toarray(), expected)
 
 
-def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
-    """Zarr gives `/` its path meaning, so without `project_obs` this write fails."""
+def test_author_columns_are_dropped_and_reported(tmp_path: Path) -> None:
+    """A name with a `/` would fail the Zarr write. It is not stored."""
     source = tmp_path / "source.h5ad"
     dest = tmp_path / "store.zarr"
-    write_source(with_obs_columns(dataset(), *SLASH_COLS), source)
+    write_source(with_obs_columns(dataset(), "leiden", *SLASH_COLS), source)
 
     result = create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is True
-    assert result["dropped_obs_columns"] == SLASH_COLS  # source order
-    store = zarr.open_consolidated(str(dest))
-    obs: Any = read_elem(store["obs"])
-    assert list(obs.columns) == ["dataset_id", "cell_type"]
+    assert result["dropped_obs_columns"] == ["leiden", *SLASH_COLS]  # source order
+    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
+    assert list(obs.columns) == OBS_NAMES
 
 
 def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
@@ -946,3 +975,70 @@ def test_gene_references_use_the_store_format_labels() -> None:
     labels = census2_dataset_writer.store_format.GENE_REFERENCE_VERSIONS
     references = census2_dataset_writer.genes.REFERENCES
     assert {taxon: spec["version"] for taxon, spec in references.items()} == labels
+
+
+# --- the obs schema --------------------------------------------------------------
+
+
+def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
+    for name, kind in census2_dataset_writer.store_format.OBS_COLUMNS:
+        column = obs[name]
+        if kind == "category":
+            assert isinstance(column.dtype, pd.CategoricalDtype), name
+            categories = list(column.cat.categories)
+            assert categories == sorted(set(column.astype(str))), name
+            assert all(isinstance(c, str) for c in categories), name
+        elif kind == "bool":
+            assert column.dtype == bool, name
+        else:
+            assert not isinstance(column.dtype, pd.CategoricalDtype), name
+            assert all(isinstance(v, str) for v in column), name
+
+
+def test_a_string_source_column_becomes_categorical() -> None:
+    adata = dataset()
+    obs = cast("pd.DataFrame", adata.obs)
+    obs["donor_id"] = obs["donor_id"].astype(str)
+    projected_obs = cast("pd.DataFrame", census2_dataset_writer.project_obs(adata).obs)
+    assert isinstance(projected_obs["donor_id"].dtype, pd.CategoricalDtype)
+    assert list(projected_obs["donor_id"].cat.categories) == ["d1", "d2"]
+
+
+def test_unused_categories_are_removed() -> None:
+    adata = dataset()
+    obs = cast("pd.DataFrame", adata.obs)
+    obs["sex"] = obs["sex"].cat.add_categories(["male"])
+    projected_obs = cast("pd.DataFrame", census2_dataset_writer.project_obs(adata).obs)
+    assert list(projected_obs["sex"].cat.categories) == ["female"]
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ("missing", "lacks the schema columns \\['tissue_type'\\]"),
+        ("null", "obs cell_type holds a null"),
+        ("not bool", "obs is_primary_data is (object|str), not boolean"),
+        ("duplicate", "obs observation_joinid is not unique"),
+    ],
+)
+def test_project_obs_refuses_a_malformed_source(change: str, message: str) -> None:
+    adata = dataset()
+    obs = cast("pd.DataFrame", adata.obs)
+    if change == "missing":
+        adata.obs = obs.drop(columns="tissue_type")
+    elif change == "null":
+        obs.loc[obs.index[0], "cell_type"] = np.nan
+    elif change == "not bool":
+        obs["is_primary_data"] = ["yes"] * adata.n_obs
+    else:
+        obs["observation_joinid"] = ["j0"] * adata.n_obs
+    with pytest.raises(ValueError, match=message):
+        census2_dataset_writer.project_obs(adata)
+
+
+def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:
+    assert OBS_NAMES[0] == "dataset_id"
+    assert len(set(OBS_NAMES)) == len(OBS_NAMES)
+    assert "dataset_id" not in census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS

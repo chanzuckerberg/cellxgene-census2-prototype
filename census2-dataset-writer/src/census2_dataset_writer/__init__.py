@@ -54,8 +54,8 @@ a `dataset_id` column is an error, because that name belongs to the store.
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs three steps in order. `project_obs`
-   decides which `obs` columns a store carries, and removes only the columns
-   that Zarr cannot name. `select_counts` puts the counts in `X`: `raw.X`
+   projects `obs` onto `store_format.OBS_COLUMNS`, the CxG columns that Census
+   1 copies, each with a fixed kind; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
    when the dataset has `raw`, else `X`. The store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
    dataset's organism. Thus every store of one organism has the same `var`,
@@ -405,21 +405,23 @@ def project_obs(
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Project `obs` onto the columns a store carries.
+    """Project `obs` onto the columns of `store_format.OBS_COLUMNS`.
 
-    THIS IS A MINIMAL STUB. It removes the `obs` columns whose names hold a
-    `/`, and keeps every other column. It is not production-ready projection
-    logic. Zarr gives `/` its path meaning, so a column named that way fails
-    the write. Removing it is what lets the dataset be stored at all.
+    Census 1 projects `obs` onto a closed schema, with fixed types: the columns
+    that the CxG schema requires in every dataset, plus columns that it adds.
+    This step copies the CxG columns, `store_format.SOURCE_OBS_COLUMNS`, in
+    schema order, and gives each one its kind: a categorical with the sorted
+    observed values as string categories, NumPy `bool` for `is_primary_data`,
+    and plain strings for `observation_joinid`. The source index stays. Every
+    other source column goes: the result reports them in `dropped_obs_columns`.
 
-    Census 1 projects `obs` onto a closed schema: about 20 named CxG fields,
-    plus columns it computes. It carries no author-chosen column, because its
-    `obs` is one dataframe joined across every dataset and so must have one
-    column set. Census 2 writes one store per dataset and has no such
-    constraint, so what a store carries is open. Until that is decided, this
-    keeps every column that Zarr can hold.
+    It raises `ValueError` when the source lacks a schema column, when a column
+    holds a null, when `is_primary_data` is not boolean, or when
+    `observation_joinid` is not unique. The CxG schema requires each of these,
+    so the writer does not choose a repair.
 
-    `var` is not projected. The names seen with a `/` were all in `obs`.
+    It does not add Census 1's `tissue_general` pair or the statistics of the
+    counts. `build` adds `dataset_id` after harmonization.
 
     This step consumes `adata`, as `harmonize` states.
     """
@@ -427,10 +429,50 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    dropped = [c for c in obs.columns if "/" in str(c)]
-    if dropped:
-        adata.obs = obs.drop(columns=dropped)
+    missing = [c for c in store_format.SOURCE_OBS_COLUMNS if c not in obs.columns]
+    if missing:
+        raise ValueError(f"the source obs lacks the schema columns {missing}")
+    kinds = dict(store_format.OBS_COLUMNS)
+    adata.obs = pd.DataFrame(
+        {
+            name: _project_obs_column(obs[name], name, kinds[name])
+            for name in store_format.SOURCE_OBS_COLUMNS
+        },
+        index=obs.index,
+    )
     return adata
+
+
+def _project_obs_column(column: pd.Series, name: str, kind: str) -> pd.Series:
+    """One `obs` column with the kind that `store_format.OBS_COLUMNS` gives it."""
+    if bool(column.isna().any()):
+        raise ValueError(f"obs {name} holds a null")
+    if kind == store_format.CATEGORY:
+        if isinstance(column.dtype, pd.CategoricalDtype):
+            # Work on the categories, not on one value per cell.
+            column = column.cat.remove_unused_categories()
+            names = column.cat.categories.astype(str)
+            if not names.is_unique:
+                raise ValueError(f"obs {name} has categories that are equal as strings")
+            column = column.cat.rename_categories(list(names))
+        else:
+            column = column.astype(str).astype("category")
+        categories = sorted(column.cat.categories)
+        return column.cat.reorder_categories(categories).cat.as_unordered()
+    if kind == store_format.BOOL:
+        if column.dtype == bool:
+            return column
+        if str(column.dtype) == "boolean":
+            return column.astype(bool)
+        raise ValueError(f"obs {name} is {column.dtype}, not boolean")
+    if kind == store_format.STRING:
+        values = pd.Series(
+            column.astype(str).to_numpy(dtype=object), index=column.index
+        )
+        if not values.is_unique:
+            raise ValueError(f"obs {name} is not unique")
+        return values
+    raise ValueError(f"unknown obs column kind {kind!r}")
 
 
 def select_counts(

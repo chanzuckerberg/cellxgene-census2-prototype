@@ -4,6 +4,9 @@ A store is an AnnData-Zarr group. This module names what Census 2 adds to that
 format, so that the writer and a reader of a store use one definition:
 
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
+- `OBS_COLUMNS`, the columns of a store's `obs`, in order, with the kind of
+  each. `SOURCE_OBS_COLUMNS` are the ones that the writer copies from the
+  source h5ad.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
@@ -88,3 +91,48 @@ GENE_REFERENCE_VERSIONS: dict[str, str] = {
     "NCBITaxon:9606": "GENCODE v48",
     "NCBITaxon:10090": "GENCODE M37",
 }
+
+
+# The kinds of an `obs` column. A reader can rely on the kind of each column in
+# every store.
+#   category  a pandas categorical whose categories are strings: the observed
+#             values, sorted, with no unused category
+#   bool      NumPy bool
+#   string    plain strings, not categorical
+CATEGORY = "category"
+BOOL = "bool"
+STRING = "string"
+
+# The columns of a store's `obs`, in order. They are the columns that Census 1
+# copies from every CxG h5ad, in Census 1's order, after `dataset_id`. A store
+# holds no other `obs` column. Census 1 also writes `soma_joinid`, the
+# `tissue_general` pair, and five statistics of the counts; a store does not
+# hold those yet. No value is null: the CxG schema requires each of these.
+OBS_COLUMNS: tuple[tuple[str, str], ...] = (
+    (DATASET_ID_COLUMN, CATEGORY),
+    ("assay", CATEGORY),
+    ("assay_ontology_term_id", CATEGORY),
+    ("cell_type", CATEGORY),
+    ("cell_type_ontology_term_id", CATEGORY),
+    ("development_stage", CATEGORY),
+    ("development_stage_ontology_term_id", CATEGORY),
+    ("disease", CATEGORY),
+    ("disease_ontology_term_id", CATEGORY),
+    ("donor_id", CATEGORY),
+    ("is_primary_data", BOOL),
+    ("observation_joinid", STRING),
+    ("self_reported_ethnicity", CATEGORY),
+    ("self_reported_ethnicity_ontology_term_id", CATEGORY),
+    ("sex", CATEGORY),
+    ("sex_ontology_term_id", CATEGORY),
+    ("suspension_type", CATEGORY),
+    ("tissue", CATEGORY),
+    ("tissue_ontology_term_id", CATEGORY),
+    ("tissue_type", CATEGORY),
+)
+
+# The `obs` columns that the writer copies from the source h5ad: every column of
+# `OBS_COLUMNS` except `dataset_id`, which the writer adds.
+SOURCE_OBS_COLUMNS: tuple[str, ...] = tuple(
+    name for name, _ in OBS_COLUMNS if name != DATASET_ID_COLUMN
+)

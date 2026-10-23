@@ -86,9 +86,11 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
 
     `summary` is the summary record that the store must hold.
 
-    `written` is the result of `census2_dataset_writer.create`. The obs columns
-    are compared against the source minus exactly the `dropped_obs_columns`, so
-    a deliberate projection passes and an unreported drop still fails.
+    `written` is the result of `census2_dataset_writer.create`. The store's obs
+    must hold exactly the columns of `store_format.OBS_COLUMNS`, in order, each
+    of its kind. `dataset_id` must hold the summary record's value, and each
+    other column must hold the source's values, compared as strings, or as bool
+    for `is_primary_data`. The index must equal the source's.
 
     The store's `var` is the gene reference, so it is not compared with the
     source `var`. The store's `X` must hold the source counts (`raw/X`, else
@@ -136,30 +138,51 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
             if stored != summary:
                 fail("summary", f"the store holds {stored}, expected {summary}")
 
-        dropped = set(written["dropped_obs_columns"])
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
-        # The writer adds dataset_id as the first column. Its value must be the
-        # summary record's dataset_id.
-        id_column = census2_dataset_writer.store_format.DATASET_ID_COLUMN
-        kept = [c for c in a.columns if c not in dropped]
-        expected = [id_column, *kept]
+        store_format = census2_dataset_writer.store_format
+        expected = [name for name, _ in store_format.OBS_COLUMNS]
         if not a.index.equals(b.index):
             fail("obs", "index differs")
         if list(b.columns) != expected:
-            fail(
-                "obs", f"columns differ: expected {len(expected)}, got {len(b.columns)}"
-            )
+            fail("obs", f"columns {list(b.columns)} are not the schema's {expected}")
         else:
-            if set(b[id_column].astype(str)) != {summary["dataset_id"]}:
-                fail(f"obs.{id_column}", f"does not hold only {summary['dataset_id']}")
-            for col in kept:
-                if str(a[col].dtype) != str(b[col].dtype):
-                    fail(f"obs.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
-                elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
-                    list(a[col].cat.categories) != list(b[col].cat.categories)
+            for name, kind in store_format.OBS_COLUMNS:
+                col = b[name]
+                if kind == store_format.CATEGORY:
+                    categories = (
+                        list(col.cat.categories) if hasattr(col, "cat") else None
+                    )
+                    if categories is None or categories != sorted(set(col.astype(str))):
+                        fail(
+                            f"obs.{name}",
+                            "not a categorical of the sorted observed values",
+                        )
+                elif kind == store_format.BOOL and col.dtype != bool:
+                    fail(f"obs.{name}", f"dtype {col.dtype}, not bool")
+                elif kind == store_format.STRING and isinstance(
+                    col.dtype, pd.CategoricalDtype
                 ):
-                    fail(f"obs.{col}", "categories differ")
+                    fail(f"obs.{name}", "categorical, not plain strings")
+            # The writer adds dataset_id. Its value must be the summary record's.
+            if set(b[store_format.DATASET_ID_COLUMN].astype(str)) != {
+                summary["dataset_id"]
+            }:
+                fail("obs.dataset_id", f"does not hold only {summary['dataset_id']}")
+            # The other columns hold the source's values, compared as strings, and
+            # is_primary_data as bool.
+            for name in store_format.SOURCE_OBS_COLUMNS:
+                want, got = a[name], b[name]
+                if name == "is_primary_data":
+                    same = bool((want.astype(bool).to_numpy() == got.to_numpy()).all())
+                else:
+                    same = bool(
+                        (
+                            want.astype(str).to_numpy() == got.astype(str).to_numpy()
+                        ).all()
+                    )
+                if not same:
+                    fail(f"obs.{name}", "values differ from the source")
 
         var = read_elem(zroot["var"])
         result["compared"].append("var")
