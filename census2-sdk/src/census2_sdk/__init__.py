@@ -62,7 +62,10 @@ class SourceConflict(ValueError):
 
 
 class Census:
-    """A set of sources, opened. `get_anndata` and `count_cells` run one query over them."""
+    """`Census` holds a set of opened sources.
+
+    Each call to `get_anndata` or `count_cells` runs one query over them.
+    """
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
         self.sources = [str(s) for s in sources]
@@ -135,9 +138,9 @@ class Census:
         The count comes from the cell count tables, and no store opens. A cell
         matches by the rule of `get_anndata`, and the catalog excludes the same
         datasets. When `get_anndata` returns a result, the count thus equals its
-        `n_obs`. The count does not apply the checks before concatenation: a
-        count joins no matrices. The filter takes the columns of
-        `catalog.COUNTED` and `dataset_id`; a filter on another column raises
+        `n_obs`. The count does not apply the checks before concatenation,
+        because a count joins no matrices. The filter takes the columns of
+        `catalog.COUNTED` and `dataset_id`. A filter on another column raises
         ValueError. With `primary_only`, only the cells with `is_primary_data`
         count.
         """

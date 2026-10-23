@@ -6,7 +6,7 @@ that builder. `exclude` applies the one correctness rule of design 2.2. A query
 excludes a dataset only when the catalog proves that no cell of the dataset can match.
 An absent column or an unknown value keeps the dataset.
 
-Next to each catalog, the builder writes a cell count table (tracker 5.9). It has one
+Next to each catalog, the catalog builder writes a cell count table (tracker 5.9). It has one
 row for each dataset and each combination of the `COUNTED` values and
 `is_primary_data`, with the number of cells in `n_cells`. `cell_counts_uri` gives its
 location.
@@ -112,7 +112,7 @@ def cell_counts_uri(catalog_uri: str | os.PathLike[str]) -> str:
 
 
 def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
-    """Read a Parquet table. A missing table raises FileNotFoundError, local or remote."""
+    """Read a Parquet table. A missing table raises FileNotFoundError for any URI."""
     if is_remote(uri):
         _require_obstore()
         base, _, name = str(uri).rpartition("/")

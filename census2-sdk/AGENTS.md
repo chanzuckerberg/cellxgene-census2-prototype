@@ -30,7 +30,7 @@ install it. The tests and mypy do need it, and CI installs it.
 `Census.count_cells` sums it. `catalog.COUNTED` names its columns, and the builder and the SDK both
 read that tuple. A null is a group of its own in the table, so the rows of a store add up to its
 `n_obs`. A null matches no filter, as in `get_anndata`. A store without a counted column holds a
-null in that column, and a store without `is_primary_data` counts as not primary. The builder groups
+null in that column. A store without `is_primary_data` counts as not primary. The builder groups
 on categorical keys, because on object columns a store of millions of cells takes much longer.
 Before it counts, the SDK compares the table total of each dataset with the catalog `n_obs`. A table
 from another build gives a wrong count and no error, and this check finds it.

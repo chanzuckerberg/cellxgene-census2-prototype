@@ -527,7 +527,7 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
         census.count_cells("homo_sapiens", {"tissue": "lung"}, primary_only=True) == 3
     )
     assert census.count_cells("mus_musculus") == 0
-    # An organism with no store and a filter: zero and None, not an error.
+    # For an organism with no store, a query with a filter gives zero and None.
     assert census.count_cells("mus_musculus", {"tissue": "lung"}) == 0
     assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
 
@@ -535,7 +535,7 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
 def test_count_cells_takes_the_dataset_from_the_catalog(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:
-    """The catalog answers `dataset_id`, as in get_anndata, and not the table's copy."""
+    """The catalog answers a `dataset_id` filter, as in get_anndata. The table's copy has no effect."""
     path = tmp_path / "ids.parquet"
     catalog.load(corpus["catalog"]).to_parquet(path, index=False)
     counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))

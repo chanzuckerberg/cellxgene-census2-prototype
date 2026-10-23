@@ -80,8 +80,8 @@ indexed column raises `ValueError`. With
 `primary_only`, only the cells with `is_primary_data` count. The SDK refuses a count table whose
 total for a dataset differs from the catalog `n_obs`, such as a table from another build.
 
-On the 1,258 stores, the neutrophil count of the human stores is 374,463, the same as Census 1. The
-call takes 25 ms on a laptop, with the read of the table.
+On the 1,258 stores, the call counts 374,463 human neutrophils, and Census 1 gives the same count.
+The call takes 25 ms on a laptop, and this time includes the read of the table.
 
 The writer projects each store onto the gene reference of its organism. Thus every store of one
 organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads

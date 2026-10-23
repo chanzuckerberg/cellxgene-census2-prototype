@@ -8,9 +8,10 @@ summary record, in the attributes of its root group, gives the dataset's identif
 the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
 The builder reads no receipt.
 
-Next to the catalog, the builder writes the cell count table (tracker 5.9): one row
-for each dataset and each combination of the counted values, with `n_cells`. It
-counts in the same pass that reads the values for the catalog row.
+Next to the catalog, the builder writes the cell count table (tracker 5.9). The table
+has one row for each dataset and each combination of the counted values, with
+`n_cells`. The builder counts in the same pass that reads the values for the catalog
+row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
@@ -164,13 +165,13 @@ def cell_counts(
 ) -> pd.DataFrame:
     """One row for each combination of the counted values in one store, with `n_cells`.
 
-    A column that the store does not hold is null in every row, and a store
-    without `is_primary_data` counts as not primary. A null is a value of its own
-    here, so the rows of a store add up to its `n_obs`.
+    A column that the store does not hold is null in every row. A store without
+    `is_primary_data` counts as not primary. A null is a value of its own here, so
+    the rows of a store add up to its `n_obs`.
     """
     frame = pd.DataFrame(
         {
-            # Categorical keys keep the grouping fast on stores of millions of cells.
+            # Categorical keys make the group step fast on stores of millions of cells.
             c: _categorical(counted[c])
             if c in counted
             else pd.Categorical([None] * n_obs)
