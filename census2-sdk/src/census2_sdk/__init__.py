@@ -157,9 +157,8 @@ class Census:
         keep = np.ones(len(rows), dtype=bool)
         for column, wanted in normalized.items():
             if column == "dataset_id":
-                continue  # the catalog answered it, as in get_anndata
-            # One rule test for each distinct value. A null has code -1, which
-            # indexes the False at the end.
+                continue  # the catalog answered it
+            # Test each distinct value once; a null's code -1 indexes the last False.
             codes, values = pd.factorize(rows[column])
             by_value = [_hit(v, column, wanted) for v in values]
             keep &= np.array(by_value + [False], dtype=bool)[codes]

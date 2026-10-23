@@ -170,5 +170,5 @@ def exclude(
         return scoped
     records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
     keep = [not excludes(row, normalized) for row in records]
-    # A boolean array: an empty Python list would select no columns.
+    # pandas reads an empty Python list as a column selection.
     return scoped[np.array(keep, dtype=bool)]
