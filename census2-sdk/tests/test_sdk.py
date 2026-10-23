@@ -475,6 +475,102 @@ def test_recorded_reference_must_match_the_pin(
     assert query(census, {"tissue": "lung"}).n_obs > 0
 
 
+# --- the cell count table and count_cells (tracker 5.9) -----------------------
+
+COUNT_FILTERS: list[dict[str, Any]] = [
+    {},
+    {"tissue": "lung"},
+    {"disease": "flu"},  # a member of a multi-valued value
+    {"tissue": ["lung", "kidney"], "disease": "normal"},
+    {"dataset_id": "ds-b", "tissue": "lung"},
+    {"assay_ontology_term_id": "EFO:0009922"},
+    {"tissue": "brain"},  # no store holds the value
+    {"cell_type": "T cell"},  # no store holds the column
+]
+
+
+@pytest.mark.parametrize("obs_filter", COUNT_FILTERS)
+def test_count_cells_equals_the_query(
+    corpus: dict[str, Path], obs_filter: dict[str, Any]
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    result = census.get_anndata("homo_sapiens", obs_filter)
+    want = 0 if result is None else result.n_obs
+    assert census.count_cells("homo_sapiens", obs_filter) == want
+
+
+def test_cell_count_table_adds_up_to_n_obs(corpus: dict[str, Path]) -> None:
+    rows = catalog.load(corpus["catalog"])
+    counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))
+    assert set(counts.columns) == {
+        "dataset_id",
+        "dataset_version_id",
+        *catalog.COUNTED,
+        "is_primary_data",
+        "n_cells",
+    }
+    totals = counts.groupby("dataset_version_id")["n_cells"].sum().to_dict()
+    assert totals == dict(zip(rows["dataset_version_id"], rows["n_obs"], strict=True))
+
+
+def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
+    adata = make_store("ds-p", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 7)
+    tissue = adata.obs["tissue"].cat.add_categories(["liver"])
+    tissue.iloc[:2] = None
+    adata.obs["tissue"] = tissue
+    adata.obs["is_primary_data"] = np.array([True, False, True, False, True, True])
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-p")])
+    assert census.count_cells("homo_sapiens") == 6
+    assert census.count_cells("homo_sapiens", {"tissue": "lung"}) == 4
+    assert census.count_cells("homo_sapiens", primary_only=True) == 4
+    assert (
+        census.count_cells("homo_sapiens", {"tissue": "lung"}, primary_only=True) == 3
+    )
+    assert census.count_cells("mus_musculus") == 0
+    # An organism with no store and a filter: zero and None, not an error.
+    assert census.count_cells("mus_musculus", {"tissue": "lung"}) == 0
+    assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
+
+
+def test_count_cells_takes_the_dataset_from_the_catalog(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """The catalog answers `dataset_id`, as in get_anndata, and not the table's copy."""
+    path = tmp_path / "ids.parquet"
+    catalog.load(corpus["catalog"]).to_parquet(path, index=False)
+    counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))
+    counts["dataset_id"] = "another"
+    counts.to_parquet(catalog.cell_counts_uri(path), index=False)
+    census = census2_sdk.open_census([path])
+    want = query(census, {"dataset_id": "ds-a"}).n_obs
+    assert census.count_cells("homo_sapiens", {"dataset_id": "ds-a"}) == want
+
+
+def test_count_cells_refuses_an_uncounted_column(corpus: dict[str, Path]) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="development_stage"):
+        census.count_cells("homo_sapiens", {"development_stage": "adult"})
+
+
+def test_count_cells_needs_the_table(corpus: dict[str, Path], tmp_path: Path) -> None:
+    catalog.load(corpus["catalog"]).to_parquet(tmp_path / "bare.parquet", index=False)
+    census = census2_sdk.open_census([tmp_path / "bare.parquet"])
+    with pytest.raises(FileNotFoundError, match="no cell count table"):
+        census.count_cells("homo_sapiens")
+
+
+def test_count_cells_refuses_a_table_from_another_build(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    path = tmp_path / "stale.parquet"
+    catalog.load(corpus["catalog"]).to_parquet(path, index=False)
+    counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))
+    counts.iloc[1:].to_parquet(catalog.cell_counts_uri(path), index=False)
+    census = census2_sdk.open_census([path])
+    with pytest.raises(census2_sdk.SourceConflict, match="n_obs"):
+        census.count_cells("homo_sapiens")
+
+
 # --- the catalog builder and the summary record -------------------------------
 
 

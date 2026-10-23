@@ -22,6 +22,12 @@ None.
 The writer projects each store onto the reference. Thus every selected store has
 the same `var`. The SDK checks this, and concatenates by position.
 
+`count_cells` counts the selected cells and opens no store. It sums the cell count
+table that the catalog builder writes next to each catalog (tracker 5.9). Its filter
+takes the columns of `catalog.COUNTED` and `dataset_id`.
+
+    n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
+
 Iteration 1 scaffolding, marked `ponytail:` in the code: the SDK reads `dataset_id`
 from the catalog because the stores do not hold the column.
 """
@@ -56,10 +62,11 @@ class SourceConflict(ValueError):
 
 
 class Census:
-    """A set of sources, opened. `get_anndata` runs one query over them."""
+    """A set of sources, opened. `get_anndata` and `count_cells` run one query over them."""
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
         self.sources = [str(s) for s in sources]
+        self._counts: pd.DataFrame | None = None
         frames = []
         for source in self.sources:
             frame = _catalog.load(source)
@@ -115,6 +122,83 @@ class Census:
             "stores_opened": len(rows),
         }
         return result
+
+    def count_cells(
+        self,
+        organism: str,
+        obs_filter: Filter | None = None,
+        *,
+        primary_only: bool = False,
+    ) -> int:
+        """Return the number of cells of `organism` that match `obs_filter`.
+
+        The count comes from the cell count tables, and no store opens. A cell
+        matches by the rule of `get_anndata`, and the catalog excludes the same
+        datasets. When `get_anndata` returns a result, the count thus equals its
+        `n_obs`. The count does not apply the checks before concatenation: a
+        count joins no matrices. The filter takes the columns of
+        `catalog.COUNTED` and `dataset_id`; a filter on another column raises
+        ValueError. With `primary_only`, only the cells with `is_primary_data`
+        count.
+        """
+        normalized = _catalog.normalize(obs_filter)
+        uncounted = sorted(set(normalized) - {"dataset_id", *_catalog.COUNTED})
+        if uncounted:
+            raise ValueError(
+                f"the cell count table holds no {uncounted}; use get_anndata"
+            )
+        counts = self._cell_counts()
+        candidates = _catalog.exclude(self.catalog, organism, normalized)
+        rows = counts[
+            counts["dataset_version_id"].isin(candidates["dataset_version_id"])
+        ]
+        if primary_only:
+            rows = rows[rows["is_primary_data"].astype(bool)]
+        keep = np.ones(len(rows), dtype=bool)
+        for column, wanted in normalized.items():
+            if column == "dataset_id":
+                continue  # the catalog answered it, as in get_anndata
+            # One rule test for each distinct value. A null has code -1, which
+            # indexes the False at the end.
+            codes, values = pd.factorize(rows[column])
+            by_value = [_hit(v, column, wanted) for v in values]
+            keep &= np.array(by_value + [False], dtype=bool)[codes]
+        return int(rows["n_cells"].to_numpy()[keep].sum())
+
+    def _cell_counts(self) -> pd.DataFrame:
+        """The cell count tables of all sources, read once.
+
+        Refuse a table whose total for a dataset differs from the catalog
+        `n_obs`. A table from another build gives a wrong count and no error.
+        """
+        if self._counts is None:
+            frames = []
+            for source in self.sources:
+                uri = _catalog.cell_counts_uri(source)
+                try:
+                    frames.append(_catalog.load(uri))
+                except FileNotFoundError as e:
+                    raise FileNotFoundError(
+                        f"{source}: no cell count table at {uri}; "
+                        "build the catalog again with tools/build_catalog.py"
+                    ) from e
+            counts = pd.concat(frames, ignore_index=True)
+            totals = counts.groupby("dataset_version_id")["n_cells"].sum()
+            wrong = sorted(
+                str(v)
+                for v, n in zip(
+                    self.catalog["dataset_version_id"],
+                    self.catalog["n_obs"],
+                    strict=True,
+                )
+                if int(totals.get(v, 0)) != int(n)
+            )
+            if wrong:
+                raise SourceConflict(
+                    f"the cell count table differs from the catalog n_obs for {wrong}"
+                )
+            self._counts = counts
+        return self._counts
 
 
 def open_census(sources: Sequence[PathLike]) -> Census:

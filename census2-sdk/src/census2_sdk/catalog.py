@@ -5,6 +5,11 @@ Census 2 team publishes it; `tools/build_catalog.py` is the Iteration 1 stand-in
 that builder. `exclude` applies the one correctness rule of design 2.2. A query
 excludes a dataset only when the catalog proves that no cell of the dataset can match.
 An absent column or an unknown value keeps the dataset.
+
+Next to each catalog, the builder writes a cell count table (tracker 5.9). It has one
+row for each dataset and each combination of the `COUNTED` values and
+`is_primary_data`, with the number of cells in `n_cells`. `cell_counts_uri` gives its
+location.
 """
 
 import io
@@ -21,6 +26,7 @@ import zarr
 # without it. Each remote path calls `_require_obstore` first.
 try:
     import obstore
+    import obstore.exceptions
     import obstore.store
 except ImportError:  # pragma: no cover
     # mypy strict; this repository does not use ty, so the directive is mypy's.
@@ -51,6 +57,13 @@ INDEXED = tuple(c for p in PAIRS for c in (p, f"{p}_ontology_term_id")) + (
     "suspension_type",
     "tissue_type",
 )
+# The indexed columns that the cell count table holds (tracker 5.9).
+COUNTED = tuple(
+    c
+    for p in ("assay", "cell_type", "disease", "sex", "tissue")
+    for c in (p, f"{p}_ontology_term_id")
+)
+COUNTS_SUFFIX = ".cell_counts.parquet"
 # Schema 2.4.0 made these two columns multi-valued. Equality is membership.
 MULTIVALUED = frozenset({"disease", "disease_ontology_term_id"})
 MULTIVALUE_SEP = " || "
@@ -93,11 +106,20 @@ def normalize(obs_filter: Filter | None) -> Normalized:
     return normalized
 
 
+def cell_counts_uri(catalog_uri: str | os.PathLike[str]) -> str:
+    """The cell count table that the catalog builder writes next to a catalog."""
+    return str(catalog_uri).removesuffix(".parquet") + COUNTS_SUFFIX
+
+
 def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
+    """Read a Parquet table. A missing table raises FileNotFoundError, local or remote."""
     if is_remote(uri):
         _require_obstore()
         base, _, name = str(uri).rpartition("/")
-        data = bytes(obstore.get(obstore.store.from_url(base), name).bytes())
+        try:
+            data = bytes(obstore.get(obstore.store.from_url(base), name).bytes())
+        except obstore.exceptions.NotFoundError as e:
+            raise FileNotFoundError(str(uri)) from e
         return pd.read_parquet(io.BytesIO(data))
     return pd.read_parquet(uri)
 
@@ -148,4 +170,5 @@ def exclude(
         return scoped
     records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
     keep = [not excludes(row, normalized) for row in records]
-    return scoped[keep]
+    # A boolean array: an empty Python list would select no columns.
+    return scoped[np.array(keep, dtype=bool)]
