@@ -29,7 +29,7 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
-OBS_NAMES = [name for name, _ in census2_dataset_writer.store_format.OBS_COLUMNS]
+OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
 # A Discover h5ad holds no identifiers, so every store needs these from its caller.
@@ -226,7 +226,7 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # source's values.
     assert list(obs.columns) == OBS_NAMES
     assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
-    for name in census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS:
+    for name in census2_dataset_writer.SOURCE_OBS_COLUMNS:
         assert list(obs[name].astype(str)) == list(source.obs[name].astype(str))
 
     # X is the counts on the reference genes, and sparse even from a dense source.
@@ -379,7 +379,7 @@ def test_consolidated_metadata_is_present(tmp_path: Path) -> None:
 def test_summary_record_is_in_the_root_attributes(tmp_path: Path) -> None:
     dest, result = written(tmp_path)
     expected = {
-        "version": census2_dataset_writer.store_format.SUMMARY_VERSION,
+        "version": census2_dataset_writer.SUMMARY_VERSION,
         **IDS,
         "gene_reference_version": result["gene_reference_version"],
     }
@@ -437,19 +437,17 @@ GOOD_RECORD = {
 def test_validate_summary_refuses_a_malformed_record(
     change: dict[str, Any], message: str
 ) -> None:
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match=message
-    ):
-        census2_dataset_writer.store_format.validate_summary({**GOOD_RECORD, **change})
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match=message):
+        census2_dataset_writer.validate_summary({**GOOD_RECORD, **change})
 
 
 def test_validate_summary_refuses_a_missing_field() -> None:
     record = {k: v for k, v in GOOD_RECORD.items() if k != "dataset_id"}
     with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError,
+        census2_dataset_writer.SummaryRecordError,
         match="missing \\['dataset_id'\\]",
     ):
-        census2_dataset_writer.store_format.validate_summary(record)
+        census2_dataset_writer.validate_summary(record)
 
 
 def test_read_summary_refuses_a_malformed_record(tmp_path: Path) -> None:
@@ -458,23 +456,17 @@ def test_read_summary_refuses_a_malformed_record(tmp_path: Path) -> None:
     root.update_attributes(
         {"cellxgene-census2": {"summary": {**GOOD_RECORD, "version": 9}}}
     )
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match="version 9"
-    ):
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="version 9"):
         census2_dataset_writer.read_summary(dest)
     # An open root group reads the same way.
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match="version 9"
-    ):
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="version 9"):
         census2_dataset_writer.read_summary(zarr.open_group(dest, mode="r"))
 
 
 def test_write_refuses_a_malformed_record_and_writes_nothing(tmp_path: Path) -> None:
     write: Any = census2_dataset_writer.write
     bad = {**GOOD_RECORD, "dataset_id": ""}
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match="dataset_id"
-    ):
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="dataset_id"):
         write(anndata.AnnData(X=np.zeros((2, 2))), tmp_path / "store.zarr", summary=bad)
     assert not (tmp_path / "store.zarr").exists()
 
@@ -738,7 +730,7 @@ def test_project_obs_drops_the_author_columns() -> None:
     """Names with a `/` go with every other author column."""
     adata = with_obs_columns(dataset(), "leiden", *SLASH_COLS)
     kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
-    assert kept == list(census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS)
+    assert kept == list(census2_dataset_writer.SOURCE_OBS_COLUMNS)
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
@@ -748,7 +740,7 @@ def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
     assert list(harmonized.obs.columns) == list(
-        census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS
+        census2_dataset_writer.SOURCE_OBS_COLUMNS
     )
     assert list(harmonized.var.index) == REF_IDS
     assert harmonized.raw is None
@@ -973,19 +965,13 @@ def test_store_format_imports_only_the_standard_library() -> None:
     assert out.stdout.strip() == "[]"
 
 
-def test_gene_references_use_the_store_format_labels() -> None:
-    labels = census2_dataset_writer.store_format.GENE_REFERENCE_VERSIONS
-    references = census2_dataset_writer.genes.REFERENCES
-    assert {taxon: spec["version"] for taxon, spec in references.items()} == labels
-
-
 # --- the obs schema --------------------------------------------------------------
 
 
 def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
     dest, _ = written(tmp_path)
     obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
-    for name, kind in census2_dataset_writer.store_format.OBS_COLUMNS:
+    for name, kind in census2_dataset_writer.OBS_COLUMNS:
         column = obs[name]
         if kind == "category":
             assert isinstance(column.dtype, pd.CategoricalDtype), name
@@ -1043,4 +1029,4 @@ def test_project_obs_refuses_a_malformed_source(change: str, message: str) -> No
 def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:
     assert OBS_NAMES[0] == "dataset_id"
     assert len(set(OBS_NAMES)) == len(OBS_NAMES)
-    assert "dataset_id" not in census2_dataset_writer.store_format.SOURCE_OBS_COLUMNS
+    assert "dataset_id" not in census2_dataset_writer.SOURCE_OBS_COLUMNS

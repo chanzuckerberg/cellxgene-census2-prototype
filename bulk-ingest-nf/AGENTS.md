@@ -61,10 +61,10 @@ version have the same size. `tools/census1-sample.py` asserts this for each reco
 script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
 a source build, which fails.
 
-`census2_dataset_writer.project_obs` projects `obs` onto `store_format.OBS_COLUMNS`: `dataset_id`
-and the 19 CxG columns that Census 1 copies, each with a fixed kind. Every other source column
-goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets that
-drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
+`census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`:
+`dataset_id` and the 19 CxG columns that Census 1 copies, each with a fixed kind. Every other source
+column goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets
+that drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
 order, each of its kind, with the source's values and the summary record's `dataset_id`.
 
 A breadcrumb for when the projection carries more columns, for example the perturbation fields that

@@ -87,7 +87,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     `summary` is the summary record that the store must hold.
 
     `written` is the result of `census2_dataset_writer.create`. The store's obs
-    must hold exactly the columns of `store_format.OBS_COLUMNS`, in order, each
+    must hold exactly the columns of `census2_dataset_writer.OBS_COLUMNS`, in order, each
     of its kind. `dataset_id` must hold the summary record's value, and each
     other column must hold the source's values, compared as strings, or as bool
     for `is_primary_data`. The index must equal the source's.
@@ -132,7 +132,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         result["compared"].append("summary")
         try:
             stored = census2_dataset_writer.read_summary(dst)
-        except census2_dataset_writer.store_format.SummaryRecordError as e:
+        except census2_dataset_writer.SummaryRecordError as e:
             fail("summary", str(e))
         else:
             if stored != summary:
@@ -140,16 +140,15 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
 
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
-        store_format = census2_dataset_writer.store_format
-        expected = [name for name, _ in store_format.OBS_COLUMNS]
+        expected = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
         if not a.index.equals(b.index):
             fail("obs", "index differs")
         if list(b.columns) != expected:
             fail("obs", f"columns {list(b.columns)} are not the schema's {expected}")
         else:
-            for name, kind in store_format.OBS_COLUMNS:
+            for name, kind in census2_dataset_writer.OBS_COLUMNS:
                 col = b[name]
-                if kind == store_format.CATEGORY:
+                if kind == census2_dataset_writer.CATEGORY:
                     categories = (
                         list(col.cat.categories) if hasattr(col, "cat") else None
                     )
@@ -159,19 +158,19 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                             f"obs.{name}",
                             "not a categorical of the sorted observed values",
                         )
-                elif kind == store_format.BOOL and col.dtype != bool:
+                elif kind == census2_dataset_writer.BOOL and col.dtype != bool:
                     fail(f"obs.{name}", f"dtype {col.dtype}, not bool")
-                elif kind == store_format.STRING and isinstance(
+                elif kind == census2_dataset_writer.STRING and isinstance(
                     col.dtype, pd.CategoricalDtype
                 ):
                     fail(f"obs.{name}", "categorical, not plain strings")
             # The writer adds dataset_id. Its value must be the summary record's.
-            id_values = b[store_format.DATASET_ID_COLUMN].unique()
+            id_values = b[census2_dataset_writer.DATASET_ID_COLUMN].unique()
             if {str(v) for v in id_values} != {summary["dataset_id"]}:
                 fail("obs.dataset_id", f"does not hold only {summary['dataset_id']}")
             # The other columns hold the source's values, compared as strings, and
             # is_primary_data as bool.
-            for name in store_format.SOURCE_OBS_COLUMNS:
+            for name in census2_dataset_writer.SOURCE_OBS_COLUMNS:
                 want, got = a[name], b[name]
                 if name == "is_primary_data":
                     same = bool((want.astype(bool).to_numpy() == got.to_numpy()).all())

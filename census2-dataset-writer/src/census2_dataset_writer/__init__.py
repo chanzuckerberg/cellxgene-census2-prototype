@@ -54,7 +54,7 @@ a `dataset_id` column is an error, because that name belongs to the store.
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs three steps in order. `project_obs`
-   projects `obs` onto `store_format.OBS_COLUMNS`, the CxG columns that Census
+   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census
    1 copies, each with a fixed kind; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
    when the dataset has `raw`, else `X`. The store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
@@ -146,18 +146,20 @@ from zarr.abc.store import Store
 
 from . import assays, genes
 from . import store_format as store_format  # a public module; callers name it
+from .store_format import BOOL as BOOL
+from .store_format import CATEGORY as CATEGORY
 
-# For use in this module. A caller names `store_format`; the package does not
-# export these names.
-from .store_format import (
-    DATASET_ID_COLUMN,
-    SUMMARY_KEY,
-    SUMMARY_NAMESPACE,
-    SUMMARY_VERSION,
-    SummaryRecord,
-    SummaryRecordError,
-    validate_summary,
-)
+# The store format, re-exported, so a caller writes census2_dataset_writer.X.
+from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
+from .store_format import OBS_COLUMNS as OBS_COLUMNS
+from .store_format import SOURCE_OBS_COLUMNS as SOURCE_OBS_COLUMNS
+from .store_format import STRING as STRING
+from .store_format import SUMMARY_KEY as SUMMARY_KEY
+from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
+from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
+from .store_format import SummaryRecord as SummaryRecord
+from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
@@ -418,11 +420,11 @@ def project_obs(
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Project `obs` onto the columns of `store_format.OBS_COLUMNS`.
+    """Project `obs` onto the columns of `OBS_COLUMNS`.
 
     Census 1 projects `obs` onto a closed schema, with fixed types: the columns
     that the CxG schema requires in every dataset, plus columns that it adds.
-    This step copies the CxG columns, `store_format.SOURCE_OBS_COLUMNS`, in
+    This step copies the CxG columns, `SOURCE_OBS_COLUMNS`, in
     schema order, and gives each one its kind: a categorical with the sorted
     observed values as string categories, NumPy `bool` for `is_primary_data`,
     and plain strings for `observation_joinid`. The source index stays. Every
@@ -442,14 +444,14 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    missing = [c for c in store_format.SOURCE_OBS_COLUMNS if c not in obs.columns]
+    missing = [c for c in SOURCE_OBS_COLUMNS if c not in obs.columns]
     if missing:
         raise ValueError(f"the source obs lacks the schema columns {missing}")
-    kinds = dict(store_format.OBS_COLUMNS)
+    kinds = dict(OBS_COLUMNS)
     adata.obs = pd.DataFrame(
         {
             name: _project_obs_column(obs[name], name, kinds[name])
-            for name in store_format.SOURCE_OBS_COLUMNS
+            for name in SOURCE_OBS_COLUMNS
         },
         index=obs.index,
     )
@@ -457,10 +459,10 @@ def project_obs(
 
 
 def _project_obs_column(column: pd.Series, name: str, kind: str) -> pd.Series:
-    """One `obs` column with the kind that `store_format.OBS_COLUMNS` gives it."""
+    """One `obs` column with the kind that `OBS_COLUMNS` gives it."""
     if bool(column.isna().any()):
         raise ValueError(f"obs {name} holds a null")
-    if kind == store_format.CATEGORY:
+    if kind == CATEGORY:
         if isinstance(column.dtype, pd.CategoricalDtype):
             # Work on the categories, not on one value per cell.
             column = column.cat.remove_unused_categories()
@@ -472,13 +474,13 @@ def _project_obs_column(column: pd.Series, name: str, kind: str) -> pd.Series:
             column = column.astype(str).astype("category")
         categories = sorted(column.cat.categories)
         return column.cat.reorder_categories(categories).cat.as_unordered()
-    if kind == store_format.BOOL:
+    if kind == BOOL:
         if column.dtype == bool:
             return column
         if str(column.dtype) == "boolean":
             return column.astype(bool)
         raise ValueError(f"obs {name} is {column.dtype}, not boolean")
-    if kind == store_format.STRING:
+    if kind == STRING:
         values = pd.Series(
             column.astype(str).to_numpy(dtype=object), index=column.index
         )
