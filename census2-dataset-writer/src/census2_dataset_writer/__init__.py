@@ -132,7 +132,7 @@ import contextlib
 import importlib.metadata
 import os
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, assert_never, cast
 
 import anndata
 import dask
@@ -148,14 +148,12 @@ from . import assays, genes
 from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
-from .store_format import BOOL as BOOL
-from .store_format import CATEGORY as CATEGORY
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
-from .store_format import STRING as STRING
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
+from .store_format import ObsKind as ObsKind
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
 from .store_format import validate_summary as validate_summary
@@ -454,11 +452,11 @@ def project_obs(
     return adata
 
 
-def _project_obs_column(column: pd.Series, name: str, kind: str) -> pd.Series:
+def _project_obs_column(column: pd.Series, name: str, kind: ObsKind) -> pd.Series:
     """One `obs` column with the kind that `OBS_COLUMNS` gives it."""
     if bool(column.isna().any()):
         raise ValueError(f"obs {name} holds a null")
-    if kind == CATEGORY:
+    if kind is ObsKind.CATEGORY:
         if isinstance(column.dtype, pd.CategoricalDtype):
             # Work on the categories, not on one value per cell.
             column = column.cat.remove_unused_categories()
@@ -470,20 +468,20 @@ def _project_obs_column(column: pd.Series, name: str, kind: str) -> pd.Series:
             column = column.astype(str).astype("category")
         categories = sorted(column.cat.categories)
         return column.cat.reorder_categories(categories).cat.as_unordered()
-    if kind == BOOL:
+    if kind is ObsKind.BOOL:
         if column.dtype == bool:
             return column
         if str(column.dtype) == "boolean":
             return column.astype(bool)
         raise ValueError(f"obs {name} is {column.dtype}, not boolean")
-    if kind == STRING:
+    if kind is ObsKind.STRING:
         values = pd.Series(
             column.astype(str).to_numpy(dtype=object), index=column.index
         )
         if not values.is_unique:
             raise ValueError(f"obs {name} is not unique")
         return values
-    raise ValueError(f"unknown obs column kind {kind!r}")
+    assert_never(kind)
 
 
 def select_counts(

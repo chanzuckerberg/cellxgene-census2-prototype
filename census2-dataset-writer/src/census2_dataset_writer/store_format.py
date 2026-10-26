@@ -4,8 +4,8 @@ A store is an AnnData-Zarr group. This module names what Census 2 adds to that
 format, so that the writer and a reader of a store use one definition:
 
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
-- `OBS_COLUMNS`, the columns of a store's `obs`, in order, with the kind of
-  each.
+- `OBS_COLUMNS`, the columns of a store's `obs`, in order, each with its
+  `ObsKind`.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
@@ -15,6 +15,7 @@ without the writer's dependencies. The package re-exports these names. The SDK
 repeats some of them today, because it does not depend on the writer.
 """
 
+from enum import Enum
 from typing import TypedDict, cast
 
 # Where the summary record is: a key of the root group's attributes, and a key
@@ -81,15 +82,17 @@ def validate_summary(obj: object) -> SummaryRecord:
     return cast("SummaryRecord", obj)
 
 
-# The kinds of an `obs` column. A reader can rely on the kind of each column in
-# every store.
-#   category  a pandas categorical whose categories are strings: the observed
-#             values, sorted, with no unused category
-#   bool      NumPy bool
-#   string    plain strings, not categorical
-CATEGORY = "category"
-BOOL = "bool"
-STRING = "string"
+class ObsKind(Enum):
+    """The kind of an `obs` column. A reader can rely on it in every store."""
+
+    # A pandas categorical whose categories are strings: the observed values,
+    # sorted, with no unused category.
+    CATEGORY = "category"
+    # NumPy bool.
+    BOOL = "bool"
+    # Plain strings, not categorical.
+    STRING = "string"
+
 
 # The columns of a store's `obs`, in order. They are the columns that Census 1
 # copies from every CxG h5ad, in Census 1's order, after `dataset_id`. A store
@@ -97,25 +100,25 @@ STRING = "string"
 # pair and five statistics of the counts, which a store does not hold yet, and
 # `soma_joinid`, a corpus-wide number that a store for one dataset cannot
 # assign. No value is null: the CxG schema requires each of these.
-OBS_COLUMNS: tuple[tuple[str, str], ...] = (
-    (DATASET_ID_COLUMN, CATEGORY),
-    ("assay", CATEGORY),
-    ("assay_ontology_term_id", CATEGORY),
-    ("cell_type", CATEGORY),
-    ("cell_type_ontology_term_id", CATEGORY),
-    ("development_stage", CATEGORY),
-    ("development_stage_ontology_term_id", CATEGORY),
-    ("disease", CATEGORY),
-    ("disease_ontology_term_id", CATEGORY),
-    ("donor_id", CATEGORY),
-    ("is_primary_data", BOOL),
-    ("observation_joinid", STRING),
-    ("self_reported_ethnicity", CATEGORY),
-    ("self_reported_ethnicity_ontology_term_id", CATEGORY),
-    ("sex", CATEGORY),
-    ("sex_ontology_term_id", CATEGORY),
-    ("suspension_type", CATEGORY),
-    ("tissue", CATEGORY),
-    ("tissue_ontology_term_id", CATEGORY),
-    ("tissue_type", CATEGORY),
+OBS_COLUMNS: tuple[tuple[str, ObsKind], ...] = (
+    (DATASET_ID_COLUMN, ObsKind.CATEGORY),
+    ("assay", ObsKind.CATEGORY),
+    ("assay_ontology_term_id", ObsKind.CATEGORY),
+    ("cell_type", ObsKind.CATEGORY),
+    ("cell_type_ontology_term_id", ObsKind.CATEGORY),
+    ("development_stage", ObsKind.CATEGORY),
+    ("development_stage_ontology_term_id", ObsKind.CATEGORY),
+    ("disease", ObsKind.CATEGORY),
+    ("disease_ontology_term_id", ObsKind.CATEGORY),
+    ("donor_id", ObsKind.CATEGORY),
+    ("is_primary_data", ObsKind.BOOL),
+    ("observation_joinid", ObsKind.STRING),
+    ("self_reported_ethnicity", ObsKind.CATEGORY),
+    ("self_reported_ethnicity_ontology_term_id", ObsKind.CATEGORY),
+    ("sex", ObsKind.CATEGORY),
+    ("sex_ontology_term_id", ObsKind.CATEGORY),
+    ("suspension_type", ObsKind.CATEGORY),
+    ("tissue", ObsKind.CATEGORY),
+    ("tissue_ontology_term_id", ObsKind.CATEGORY),
+    ("tissue_type", ObsKind.CATEGORY),
 )

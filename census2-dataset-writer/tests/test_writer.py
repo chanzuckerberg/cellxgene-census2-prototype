@@ -973,12 +973,12 @@ def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
     obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
     for name, kind in census2_dataset_writer.OBS_COLUMNS:
         column = obs[name]
-        if kind == "category":
+        if kind is census2_dataset_writer.ObsKind.CATEGORY:
             assert isinstance(column.dtype, pd.CategoricalDtype), name
             categories = list(column.cat.categories)
             assert categories == sorted(set(column.astype(str))), name
             assert all(isinstance(c, str) for c in categories), name
-        elif kind == "bool":
+        elif kind is census2_dataset_writer.ObsKind.BOOL:
             assert column.dtype == bool, name
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name

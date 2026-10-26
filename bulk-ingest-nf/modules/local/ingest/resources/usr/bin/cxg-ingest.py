@@ -78,23 +78,25 @@ def ingest(
     )
 
 
-def obs_column_problem(got: pd.Series, want: pd.Series, kind: str) -> str | None:
+def obs_column_problem(
+    got: pd.Series, want: pd.Series, kind: census2_dataset_writer.ObsKind
+) -> str | None:
     """What is wrong with the store's obs column `got`, or None.
 
     `want` holds the values that the column must hold. A categorical must have
     the sorted distinct values of `want` as its string categories.
     """
     categorical = isinstance(got.dtype, pd.CategoricalDtype)
-    if kind == census2_dataset_writer.CATEGORY:
+    if kind is census2_dataset_writer.ObsKind.CATEGORY:
         categories = sorted(set(want.astype(str)))
         if not categorical or list(got.cat.categories) != categories:
             return "not a categorical of the sorted distinct values"
-    elif kind == census2_dataset_writer.BOOL:
+    elif kind is census2_dataset_writer.ObsKind.BOOL:
         if got.dtype != bool:
             return f"dtype {got.dtype}, not bool"
     elif categorical:
         return "categorical, not plain strings"
-    as_type = bool if kind == census2_dataset_writer.BOOL else str
+    as_type = bool if kind is census2_dataset_writer.ObsKind.BOOL else str
     if not np.array_equal(want.astype(as_type), got.astype(as_type)):
         return "values differ"
     return None
