@@ -9,14 +9,14 @@ the gene reference version. The rest of the row comes from the store's `obs` and
 The builder reads no receipt.
 
 Next to the catalog, the builder writes the cell count table (tracker 5.9). The table
-has one row for each dataset and each combination of the counted values, with
-`n_cells`. The builder counts in the same pass that reads the values for the catalog
-row.
+has one row for each dataset and each combination of the `COUNTED` values and
+`is_primary_data`, with the number of cells in `n_cells`. The builder counts the
+cells in the same pass that reads the values for the catalog row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
-This writes `catalog.parquet` and `catalog.cell_counts.parquet`. A remote prefix needs
-the `s3` extra and credentials in the environment.
+The command writes `catalog.parquet` and `catalog.cell_counts.parquet`. A remote
+prefix needs the `s3` extra and credentials in the environment.
 """
 
 import pathlib
@@ -74,7 +74,8 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
 
     The store's summary record supplies `dataset_id`, `dataset_version_id`, and
     `gene_reference_version`. The store's `obs` and `uns` supply the rest. With
-    `out`, write the catalog there and the cell count table at `cell_counts_uri(out)`.
+    `out`, the builder writes the catalog to `out` and the cell count table to
+    `cell_counts_uri(out)`.
     """
     # ponytail: dataset_id comes from the summary record until the writer stamps it
     # into obs (disposition row 13).
@@ -163,11 +164,13 @@ def summarize(group: zarr.Group) -> tuple[dict[str, Any], pd.DataFrame]:
 def cell_counts(
     counted: dict[str, pd.Series], primary: pd.Series | None, n_obs: int
 ) -> pd.DataFrame:
-    """One row for each combination of the counted values in one store, with `n_cells`.
+    """The cell counts of one store, with the number of cells in `n_cells`.
 
-    A column that the store does not hold is null in every row. A store without
-    `is_primary_data` counts as not primary. A null is a value of its own here, so
-    the rows of a store add up to its `n_obs`.
+    The table has one row for each combination of the `COUNTED` values and
+    `is_primary_data`. A column that the store does not hold is null in every
+    row. For a store without `is_primary_data`, every row has `is_primary_data`
+    false. The rows keep a null as a separate value, so the rows of a store add
+    up to its `n_obs`.
     """
     frame = pd.DataFrame(
         {

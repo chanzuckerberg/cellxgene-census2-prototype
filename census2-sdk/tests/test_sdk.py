@@ -535,7 +535,10 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
 def test_count_cells_takes_the_dataset_from_the_catalog(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:
-    """The catalog answers a `dataset_id` filter, as in get_anndata. The table's copy has no effect."""
+    """The catalog answers a `dataset_id` filter, as in `get_anndata`.
+
+    The `dataset_id` column of the cell count table has no effect on the count.
+    """
     path = tmp_path / "ids.parquet"
     catalog.load(corpus["catalog"]).to_parquet(path, index=False)
     counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))

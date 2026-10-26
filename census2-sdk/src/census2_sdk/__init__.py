@@ -1,8 +1,8 @@
 """Query Census 2 stores through a catalog and return one AnnData.
 
-The SDK runs on the user's machine. It reads the catalog, excludes the datasets that
-cannot match, opens the remaining stores, and concatenates the selected cells by gene
-position (design 4.1 to 4.4).
+The SDK runs on the user's machine. It reads the catalog and excludes the datasets that
+cannot match. It then opens the remaining stores and concatenates the selected cells by
+gene position (design 4.1 to 4.4).
 
     import census2_sdk
 
@@ -13,14 +13,15 @@ position (design 4.1 to 4.4).
 a cell when every column holds one of its values. The columns are the 18 indexed
 columns of design 2.2 and `dataset_id`. A filter grammar is open (design section 8).
 
-The result carries counts in `X`, the pinned gene reference as `var`, the `obs` columns
-that all selected stores hold, and `uns["census2"]` with the sources and the store
-counts. The cell key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names`
-is `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns
-None.
+The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
+has the columns that all selected stores hold. `uns["census2"]` has the sources, the
+number of catalog rows for the organism, and the number of stores opened. The cell
+key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
+`<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
 The writer projects each store onto the reference. Thus every selected store has
-the same `var`. The SDK checks this, and concatenates by position.
+the same `var`. The SDK checks that every store has the same gene identifiers in the
+same order, and concatenates by position.
 
 `count_cells` counts the selected cells and opens no store. It sums the cell count
 table that the catalog builder writes next to each catalog (tracker 5.9). Its filter
@@ -135,14 +136,18 @@ class Census:
     ) -> int:
         """Return the number of cells of `organism` that match `obs_filter`.
 
-        The count comes from the cell count tables, and no store opens. A cell
-        matches by the rule of `get_anndata`, and the catalog excludes the same
-        datasets. When `get_anndata` returns a result, the count thus equals its
-        `n_obs`. The count does not apply the checks before concatenation,
-        because a count joins no matrices. The filter takes the columns of
-        `catalog.COUNTED` and `dataset_id`. A filter on another column raises
-        ValueError. With `primary_only`, only the cells with `is_primary_data`
-        count.
+        The SDK sums the cell count tables and opens no store. A cell matches by
+        the rule of `get_anndata`, and the catalog excludes the same datasets.
+        Thus, without `primary_only`, the count equals the `n_obs` of the result
+        of `get_anndata` when there is one.
+        The count does not apply the checks of design 4.3, because a count joins
+        no matrices.
+
+        The filter takes the columns of `catalog.COUNTED` and `dataset_id`, and a
+        filter on another column raises ValueError. With `primary_only`, the count
+        includes only the cells whose `is_primary_data` is true. A missing cell
+        count table raises FileNotFoundError, and a table whose totals differ from
+        the catalog raises `SourceConflict`.
         """
         normalized = _catalog.normalize(obs_filter)
         uncounted = sorted(set(normalized) - {"dataset_id", *_catalog.COUNTED})
@@ -171,7 +176,8 @@ class Census:
         """The cell count tables of all sources, read once.
 
         Refuse a table whose total for a dataset differs from the catalog
-        `n_obs`. A table from another build gives a wrong count and no error.
+        `n_obs`. Without this check, a table from another build gives a wrong
+        count and no error.
         """
         if self._counts is None:
             frames = []
