@@ -153,7 +153,8 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                     categories = (
                         list(col.cat.categories) if hasattr(col, "cat") else None
                     )
-                    if categories is None or categories != sorted(set(col.astype(str))):
+                    observed = sorted({str(v) for v in col.unique()})
+                    if categories is None or categories != observed:
                         fail(
                             f"obs.{name}",
                             "not a categorical of the sorted observed values",
@@ -165,9 +166,8 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                 ):
                     fail(f"obs.{name}", "categorical, not plain strings")
             # The writer adds dataset_id. Its value must be the summary record's.
-            if set(b[store_format.DATASET_ID_COLUMN].astype(str)) != {
-                summary["dataset_id"]
-            }:
+            id_values = b[store_format.DATASET_ID_COLUMN].unique()
+            if {str(v) for v in id_values} != {summary["dataset_id"]}:
                 fail("obs.dataset_id", f"does not hold only {summary['dataset_id']}")
             # The other columns hold the source's values, compared as strings, and
             # is_primary_data as bool.

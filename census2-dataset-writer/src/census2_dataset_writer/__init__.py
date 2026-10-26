@@ -604,8 +604,9 @@ def build(
     obs = cast("pd.DataFrame", read_elem(f["obs"]))
     if store_format.DATASET_ID_COLUMN in obs.columns:
         raise ValueError(
-            f"the source obs has a {store_format.DATASET_ID_COLUMN} column, and "
-            "that name belongs to the store"
+            f"unexpected {store_format.DATASET_ID_COLUMN} column in the source obs: "
+            "a CxG h5ad does not hold one, and in a store it is the column that the "
+            "writer adds. The input is not a Discover dataset as published"
         )
     var = cast("pd.DataFrame", read_elem(f["var"]))
     n_rows = int(obs.shape[0])
@@ -725,9 +726,10 @@ def write(
     # no type checker cannot leave a store with one.
     store_format.validate_summary(summary)
     obs = cast("pd.DataFrame", adata.obs)
-    if store_format.DATASET_ID_COLUMN not in obs.columns or set(
-        obs[store_format.DATASET_ID_COLUMN].astype(str)
-    ) != {summary["dataset_id"]}:
+    # unique() works on the categorical codes, not on one string per cell.
+    if store_format.DATASET_ID_COLUMN not in obs.columns or {
+        str(v) for v in obs[store_format.DATASET_ID_COLUMN].unique()
+    } != {summary["dataset_id"]}:
         raise ValueError(
             f"obs {store_format.DATASET_ID_COLUMN} must hold only the summary record's "
             f"{summary['dataset_id']}; `build` adds that column"

@@ -905,7 +905,9 @@ def test_a_source_dataset_id_column_fails_the_build(tmp_path: Path) -> None:
     adata = dataset()
     adata.obs["dataset_id"] = "curator-label"
     adata.write_h5ad(source)
-    with pytest.raises(ValueError, match="source obs has a dataset_id column"):
+    with pytest.raises(
+        ValueError, match="unexpected dataset_id column in the source obs"
+    ):
         create(source, tmp_path / "store.zarr", refdata=tmp_path / "refdata")
     assert not (tmp_path / "store.zarr").exists()
 
