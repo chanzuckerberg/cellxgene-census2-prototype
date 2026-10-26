@@ -16,7 +16,7 @@ import hashlib
 import json
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import anndata
 import census2_dataset_writer
@@ -33,6 +33,18 @@ REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
 # A Discover h5ad holds no identifiers, so every store needs these from its caller.
 IDS = {"dataset_id": "dataset-1", "dataset_version_id": "version-1"}
+
+
+def build(
+    f: h5py.File, **kwargs: Any
+) -> tuple[anndata.AnnData | None, census2_dataset_writer.Result]:
+    """`census2_dataset_writer.build`, with the test identifiers."""
+    return census2_dataset_writer.build(
+        f,
+        dataset_id=IDS["dataset_id"],
+        dataset_version_id=IDS["dataset_version_id"],
+        **kwargs,
+    )
 
 
 def create(source: Any, dest: Any, **kwargs: Any) -> census2_dataset_writer.Result:
@@ -176,7 +188,9 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # the layout instead is misleading: obs/_index reads back as a group.
     obs: Any = read_elem(store["obs"])
     assert list(obs.index) == list(source.obs.index)
-    assert list(obs.columns) == list(source.obs.columns)
+    # The store adds `dataset_id`, first, and keeps every source column.
+    assert list(obs.columns) == ["dataset_id", *source.obs.columns]
+    assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
     assert obs["cell_type"].dtype == source.obs["cell_type"].dtype
 
     # X is the counts on the reference genes, and sparse even from a dense source.
@@ -345,11 +359,11 @@ def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:
-        adata, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        adata, result = build(f, refdata=tmp_path / "refdata")
         assert adata is not None
-        adata.write_zarr(tmp_path / "plain.zarr")
-        summary = census2_dataset_writer.summary_record("d", "v", result)
+        summary = census2_dataset_writer.summary_record(result)
         census2_dataset_writer.write(adata, tmp_path / "store.zarr", summary=summary)
+        adata.write_zarr(tmp_path / "plain.zarr")
 
     def nodes(path: Path) -> set[str]:
         root = json.loads((path / "zarr.json").read_text())
@@ -428,6 +442,8 @@ def test_write_needs_a_summary_record(tmp_path: Path) -> None:
 
 def test_a_rejected_dataset_has_no_summary_record() -> None:
     rejected: census2_dataset_writer.Result = {
+        "dataset_id": "d",
+        "dataset_version_id": "v",
         "admitted": False,
         "reason": "no cells on the assay allowlist",
         "slots": [],
@@ -436,7 +452,7 @@ def test_a_rejected_dataset_has_no_summary_record() -> None:
         "gene_reference_version": None,
     }
     with pytest.raises(ValueError, match="not admitted"):
-        census2_dataset_writer.summary_record("d", "v", rejected)
+        census2_dataset_writer.summary_record(rejected)
 
 
 # --- slot policy ----------------------------------------------------------
@@ -491,7 +507,7 @@ def test_unwanted_uns_keys_are_never_read(
     # By name: read_elem is imported by the module, not exported from it.
     monkeypatch.setattr("census2_dataset_writer.read_elem", spy)
     with h5py.File(source) as f:
-        built, _ = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        built, _ = build(f, refdata=tmp_path / "refdata")
 
     assert built is not None
     assert "spatial" not in built.uns
@@ -537,7 +553,7 @@ def test_slots_report_what_harmonize_left(
     dataset().write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, result = census2_dataset_writer.build(f)
+        adata, result = build(f)
 
     assert adata is not None
     assert "layers/harmonized" in result["slots"]
@@ -563,6 +579,7 @@ def test_not_admitted_writes_nothing(
     result = create(source, dest)
 
     assert result == {
+        **IDS,
         "admitted": False,
         "reason": "no thanks",
         "slots": [],
@@ -712,7 +729,7 @@ def test_a_slash_column_no_longer_fails_the_write(tmp_path: Path) -> None:
     assert result["dropped_obs_columns"] == SLASH_COLS  # source order
     store = zarr.open_consolidated(str(dest))
     obs: Any = read_elem(store["obs"])
-    assert list(obs.columns) == ["cell_type"]
+    assert list(obs.columns) == ["dataset_id", "cell_type"]
 
 
 def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
@@ -721,7 +738,7 @@ def test_dropped_obs_columns_is_empty_when_nothing_is_dropped(
     source = tmp_path / "source.h5ad"
     dataset().write_h5ad(source)
     with h5py.File(source) as f:
-        _, result = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        _, result = build(f, refdata=tmp_path / "refdata")
     assert result["dropped_obs_columns"] == []
     assert result["dropped_var_features"] == []
 
@@ -776,7 +793,7 @@ def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
     dataset(400, 20).write_h5ad(source)
 
     with h5py.File(source) as f:
-        adata, _ = census2_dataset_writer.build(f, refdata=tmp_path / "refdata")
+        adata, _ = build(f, refdata=tmp_path / "refdata")
         assert adata is not None
         # The projected X too: blocked by rows, whole reference rows per block.
         assert isinstance(adata.X, da.Array), type(adata.X)
@@ -830,3 +847,61 @@ def test_as_store_adapts_a_remote_url() -> None:
     pytest.importorskip("obstore")
     store = census2_dataset_writer.as_store("s3://bucket/prefix.zarr")
     assert isinstance(store, zarr.storage.ObjectStore)
+
+
+# --- the dataset_id column ------------------------------------------------------
+
+
+def test_store_obs_names_its_dataset(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
+    assert obs.columns[0] == "dataset_id"
+    assert isinstance(obs["dataset_id"].dtype, pd.CategoricalDtype)
+    assert list(obs["dataset_id"].cat.categories) == [IDS["dataset_id"]]
+    assert (obs["dataset_id"] == IDS["dataset_id"]).all()
+
+
+def test_a_source_dataset_id_column_fails_the_build(tmp_path: Path) -> None:
+    """The name belongs to the store, so the writer refuses to guess."""
+    source = tmp_path / "source.h5ad"
+    adata = dataset()
+    adata.obs["dataset_id"] = "curator-label"
+    adata.write_h5ad(source)
+    with pytest.raises(
+        ValueError, match="unexpected dataset_id column in the source obs"
+    ):
+        create(source, tmp_path / "store.zarr", refdata=tmp_path / "refdata")
+    assert not (tmp_path / "store.zarr").exists()
+
+
+def test_add_dataset_id_refuses_an_existing_column() -> None:
+    adata = anndata.AnnData(
+        X=np.zeros((2, 2)), obs=pd.DataFrame({"dataset_id": ["a", "b"]})
+    )
+    with pytest.raises(ValueError, match="already has a dataset_id column"):
+        census2_dataset_writer.add_dataset_id(adata, "d")
+
+
+def test_build_returns_the_object_that_the_store_holds(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    with h5py.File(source) as f:
+        adata, result = build(f, refdata=tmp_path / "refdata")
+    assert adata is not None
+    obs = cast("pd.DataFrame", adata.obs)
+    assert obs.columns[0] == "dataset_id"
+    assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
+    assert (result["dataset_id"], result["dataset_version_id"]) == (
+        IDS["dataset_id"],
+        IDS["dataset_version_id"],
+    )
+
+
+def test_write_refuses_obs_for_another_dataset(tmp_path: Path) -> None:
+    adata = anndata.AnnData(
+        X=np.zeros((2, 2)), obs=pd.DataFrame({"dataset_id": ["other", "other"]})
+    )
+    write: Any = census2_dataset_writer.write
+    with pytest.raises(ValueError, match="must hold only the summary record's d"):
+        write(adata, tmp_path / "store.zarr", summary=dict(GOOD_RECORD))
+    assert not (tmp_path / "store.zarr").exists()

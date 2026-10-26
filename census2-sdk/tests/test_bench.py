@@ -80,7 +80,10 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
     for k, n_obs in enumerate((30, 20)):
         x = sp.random(n_obs, len(genes), density=0.3, format="csr", random_state=k)
         obs = pd.DataFrame(
-            {"observation_joinid": [f"j{i}" for i in range(n_obs)]},
+            {
+                "dataset_id": pd.Categorical([f"ds-{k}"] * n_obs),
+                "observation_joinid": [f"j{i}" for i in range(n_obs)],
+            },
             index=[str(i) for i in range(n_obs)],
         )
         obs["cell_type"] = pd.Categorical(["T cell"] * n_obs)

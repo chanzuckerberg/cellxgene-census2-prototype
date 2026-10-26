@@ -69,8 +69,6 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
     The store's summary record supplies `dataset_id`, `dataset_version_id`, and
     `gene_reference_version`. The store's `obs` and `uns` supply the rest.
     """
-    # ponytail: dataset_id comes from the summary record until the writer stamps it
-    # into obs (disposition row 13).
     prefix = prefix.rstrip("/")
     rows: list[dict[str, Any]] = []
     for name in _stores(prefix):

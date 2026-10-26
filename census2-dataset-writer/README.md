@@ -37,8 +37,8 @@ if not result["admitted"]:
 ```
 
 A Discover h5ad does not hold its own identifiers, so the caller gives `dataset_id` and
-`dataset_version_id`. They go into the store's summary record. `build` and `write` can also be
-called separately; the module docstring covers that.
+`dataset_version_id`. They go into the store's summary record, and `dataset_id` also goes into
+`obs`. `build` and `write` can also be called separately; the module docstring covers that.
 
 `refdata` is a directory that holds the pinned gene reference files, `genes_homo_sapiens.csv.gz`
 and `genes_mus_musculus.csv.gz` from the `single-cell-curation` tag `v7.0.0`. The writer does not
@@ -113,6 +113,12 @@ Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
 
 `write` adds the record after anndata writes the store and its consolidated metadata, so the
 record is the last write.
+
+`build` adds `dataset_id` to `obs` as the first column, so that each cell names its dataset when
+stores are concatenated. The column is categorical with one category. A source `obs` that already
+has a `dataset_id` column is an error: `build` raises `ValueError`, because that name belongs to the
+store. `write` refuses an AnnData whose `dataset_id` column does not hold the summary record's
+`dataset_id`.
 
 ## Receipts
 

@@ -139,7 +139,11 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         dropped = set(written["dropped_obs_columns"])
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
-        expected = [c for c in a.columns if c not in dropped]
+        # The writer adds dataset_id as the first column. Its value must be the
+        # summary record's dataset_id.
+        id_column = census2_dataset_writer.DATASET_ID_COLUMN
+        kept = [c for c in a.columns if c not in dropped]
+        expected = [id_column, *kept]
         if not a.index.equals(b.index):
             fail("obs", "index differs")
         if list(b.columns) != expected:
@@ -147,7 +151,9 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                 "obs", f"columns differ: expected {len(expected)}, got {len(b.columns)}"
             )
         else:
-            for col in expected:
+            if {str(v) for v in b[id_column].unique()} != {summary["dataset_id"]}:
+                fail(f"obs.{id_column}", f"does not hold only {summary['dataset_id']}")
+            for col in kept:
                 if str(a[col].dtype) != str(b[col].dtype):
                     fail(f"obs.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
                 elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
@@ -371,9 +377,7 @@ def main() -> int:
             dropped = result["dropped_var_features"]
             log(f"  dropped {len(dropped)} features that are not organism genes")
         log(f"  genes projected onto {result['gene_reference_version']}")
-        summary = census2_dataset_writer.summary_record(
-            rec["dataset_id"], version_id, result
-        )
+        summary = census2_dataset_writer.summary_record(result)
         receipt.update(
             {
                 "slots_written": result["slots"],
