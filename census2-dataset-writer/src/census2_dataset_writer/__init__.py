@@ -144,7 +144,20 @@ from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
 from zarr.abc.store import Store
 
-from . import assays, genes, store_format
+from . import assays, genes
+from . import store_format as store_format  # a public module; callers name it
+
+# For use in this module. A caller names `store_format`; the package does not
+# export these names.
+from .store_format import (
+    DATASET_ID_COLUMN,
+    SUMMARY_KEY,
+    SUMMARY_NAMESPACE,
+    SUMMARY_VERSION,
+    SummaryRecord,
+    SummaryRecordError,
+    validate_summary,
+)
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
@@ -313,7 +326,7 @@ class Receipt(StoreProvenance, total=False):
     slots_written: list[str]
     dropped_obs_columns: list[str]
     dropped_var_features: list[str]
-    summary: store_format.SummaryRecord
+    summary: SummaryRecord
     store: str
     output_bytes: int
     published_by: str
@@ -560,9 +573,9 @@ def build(
     # this is cheap even for a dataset that turns out not to be admitted.
     # `read_elem` returns a wide union, so name what these are.
     obs = cast("pd.DataFrame", read_elem(f["obs"]))
-    if store_format.DATASET_ID_COLUMN in obs.columns:
+    if DATASET_ID_COLUMN in obs.columns:
         raise ValueError(
-            f"unexpected {store_format.DATASET_ID_COLUMN} column in the source obs: "
+            f"unexpected {DATASET_ID_COLUMN} column in the source obs: "
             "a CxG h5ad does not hold one, and in a store it is the column that the "
             "writer adds. The input is not a Discover dataset as published"
         )
@@ -653,7 +666,7 @@ def write(
     adata: anndata.AnnData,
     dest: StoreLike,
     *,
-    summary: store_format.SummaryRecord,
+    summary: SummaryRecord,
     consolidate: bool = True,
     threads: int | None = None,
 ) -> None:
@@ -682,23 +695,21 @@ def write(
     )
     # Refuse a malformed record before anything is written, so that a caller with
     # no type checker cannot leave a store with one.
-    store_format.validate_summary(summary)
+    validate_summary(summary)
     obs = cast("pd.DataFrame", adata.obs)
     # unique() works on the categorical codes, not on one string per cell.
-    if store_format.DATASET_ID_COLUMN not in obs.columns or {
-        str(v) for v in obs[store_format.DATASET_ID_COLUMN].unique()
+    if DATASET_ID_COLUMN not in obs.columns or {
+        str(v) for v in obs[DATASET_ID_COLUMN].unique()
     } != {summary["dataset_id"]}:
         raise ValueError(
-            f"obs {store_format.DATASET_ID_COLUMN} must hold only the summary record's "
+            f"obs {DATASET_ID_COLUMN} must hold only the summary record's "
             f"{summary['dataset_id']}; `build` adds that column"
         )
     store = as_store(dest)
     with limit:
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
-    root.update_attributes(
-        {store_format.SUMMARY_NAMESPACE: {store_format.SUMMARY_KEY: dict(summary)}}
-    )
+    root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
 
 
 def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
@@ -709,49 +720,47 @@ def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
     that name already.
     """
     obs = cast("pd.DataFrame", adata.obs)
-    if store_format.DATASET_ID_COLUMN in obs.columns:
-        raise ValueError(f"obs already has a {store_format.DATASET_ID_COLUMN} column")
+    if DATASET_ID_COLUMN in obs.columns:
+        raise ValueError(f"obs already has a {DATASET_ID_COLUMN} column")
     # From the codes, so that no list of one string per cell is made.
     codes = np.zeros(len(obs), dtype=np.int8)
     categorical = pd.Categorical.from_codes(codes, categories=pd.Index([dataset_id]))
     column = pd.Series(categorical, index=obs.index)
-    obs.insert(0, store_format.DATASET_ID_COLUMN, column)
+    obs.insert(0, DATASET_ID_COLUMN, column)
 
 
-def summary_record(result: Result) -> store_format.SummaryRecord:
+def summary_record(result: Result) -> SummaryRecord:
     """The summary record of an admitted dataset, from its result."""
     if not result["admitted"] or result["gene_reference_version"] is None:
         raise ValueError("a dataset that is not admitted has no store and no record")
     return {
-        "version": store_format.SUMMARY_VERSION,
+        "version": SUMMARY_VERSION,
         "dataset_id": result["dataset_id"],
         "dataset_version_id": result["dataset_version_id"],
         "gene_reference_version": result["gene_reference_version"],
     }
 
 
-def read_summary(dest: StoreLike | zarr.Group) -> store_format.SummaryRecord | None:
+def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
     """The summary record of a store, or None when the store has none.
 
     `dest` is a store's location, or its root group already open. A record that is
-    present but malformed raises `store_format.SummaryRecordError`; see
-    `store_format.validate_summary`.
+    present but malformed raises `SummaryRecordError`; see
+    `validate_summary`.
     """
     root = (
         dest
         if isinstance(dest, zarr.Group)
         else zarr.open_group(as_store(dest), mode="r")
     )
-    namespace = root.attrs.get(store_format.SUMMARY_NAMESPACE)
+    namespace = root.attrs.get(SUMMARY_NAMESPACE)
     if namespace is None:
         return None
     if not isinstance(namespace, dict):
-        raise store_format.SummaryRecordError(
-            f"{store_format.SUMMARY_NAMESPACE} attribute is not a JSON object"
-        )
-    if store_format.SUMMARY_KEY not in namespace:
+        raise SummaryRecordError(f"{SUMMARY_NAMESPACE} attribute is not a JSON object")
+    if SUMMARY_KEY not in namespace:
         return None
-    return store_format.validate_summary(namespace[store_format.SUMMARY_KEY])
+    return validate_summary(namespace[SUMMARY_KEY])
 
 
 @contextlib.contextmanager
