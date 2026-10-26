@@ -98,8 +98,8 @@ def write_one(
     version_id = f"v-{dataset_id}"
     path = prefix / f"{version_id}.zarr"
     adata.write_zarr(path)
-    record: census2_dataset_writer.store_format.SummaryRecord = {
-        "version": census2_dataset_writer.store_format.SUMMARY_VERSION,
+    record: census2_dataset_writer.SummaryRecord = {
+        "version": census2_dataset_writer.SUMMARY_VERSION,
         "dataset_id": dataset_id,
         "dataset_version_id": version_id,
         "gene_reference_version": "GENCODE v48",
@@ -112,12 +112,12 @@ def set_summary(path: Path, record: dict[str, Any] | None) -> None:
 
     It writes the record as given, unchecked, so that a test can write a malformed one.
     """
-    namespace = census2_dataset_writer.store_format.SUMMARY_NAMESPACE
+    namespace = census2_dataset_writer.SUMMARY_NAMESPACE
     root = zarr.open_group(path, mode="r+")
     attrs = dict(root.attrs)
     attrs.pop(namespace, None)
     if record is not None:
-        attrs[namespace] = {census2_dataset_writer.store_format.SUMMARY_KEY: record}
+        attrs[namespace] = {census2_dataset_writer.SUMMARY_KEY: record}
     root.attrs.clear()
     root.update_attributes(attrs)
 

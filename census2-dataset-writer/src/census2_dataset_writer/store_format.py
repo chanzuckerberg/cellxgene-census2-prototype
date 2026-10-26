@@ -7,12 +7,10 @@ format, so that the writer and a reader of a store use one definition:
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
-- `GENE_REFERENCE_VERSIONS`, the label of the gene reference of each organism,
-  which the summary record names.
 
-The module imports only the standard library. A reader that depends on this
-module therefore does not need the writer's dependencies. The SDK repeats some
-of these names today, because it does not depend on the writer.
+The module imports only the standard library, so a reader could depend on it
+without the writer's dependencies. The package re-exports these names. The SDK
+repeats some of them today, because it does not depend on the writer.
 """
 
 from typing import TypedDict, cast
@@ -42,7 +40,7 @@ class SummaryRecord(TypedDict):
     dataset_id: str
     dataset_version_id: str
     # The label of the gene reference in the store's `var`, as in
-    # `GENE_REFERENCE_VERSIONS`, for example "GENCODE v48".
+    # `genes.REFERENCES`, for example "GENCODE v48".
     gene_reference_version: str
 
 
@@ -79,12 +77,3 @@ def validate_summary(obj: object) -> SummaryRecord:
                 f"summary record {field} is {obj[field]!r}, not a string"
             )
     return cast("SummaryRecord", obj)
-
-
-# The label of each organism's pinned gene reference, keyed by organism ontology
-# term. A store's summary record names the label of the reference in its `var`.
-# `genes.REFERENCES` gives the file of each reference.
-GENE_REFERENCE_VERSIONS: dict[str, str] = {
-    "NCBITaxon:9606": "GENCODE v48",
-    "NCBITaxon:10090": "GENCODE M37",
-}

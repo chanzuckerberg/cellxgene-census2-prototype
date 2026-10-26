@@ -343,7 +343,7 @@ def test_consolidated_metadata_is_present(tmp_path: Path) -> None:
 def test_summary_record_is_in_the_root_attributes(tmp_path: Path) -> None:
     dest, result = written(tmp_path)
     expected = {
-        "version": census2_dataset_writer.store_format.SUMMARY_VERSION,
+        "version": census2_dataset_writer.SUMMARY_VERSION,
         **IDS,
         "gene_reference_version": result["gene_reference_version"],
     }
@@ -401,19 +401,17 @@ GOOD_RECORD = {
 def test_validate_summary_refuses_a_malformed_record(
     change: dict[str, Any], message: str
 ) -> None:
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match=message
-    ):
-        census2_dataset_writer.store_format.validate_summary({**GOOD_RECORD, **change})
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match=message):
+        census2_dataset_writer.validate_summary({**GOOD_RECORD, **change})
 
 
 def test_validate_summary_refuses_a_missing_field() -> None:
     record = {k: v for k, v in GOOD_RECORD.items() if k != "dataset_id"}
     with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError,
+        census2_dataset_writer.SummaryRecordError,
         match="missing \\['dataset_id'\\]",
     ):
-        census2_dataset_writer.store_format.validate_summary(record)
+        census2_dataset_writer.validate_summary(record)
 
 
 def test_read_summary_refuses_a_malformed_record(tmp_path: Path) -> None:
@@ -422,23 +420,17 @@ def test_read_summary_refuses_a_malformed_record(tmp_path: Path) -> None:
     root.update_attributes(
         {"cellxgene-census2": {"summary": {**GOOD_RECORD, "version": 9}}}
     )
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match="version 9"
-    ):
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="version 9"):
         census2_dataset_writer.read_summary(dest)
     # An open root group reads the same way.
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match="version 9"
-    ):
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="version 9"):
         census2_dataset_writer.read_summary(zarr.open_group(dest, mode="r"))
 
 
 def test_write_refuses_a_malformed_record_and_writes_nothing(tmp_path: Path) -> None:
     write: Any = census2_dataset_writer.write
     bad = {**GOOD_RECORD, "dataset_id": ""}
-    with pytest.raises(
-        census2_dataset_writer.store_format.SummaryRecordError, match="dataset_id"
-    ):
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match="dataset_id"):
         write(anndata.AnnData(X=np.zeros((2, 2))), tmp_path / "store.zarr", summary=bad)
     assert not (tmp_path / "store.zarr").exists()
 
@@ -942,9 +934,3 @@ def test_store_format_imports_only_the_standard_library() -> None:
     )
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"
-
-
-def test_gene_references_use_the_store_format_labels() -> None:
-    labels = census2_dataset_writer.store_format.GENE_REFERENCE_VERSIONS
-    references = census2_dataset_writer.genes.REFERENCES
-    assert {taxon: spec["version"] for taxon, spec in references.items()} == labels

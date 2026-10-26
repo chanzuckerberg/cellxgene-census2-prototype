@@ -130,7 +130,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         result["compared"].append("summary")
         try:
             stored = census2_dataset_writer.read_summary(dst)
-        except census2_dataset_writer.store_format.SummaryRecordError as e:
+        except census2_dataset_writer.SummaryRecordError as e:
             fail("summary", str(e))
         else:
             if stored != summary:
@@ -141,7 +141,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         result["compared"].append("obs")
         # The writer adds dataset_id as the first column. Its value must be the
         # summary record's dataset_id.
-        id_column = census2_dataset_writer.store_format.DATASET_ID_COLUMN
+        id_column = census2_dataset_writer.DATASET_ID_COLUMN
         kept = [c for c in a.columns if c not in dropped]
         expected = [id_column, *kept]
         if not a.index.equals(b.index):

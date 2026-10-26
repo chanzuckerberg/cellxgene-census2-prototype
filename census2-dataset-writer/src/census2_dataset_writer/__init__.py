@@ -147,17 +147,14 @@ from zarr.abc.store import Store
 from . import assays, genes
 from . import store_format as store_format  # a public module; callers name it
 
-# For use in this module. A caller names `store_format`; the package does not
-# export these names.
-from .store_format import (
-    DATASET_ID_COLUMN,
-    SUMMARY_KEY,
-    SUMMARY_NAMESPACE,
-    SUMMARY_VERSION,
-    SummaryRecord,
-    SummaryRecordError,
-    validate_summary,
-)
+# The store format, re-exported, so a caller writes census2_dataset_writer.X.
+from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
+from .store_format import SUMMARY_KEY as SUMMARY_KEY
+from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
+from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
+from .store_format import SummaryRecord as SummaryRecord
+from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
