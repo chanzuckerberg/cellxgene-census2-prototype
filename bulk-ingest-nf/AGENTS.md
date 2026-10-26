@@ -132,10 +132,18 @@ therefore exits 0 and records the failure in its output: `cxg-ingest.py` exits 0
 round-trip check, and `REPORT` fails the run. A non-zero exit would hide the receipt that names
 the failure and stop `REPORT` from running.
 
-That covers a failed check. It does not cover a task that raises: `errorStrategy = 'finish'` lets
-the running tasks end but starts no new one, so `REPORT` never runs and the run publishes no
-after-action report. A 100 dataset run lost its report to 10 such tasks. The report is most wanted
-when tasks fail, so this needs a design that collects the receipts that do exist.
+That covers a failed check. A task that raises is different. With `errorStrategy = 'finish'`, the
+running tasks end but no new task starts, so `REPORT` does not run and the run publishes no
+after-action report. A 100 dataset run lost its report to 10 such tasks, and a 103 dataset run
+stopped on one `aws s3 cp` that exited 1. As a result, `INGEST` retries any failure once, and an
+out-of-memory code up to `maxRetries`, and then ignores the task. The run continues, and `REPORT`
+reads the receipts that exist.
+
+An ignored dataset has no receipt, and the run still succeeds. Compare the receipts with the
+manifest after a run. `trace.txt` lists each failed attempt as `FAILED`. If every task is ignored,
+`collect()` emits nothing, so `main.nf` fails the run. The strategy compares the attempt with
+`task.maxRetries`, because Nextflow ends the run when the strategy asks for a retry that
+`maxRetries` does not allow. `REPORT` keeps `'finish'`, so a failed check still fails the run.
 
 A task that raises part way through a write leaves a partial store. anndata writes consolidated
 metadata last, so the absence of `consolidated_metadata` in the root `zarr.json` identifies one.
