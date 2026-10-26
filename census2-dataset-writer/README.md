@@ -84,13 +84,9 @@ reuse one store.
 
 ## obs schema
 
-A store's `obs` holds a fixed set of columns, `store_format.OBS_COLUMNS`, in this order:
-`dataset_id`, then the 19 columns that the CxG schema requires in every dataset and that Census 1
-copies: `assay`, `assay_ontology_term_id`, `cell_type`, `cell_type_ontology_term_id`,
-`development_stage`, `development_stage_ontology_term_id`, `disease`, `disease_ontology_term_id`,
-`donor_id`, `is_primary_data`, `observation_joinid`, `self_reported_ethnicity`,
-`self_reported_ethnicity_ontology_term_id`, `sex`, `sex_ontology_term_id`, `suspension_type`,
-`tissue`, `tissue_ontology_term_id`, `tissue_type`.
+A store's `obs` holds a fixed set of columns in a fixed order: `dataset_id`, then the 19 columns
+that the CxG schema requires in every dataset and that Census 1 copies. `store_format.OBS_COLUMNS`
+lists them, each with its `ColType`.
 
 - Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
   strings, and every other column is a categorical whose categories are the observed values,

@@ -30,8 +30,9 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
-                // A pass means nothing unless the check compared the matrices
-                // and the summary record.
+                // A pass means nothing unless the check compared the matrices,
+                // the obs schema and values, and the summary record.
+                assert rec.check.compared.contains("obs")
                 assert rec.check.compared.contains("X")
                 assert rec.check.compared.contains("var")
                 assert rec.check.compared.contains("summary")
@@ -204,17 +205,6 @@ nextflow_pipeline {
                 // The receipt holds a copy of the record.
                 assert rec.summary == summary
                 assert path("${s}/obs").exists()
-                // The obs schema, restated here so that a change to it shows.
-                def obsGroup = new groovy.json.JsonSlurper().parse(path("${s}/obs/zarr.json").toFile())
-                assert obsGroup.attributes["column-order"] == [
-                    "dataset_id", "assay", "assay_ontology_term_id", "cell_type",
-                    "cell_type_ontology_term_id", "development_stage",
-                    "development_stage_ontology_term_id", "disease", "disease_ontology_term_id",
-                    "donor_id", "is_primary_data", "observation_joinid",
-                    "self_reported_ethnicity", "self_reported_ethnicity_ontology_term_id",
-                    "sex", "sex_ontology_term_id", "suspension_type", "tissue",
-                    "tissue_ontology_term_id", "tissue_type",
-                ]
                 assert path("${s}/var").exists()
                 assert path("${s}/X").exists()
                 // anndata writes an absent raw as a null-encoded element.
