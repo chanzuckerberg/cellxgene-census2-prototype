@@ -79,7 +79,7 @@ def ingest(
 
 
 def obs_column_problem(
-    got: pd.Series, want: pd.Series, kind: census2_dataset_writer.ObsKind
+    got: pd.Series, want: pd.Series, col_type: census2_dataset_writer.ColType
 ) -> str | None:
     """What is wrong with the store's obs column `got`, or None.
 
@@ -87,16 +87,16 @@ def obs_column_problem(
     the sorted distinct values of `want` as its string categories.
     """
     categorical = isinstance(got.dtype, pd.CategoricalDtype)
-    if kind is census2_dataset_writer.ObsKind.CATEGORY:
+    if col_type is census2_dataset_writer.ColType.CATEGORY:
         categories = sorted(set(want.astype(str)))
         if not categorical or list(got.cat.categories) != categories:
             return "not a categorical of the sorted distinct values"
-    elif kind is census2_dataset_writer.ObsKind.BOOL:
+    elif col_type is census2_dataset_writer.ColType.BOOL:
         if got.dtype != bool:
             return f"dtype {got.dtype}, not bool"
     elif categorical:
         return "categorical, not plain strings"
-    as_type = bool if kind is census2_dataset_writer.ObsKind.BOOL else str
+    as_type = bool if col_type is census2_dataset_writer.ColType.BOOL else str
     if not np.array_equal(want.astype(as_type), got.astype(as_type)):
         return "values differ"
     return None
@@ -111,7 +111,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     `summary` is the summary record that the store must hold.
 
     The store's obs must hold exactly the columns of `OBS_COLUMNS`, in order,
-    each of its kind, and the source's index. `dataset_id` must hold the summary
+    each of its type, and the source's index. `dataset_id` must hold the summary
     record's value, and each other column the source's values, compared as
     strings, or as bool for a bool column.
 
@@ -171,13 +171,13 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         if list(b.columns) != [name for name, _ in schema]:
             fail("obs", f"columns {list(b.columns)} are not the schema's")
         else:
-            for name, kind in schema:
+            for name, col_type in schema:
                 # The writer adds dataset_id, with the summary record's value.
                 if name == census2_dataset_writer.DATASET_ID_COLUMN:
                     want = pd.Series(summary["dataset_id"], index=b.index)
                 else:
                     want = a[name]
-                problem = obs_column_problem(b[name], want, kind)
+                problem = obs_column_problem(b[name], want, col_type)
                 if problem:
                     fail(f"obs.{name}", problem)
 

@@ -5,7 +5,7 @@ format, so that the writer and a reader of a store use one definition:
 
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
 - `OBS_COLUMNS`, the columns of a store's `obs`, in order, each with its
-  `ObsKind`.
+  `ColType`.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
@@ -82,8 +82,12 @@ def validate_summary(obj: object) -> SummaryRecord:
     return cast("SummaryRecord", obj)
 
 
-class ObsKind(Enum):
-    """The kind of an `obs` column. A reader can rely on it in every store."""
+class ColType(Enum):
+    """The type of a store column, which a reader can rely on in every store.
+
+    It is the store format's contract, not a pandas dtype. Each comment says how
+    pandas holds the type.
+    """
 
     # A pandas categorical whose categories are strings: the observed values,
     # sorted, with no unused category.
@@ -100,25 +104,25 @@ class ObsKind(Enum):
 # pair and five statistics of the counts, which a store does not hold yet, and
 # `soma_joinid`, a corpus-wide number that a store for one dataset cannot
 # assign. No value is null: the CxG schema requires each of these.
-OBS_COLUMNS: tuple[tuple[str, ObsKind], ...] = (
-    (DATASET_ID_COLUMN, ObsKind.CATEGORY),
-    ("assay", ObsKind.CATEGORY),
-    ("assay_ontology_term_id", ObsKind.CATEGORY),
-    ("cell_type", ObsKind.CATEGORY),
-    ("cell_type_ontology_term_id", ObsKind.CATEGORY),
-    ("development_stage", ObsKind.CATEGORY),
-    ("development_stage_ontology_term_id", ObsKind.CATEGORY),
-    ("disease", ObsKind.CATEGORY),
-    ("disease_ontology_term_id", ObsKind.CATEGORY),
-    ("donor_id", ObsKind.CATEGORY),
-    ("is_primary_data", ObsKind.BOOL),
-    ("observation_joinid", ObsKind.STRING),
-    ("self_reported_ethnicity", ObsKind.CATEGORY),
-    ("self_reported_ethnicity_ontology_term_id", ObsKind.CATEGORY),
-    ("sex", ObsKind.CATEGORY),
-    ("sex_ontology_term_id", ObsKind.CATEGORY),
-    ("suspension_type", ObsKind.CATEGORY),
-    ("tissue", ObsKind.CATEGORY),
-    ("tissue_ontology_term_id", ObsKind.CATEGORY),
-    ("tissue_type", ObsKind.CATEGORY),
+OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
+    (DATASET_ID_COLUMN, ColType.CATEGORY),
+    ("assay", ColType.CATEGORY),
+    ("assay_ontology_term_id", ColType.CATEGORY),
+    ("cell_type", ColType.CATEGORY),
+    ("cell_type_ontology_term_id", ColType.CATEGORY),
+    ("development_stage", ColType.CATEGORY),
+    ("development_stage_ontology_term_id", ColType.CATEGORY),
+    ("disease", ColType.CATEGORY),
+    ("disease_ontology_term_id", ColType.CATEGORY),
+    ("donor_id", ColType.CATEGORY),
+    ("is_primary_data", ColType.BOOL),
+    ("observation_joinid", ColType.STRING),
+    ("self_reported_ethnicity", ColType.CATEGORY),
+    ("self_reported_ethnicity_ontology_term_id", ColType.CATEGORY),
+    ("sex", ColType.CATEGORY),
+    ("sex_ontology_term_id", ColType.CATEGORY),
+    ("suspension_type", ColType.CATEGORY),
+    ("tissue", ColType.CATEGORY),
+    ("tissue_ontology_term_id", ColType.CATEGORY),
+    ("tissue_type", ColType.CATEGORY),
 )

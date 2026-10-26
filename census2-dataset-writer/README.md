@@ -92,7 +92,7 @@ copies: `assay`, `assay_ontology_term_id`, `cell_type`, `cell_type_ontology_term
 `self_reported_ethnicity_ontology_term_id`, `sex`, `sex_ontology_term_id`, `suspension_type`,
 `tissue`, `tissue_ontology_term_id`, `tissue_type`.
 
-- Each column has a fixed kind. `is_primary_data` is `bool`, `observation_joinid` is plain
+- Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
   strings, and every other column is a categorical whose categories are the observed values,
   sorted, as strings.
 - No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is

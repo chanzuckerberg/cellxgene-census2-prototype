@@ -62,10 +62,10 @@ script's uv header therefore bounds Python below 3.14. Without the bound, uv sel
 a source build, which fails.
 
 `census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`:
-`dataset_id` and the 19 CxG columns that Census 1 copies, each with a fixed kind. Every other source
+`dataset_id` and the 19 CxG columns that Census 1 copies, each with a fixed type. Every other source
 column goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets
 that drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
-order, each of its kind, with the source's values and the summary record's `dataset_id`.
+order, each of its type, with the source's values and the summary record's `dataset_id`.
 
 A breadcrumb for when the projection carries more columns, for example the perturbation fields that
 schema 7.1.0 adds, or author columns: some datasets name an `obs` column with a `/` in it, and Zarr

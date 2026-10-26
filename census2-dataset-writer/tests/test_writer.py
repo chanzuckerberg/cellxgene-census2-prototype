@@ -971,14 +971,14 @@ def test_store_format_imports_only_the_standard_library() -> None:
 def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
     dest, _ = written(tmp_path)
     obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
-    for name, kind in census2_dataset_writer.OBS_COLUMNS:
+    for name, col_type in census2_dataset_writer.OBS_COLUMNS:
         column = obs[name]
-        if kind is census2_dataset_writer.ObsKind.CATEGORY:
+        if col_type is census2_dataset_writer.ColType.CATEGORY:
             assert isinstance(column.dtype, pd.CategoricalDtype), name
             categories = list(column.cat.categories)
             assert categories == sorted(set(column.astype(str))), name
             assert all(isinstance(c, str) for c in categories), name
-        elif kind is census2_dataset_writer.ObsKind.BOOL:
+        elif col_type is census2_dataset_writer.ColType.BOOL:
             assert column.dtype == bool, name
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name

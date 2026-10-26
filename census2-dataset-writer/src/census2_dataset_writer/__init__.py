@@ -55,7 +55,7 @@ a `dataset_id` column is an error, because that name belongs to the store.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs three steps in order. `project_obs`
    projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census
-   1 copies, each with a fixed kind; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
+   1 copies, each with a fixed type; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
    when the dataset has `raw`, else `X`. The store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
    dataset's organism. Thus every store of one organism has the same `var`,
@@ -153,7 +153,7 @@ from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
-from .store_format import ObsKind as ObsKind
+from .store_format import ColType as ColType
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
 from .store_format import validate_summary as validate_summary
@@ -422,7 +422,7 @@ def project_obs(
     Census 1 projects `obs` onto a closed schema, with fixed types: the columns
     that the CxG schema requires in every dataset, plus columns that it adds.
     This step copies the CxG columns, every column of `OBS_COLUMNS` except
-    `dataset_id`, in schema order, and gives each one its kind: a categorical with the sorted
+    `dataset_id`, in schema order, and gives each one its type: a categorical with the sorted
     observed values as string categories, NumPy `bool` for `is_primary_data`,
     and plain strings for `observation_joinid`. The source index stays. Every
     other source column goes: the result reports them in `dropped_obs_columns`.
@@ -441,22 +441,27 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    columns = [(name, kind) for name, kind in OBS_COLUMNS if name != DATASET_ID_COLUMN]
+    columns = [
+        (name, col_type) for name, col_type in OBS_COLUMNS if name != DATASET_ID_COLUMN
+    ]
     missing = [name for name, _ in columns if name not in obs.columns]
     if missing:
         raise ValueError(f"the source obs lacks the schema columns {missing}")
     adata.obs = pd.DataFrame(
-        {name: _project_obs_column(obs[name], name, kind) for name, kind in columns},
+        {
+            name: _project_obs_column(obs[name], name, col_type)
+            for name, col_type in columns
+        },
         index=obs.index,
     )
     return adata
 
 
-def _project_obs_column(column: pd.Series, name: str, kind: ObsKind) -> pd.Series:
-    """One `obs` column with the kind that `OBS_COLUMNS` gives it."""
+def _project_obs_column(column: pd.Series, name: str, col_type: ColType) -> pd.Series:
+    """One `obs` column with the type that `OBS_COLUMNS` gives it."""
     if bool(column.isna().any()):
         raise ValueError(f"obs {name} holds a null")
-    if kind is ObsKind.CATEGORY:
+    if col_type is ColType.CATEGORY:
         if isinstance(column.dtype, pd.CategoricalDtype):
             # Work on the categories, not on one value per cell.
             column = column.cat.remove_unused_categories()
@@ -468,20 +473,20 @@ def _project_obs_column(column: pd.Series, name: str, kind: ObsKind) -> pd.Serie
             column = column.astype(str).astype("category")
         categories = sorted(column.cat.categories)
         return column.cat.reorder_categories(categories).cat.as_unordered()
-    if kind is ObsKind.BOOL:
+    if col_type is ColType.BOOL:
         if column.dtype == bool:
             return column
         if str(column.dtype) == "boolean":
             return column.astype(bool)
         raise ValueError(f"obs {name} is {column.dtype}, not boolean")
-    if kind is ObsKind.STRING:
+    if col_type is ColType.STRING:
         values = pd.Series(
             column.astype(str).to_numpy(dtype=object), index=column.index
         )
         if not values.is_unique:
             raise ValueError(f"obs {name} is not unique")
         return values
-    assert_never(kind)
+    assert_never(col_type)
 
 
 def select_counts(
