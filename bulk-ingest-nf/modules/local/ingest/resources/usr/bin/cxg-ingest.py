@@ -151,7 +151,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                 "obs", f"columns differ: expected {len(expected)}, got {len(b.columns)}"
             )
         else:
-            if set(b[id_column].astype(str)) != {summary["dataset_id"]}:
+            if {str(v) for v in b[id_column].unique()} != {summary["dataset_id"]}:
                 fail(f"obs.{id_column}", f"does not hold only {summary['dataset_id']}")
             for col in kept:
                 if str(a[col].dtype) != str(b[col].dtype):
