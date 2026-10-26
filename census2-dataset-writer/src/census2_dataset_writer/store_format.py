@@ -5,8 +5,7 @@ format, so that the writer and a reader of a store use one definition:
 
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
 - `OBS_COLUMNS`, the columns of a store's `obs`, in order, with the kind of
-  each. `SOURCE_OBS_COLUMNS` are the ones that the writer copies from the
-  source h5ad.
+  each.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
@@ -119,10 +118,4 @@ OBS_COLUMNS: tuple[tuple[str, str], ...] = (
     ("tissue", CATEGORY),
     ("tissue_ontology_term_id", CATEGORY),
     ("tissue_type", CATEGORY),
-)
-
-# The `obs` columns that the writer copies from the source h5ad: every column of
-# `OBS_COLUMNS` except `dataset_id`, which the writer adds.
-SOURCE_OBS_COLUMNS: tuple[str, ...] = tuple(
-    name for name, _ in OBS_COLUMNS if name != DATASET_ID_COLUMN
 )

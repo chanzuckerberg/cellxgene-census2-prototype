@@ -146,13 +146,12 @@ from zarr.abc.store import Store
 
 from . import assays, genes
 from . import store_format as store_format  # a public module; callers name it
-from .store_format import BOOL as BOOL
-from .store_format import CATEGORY as CATEGORY
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
+from .store_format import BOOL as BOOL
+from .store_format import CATEGORY as CATEGORY
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
-from .store_format import SOURCE_OBS_COLUMNS as SOURCE_OBS_COLUMNS
 from .store_format import STRING as STRING
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
@@ -424,8 +423,8 @@ def project_obs(
 
     Census 1 projects `obs` onto a closed schema, with fixed types: the columns
     that the CxG schema requires in every dataset, plus columns that it adds.
-    This step copies the CxG columns, `SOURCE_OBS_COLUMNS`, in
-    schema order, and gives each one its kind: a categorical with the sorted
+    This step copies the CxG columns, every column of `OBS_COLUMNS` except
+    `dataset_id`, in schema order, and gives each one its kind: a categorical with the sorted
     observed values as string categories, NumPy `bool` for `is_primary_data`,
     and plain strings for `observation_joinid`. The source index stays. Every
     other source column goes: the result reports them in `dropped_obs_columns`.
@@ -444,15 +443,12 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    missing = [c for c in SOURCE_OBS_COLUMNS if c not in obs.columns]
+    columns = [(name, kind) for name, kind in OBS_COLUMNS if name != DATASET_ID_COLUMN]
+    missing = [name for name, _ in columns if name not in obs.columns]
     if missing:
         raise ValueError(f"the source obs lacks the schema columns {missing}")
-    kinds = dict(OBS_COLUMNS)
     adata.obs = pd.DataFrame(
-        {
-            name: _project_obs_column(obs[name], name, kinds[name])
-            for name in SOURCE_OBS_COLUMNS
-        },
+        {name: _project_obs_column(obs[name], name, kind) for name, kind in columns},
         index=obs.index,
     )
     return adata

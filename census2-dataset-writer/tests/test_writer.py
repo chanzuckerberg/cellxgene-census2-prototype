@@ -29,6 +29,8 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
+# dataset_id comes first. The writer adds it, and copies OBS_NAMES[1:] from the
+# source.
 OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
@@ -226,7 +228,7 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # source's values.
     assert list(obs.columns) == OBS_NAMES
     assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
-    for name in census2_dataset_writer.SOURCE_OBS_COLUMNS:
+    for name in OBS_NAMES[1:]:
         assert list(obs[name].astype(str)) == list(source.obs[name].astype(str))
 
     # X is the counts on the reference genes, and sparse even from a dense source.
@@ -730,7 +732,7 @@ def test_project_obs_drops_the_author_columns() -> None:
     """Names with a `/` go with every other author column."""
     adata = with_obs_columns(dataset(), "leiden", *SLASH_COLS)
     kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
-    assert kept == list(census2_dataset_writer.SOURCE_OBS_COLUMNS)
+    assert kept == OBS_NAMES[1:]
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
@@ -739,9 +741,7 @@ def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
     adata = with_obs_columns(dataset(), *SLASH_COLS)
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
-    assert list(harmonized.obs.columns) == list(
-        census2_dataset_writer.SOURCE_OBS_COLUMNS
-    )
+    assert list(harmonized.obs.columns) == OBS_NAMES[1:]
     assert list(harmonized.var.index) == REF_IDS
     assert harmonized.raw is None
     x: Any = harmonized.X
@@ -1029,4 +1029,3 @@ def test_project_obs_refuses_a_malformed_source(change: str, message: str) -> No
 def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:
     assert OBS_NAMES[0] == "dataset_id"
     assert len(set(OBS_NAMES)) == len(OBS_NAMES)
-    assert "dataset_id" not in census2_dataset_writer.SOURCE_OBS_COLUMNS
