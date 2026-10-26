@@ -218,7 +218,8 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
     """The store's `dataset_id` column names the dataset of its catalog row."""
     if "dataset_id" not in obs.columns:
         raise ValueError(f"{store_uri}: obs has no dataset_id column")
-    found = set(obs["dataset_id"].astype(str))
+    # unique() works on the categorical codes, not on one string per cell.
+    found = {str(v) for v in obs["dataset_id"].unique()}
     if found != {dataset_id}:
         raise ValueError(
             f"{store_uri}: obs dataset_id holds {sorted(found)}, and the catalog row "
