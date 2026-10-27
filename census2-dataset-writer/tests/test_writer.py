@@ -245,7 +245,10 @@ def test_the_store_holds_counts_on_the_reference(tmp_path: Path) -> None:
 
     var: Any = read_elem(store["var"])
     assert list(var.index) == REF_IDS
-    assert list(var.columns) == census2_dataset_writer.genes.COLUMNS
+    measured = census2_dataset_writer.MEASURED_COLUMN
+    assert list(var.columns) == [*census2_dataset_writer.genes.COLUMNS, measured]
+    # The assayed genes are the source genes, wherever they sit in the reference.
+    assert set(var.index[var[measured]]) == set(source.raw.var.index)
     assert result["gene_reference_version"] == "TEST v1"
     # raw.X holds the counts, and X the halved values: the store took raw.X.
     assert "raw" not in result["slots"]
@@ -901,12 +904,57 @@ def test_the_store_holds_tissue_general(tmp_path: Path) -> None:
     create(source, dest, refdata=tmp_path / "refdata")
 
     obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
-    assert list(obs.columns[-2:]) == [
-        "tissue_general",
-        "tissue_general_ontology_term_id",
-    ]
+    pair = ["tissue_general", "tissue_general_ontology_term_id"]
+    assert list(obs.columns[-7:-5]) == pair
     assert list(obs["tissue_general"]) == list(np.where(retina, "eye", "lung"))
     assert list(obs["tissue_general"].cat.categories) == ["eye", "lung"]
+
+
+# --- the statistics of the counts --------------------------------------------
+
+
+def test_row_stats_follow_census_1() -> None:
+    """Explicit zeros do not count, and a row with fewer than two values has a
+    variance of 0, as in Census 1."""
+    rows = [[0, 0, 0, 0], [5, 0, 0, 0], [1, 2, 0, 6], [3, 3, 0, 1]]
+    x = sp.csr_matrix(np.array(rows, dtype=np.float32))
+    x[1, 1] = 0  # an explicit zero
+    assert x.nnz == 8
+
+    stats = census2_dataset_writer._row_stats(x)
+
+    raw_sum, nnz, mean, variance = stats.T
+    assert raw_sum.tolist() == [0, 5, 9, 7]
+    assert nnz.tolist() == [0, 1, 3, 3]
+    assert mean.tolist() == [0, 5, 3, 7 / 3]
+    np.testing.assert_allclose(
+        variance, [0, 0, np.var([1, 2, 6], ddof=1), np.var([3, 3, 1], ddof=1)]
+    )
+
+
+def test_row_stats_merge_duplicates_and_keep_precision() -> None:
+    """A duplicate entry adds to its gene, and counts that float32 cannot hold
+    keep their precision."""
+    duplicates = sp.csr_matrix(
+        (np.array([1, 2, 3], dtype=np.float32), np.array([0, 0, 1]), np.array([0, 3])),
+        shape=(1, 2),
+    )
+    _, nnz, mean, variance = census2_dataset_writer._row_stats(duplicates)[0]
+    assert (nnz, mean, variance) == (2, 3, 0)
+
+    wide = sp.csr_matrix(np.array([[16777216, 16777217]], dtype=np.float64))
+    assert census2_dataset_writer._row_stats(wide)[0, 3] == 0.5
+
+
+def test_the_store_holds_the_count_statistics(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path, raw=True)
+    source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
+    obs: Any = read_elem(zarr.open_consolidated(dest, mode="r")["obs"])
+    x = projected(source)
+
+    np.testing.assert_array_equal(obs["raw_sum"], x.sum(axis=1, dtype=np.float64))
+    np.testing.assert_array_equal(obs["nnz"], np.count_nonzero(x, axis=1))
+    assert set(obs["n_measured_vars"]) == {source.raw.n_vars}
 
 
 def test_default_allowlist_holds_rna_and_spatial() -> None:
@@ -1105,6 +1153,10 @@ def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
             assert all(isinstance(c, str) for c in categories), name
         elif col_type is census2_dataset_writer.ColType.BOOL:
             assert column.dtype == bool, name
+        elif col_type is census2_dataset_writer.ColType.INT64:
+            assert column.dtype == np.int64, name
+        elif col_type is census2_dataset_writer.ColType.FLOAT64:
+            assert column.dtype == np.float64, name
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name
             assert all(isinstance(v, str) for v in column), name

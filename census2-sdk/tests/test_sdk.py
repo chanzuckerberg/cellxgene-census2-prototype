@@ -82,7 +82,10 @@ def make_store(
         },
         index=[f"cell{i}" for i in range(n_obs)],
     )
-    adata = anndata.AnnData(X=x, obs=obs, var=reference_var(var_ids))
+    var = reference_var(var_ids)
+    # The writer marks the dataset's assayed genes in var.
+    var["measured"] = np.isin(var_ids, measured)
+    adata = anndata.AnnData(X=x, obs=obs, var=var)
     adata.uns = {
         "schema_version": "7.1.0",
         "organism_ontology_term_id": "NCBITaxon:9606",
@@ -248,7 +251,7 @@ def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
     assert result.uns["census2"]["sources"] == [str(corpus["catalog"])]
     assert result.obs.index.is_unique
     assert X(result).dtype == np.float32
-    # var is the stores' var, with its reference columns.
+    # var is the stores' var, with its reference columns and without `measured`.
     assert list(result.var.columns) == list(reference_var(REFERENCE_IDS).columns)
 
 

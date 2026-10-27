@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .store_format import MEASURED_COLUMN
+
 # The pin: one single-cell-curation tag. Every organism's reference file and its
 # annotation version come from this tag. A new tag is a reference migration, and
 # it changes the store format.
@@ -125,6 +127,20 @@ class VarProjection(NamedTuple):
     positions: np.ndarray
 
 
+def organism_genes(var: pd.DataFrame, taxon: str) -> np.ndarray:
+    """Which features of `var` are genes of the organism `taxon`: Census 1's gene filter.
+
+    `var` must have `feature_biotype` and `feature_reference`, which Discover adds
+    to every `var` and `raw.var`.
+    """
+    for column in ("feature_biotype", "feature_reference"):
+        if column not in var.columns:
+            raise ValueError(f"var lacks {column}; a Discover dataset carries it")
+    return (var["feature_biotype"].astype(str) == "gene").to_numpy() & (
+        var["feature_reference"].astype(str) == taxon
+    ).to_numpy()
+
+
 def locate(
     var: pd.DataFrame, taxon: str, reference: pd.DataFrame, version: str
 ) -> VarProjection:
@@ -137,13 +153,7 @@ def locate(
     ids = pd.Index(var.index.astype(str))
     if not ids.is_unique:
         raise ValueError("var has duplicate feature_ids")
-    for column in ("feature_biotype", "feature_reference"):
-        if column not in var.columns:
-            raise ValueError(f"var lacks {column}; a Discover dataset carries it")
-
-    kept = (var["feature_biotype"].astype(str) == "gene").to_numpy() & (
-        var["feature_reference"].astype(str) == taxon
-    ).to_numpy()
+    kept = organism_genes(var, taxon)
 
     positions = reference.index.get_indexer(ids[kept])
     missing = positions < 0
@@ -216,7 +226,8 @@ def project(
     """Return a new AnnData whose `X` is the counts on the reference genes.
 
     `X` must hold the counts, and `adata` must have no `raw`. `var` is the
-    reference. `obs`, `uns`, `obsm`, and `obsp` pass through. `varm`, `varp`, and
+    reference, with `MEASURED_COLUMN` true for each gene of the source. `obs`,
+    `uns`, `obsm`, and `obsp` pass through. `varm`, `varp`, and
     `layers` are indexed by the source genes, so they are dropped.
     """
     if adata.raw is not None:
@@ -232,8 +243,12 @@ def project(
     reference = load_reference(spec, refdata)
 
     projection = locate(adata.var, str(taxon), reference, spec["version"])
+    var = reference.copy()
+    measured = np.zeros(len(reference), dtype=bool)
+    measured[projection.positions] = True
+    var[MEASURED_COLUMN] = measured
     return with_gene_axis(
-        adata, project_matrix(adata.X, projection, len(reference)), reference
+        adata, project_matrix(adata.X, projection, len(reference)), var
     )
 
 

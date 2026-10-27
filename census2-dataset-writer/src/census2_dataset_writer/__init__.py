@@ -57,15 +57,17 @@ a `dataset_id` column is an error, because that name belongs to the store.
    counts from `raw` in `X`, and removes the slots that index the source
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. It runs four steps in order. `project_obs`
-   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census
-   1 copies, each with a fixed type; it drops every other source column.
+   query can combine stores. It runs five steps in order. `project_obs`
+   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census 1 copies,
+   each with a fixed type; it drops every other source column.
    `add_tissue_general` adds the Census 1 tissue roll-up (see
-   `census2_dataset_writer.tissues`). `select_counts` puts the counts in `X`: `raw.X`
-   when the dataset has `raw`, else `X`. The store has no `raw`.
+   `census2_dataset_writer.tissues`). `select_counts` puts the counts in `X`:
+   `raw.X` when the dataset has `raw`, else `X`. The store has no `raw`.
+   `add_obs_stats` adds the Census 1 statistics of the counts to `obs`.
    `project_genes` projects the counts onto the pinned gene reference of the
-   dataset's organism. Thus every store of one organism has the same `var`,
-   in the same order. See `census2_dataset_writer.genes`.
+   dataset's organism. Thus every store of one organism has the same genes in
+   `var`, in the same order. `var` also marks the dataset's assayed genes in
+   `MEASURED_COLUMN`. See `census2_dataset_writer.genes`.
 
 Admission runs before the optional slots are read, so a rejected dataset
 does not read them. The `uns` policy is the exception: it applies at the read,
@@ -129,6 +131,9 @@ is 50 GiB. Two rules follow:
   Row-wise work maps over blocks, and a subset of the AnnData keeps `obs`,
   `var`, `X`, and the other slots aligned.
 
+`add_obs_stats` maps over the blocks and computes one row of statistics for
+each cell, so `build` reads `X` once and the write reads it again.
+
 `README.md` in this directory covers installation, use, and development.
 """
 
@@ -142,9 +147,11 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, assert_nev
 
 import anndata
 import dask
+import dask.array as da
 import h5py
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 import zarr
 from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
@@ -156,6 +163,7 @@ from . import store_format as store_format  # a public module; callers name it
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
+from .store_format import MEASURED_COLUMN as MEASURED_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
@@ -166,7 +174,6 @@ from .store_format import SummaryRecordError as SummaryRecordError
 from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
-    import dask.array as da
     import numpy.typing as npt
 
 # What the public functions accept. The prose above describes these unions; the
@@ -566,6 +573,8 @@ def _project_obs_column(column: pd.Series, name: str, col_type: ColType) -> pd.S
         if not values.is_unique:
             raise ValueError(f"obs {name} is not unique")
         return values
+    if col_type is ColType.INT64 or col_type is ColType.FLOAT64:
+        return column.astype(col_type.value)
     assert_never(col_type)
 
 
@@ -630,13 +639,89 @@ def project_genes(
     return genes.project(adata, _gene_references(config), refdata)
 
 
+# The statistics that `_row_stats` computes, in its column order.
+_ROW_STATS = ("raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz")
+
+
+def _row_stats(block: Any) -> npt.NDArray[np.float64]:
+    """The Census 1 statistics of each row of one block, in `_ROW_STATS` order."""
+    x = sp.csr_matrix(block, copy=True)
+    # Census 1 merges duplicate entries, which also sorts each row, then removes
+    # explicit zeros.
+    x.sum_duplicates()
+    x.eliminate_zeros()
+    nnz = np.diff(x.indptr)
+    raw_sum = np.asarray(x.sum(axis=1, dtype=np.float64)).ravel()
+    rows = np.repeat(np.arange(len(nnz)), nnz)
+    # Census 1 (its numba `_var_ndarray`) shifts each value by the first stored
+    # value of its row and squares in float32, then sums in float64 in storage
+    # order. bincount sums in that order too, so the variance is bit-identical.
+    # The CxG schema stores counts as float32. Other counts keep their precision.
+    data = x.data if x.data.dtype == np.float32 else x.data.astype(np.float64)
+    shifted = data - data[x.indptr[rows]]
+    ex = np.bincount(rows, weights=shifted, minlength=len(nnz))
+    ex2 = np.bincount(rows, weights=shifted * shifted, minlength=len(nnz))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean = raw_sum / nnz
+        variance = (ex2 - ex**2 / nnz) / (nnz - 1)
+    mean[nnz == 0] = 0.0
+    variance[nnz < 2] = 0.0
+    return np.column_stack([raw_sum, nnz, mean, variance])
+
+
+def add_obs_stats(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Add the five Census 1 statistics of the counts to `obs`, after `tissue_general`.
+
+    `raw_sum`, `nnz`, `raw_mean_nnz`, and `raw_variance_nnz` describe the stored
+    values of each cell, as Census 1 computes them (its `get_obs_stats`, after it
+    removes explicit zeros). `n_measured_vars` is the number of genes of the
+    organism in the source, the same for every cell; `project_genes` marks the
+    same genes in `MEASURED_COLUMN`.
+
+    Run `select_counts` first, and `project_genes` after. The step reads the
+    organism's genes in source order, the matrix that Census 1 reads, so that
+    the variance sums in the same order. It reads `X` once, one row block at a
+    time, and the write reads it again. This step consumes `adata`, as
+    `harmonize` states.
+    """
+    taxon = str(adata.uns.get("organism_ontology_term_id"))
+    kept = genes.organism_genes(cast("pd.DataFrame", adata.var), taxon)
+    # `AnnData.X` is typed as every matrix kind and None; `select_counts` leaves a
+    # dask array, or a sparse or dense matrix for an in-memory caller.
+    counts: Any = adata.X
+    x = counts[:, kept]
+    if isinstance(x, da.Array):
+        # dask types `map_blocks` for a function that gives blocks of the input's
+        # shape. This one gives one row of statistics for each row.
+        map_blocks: Any = x.map_blocks
+        stats = np.asarray(
+            map_blocks(
+                _row_stats,
+                chunks=(x.chunks[0], (len(_ROW_STATS),)),
+                dtype=np.float64,
+                meta=np.empty((0, len(_ROW_STATS)), dtype=np.float64),
+            ).compute()
+        )
+    else:
+        stats = _row_stats(x)
+    obs = cast("pd.DataFrame", adata.obs)
+    for i, name in enumerate(_ROW_STATS):
+        obs[name] = stats[:, i].astype(np.int64 if name == "nnz" else np.float64)
+    obs["n_measured_vars"] = np.full(len(obs), int(kept.sum()), dtype=np.int64)
+    return adata
+
+
 def harmonize(
     adata: anndata.AnnData,
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
     """Apply harmonization: `project_obs`, `add_tissue_general`, `select_counts`,
-    then `project_genes`.
+    `add_obs_stats`, then `project_genes`.
 
     Harmonization changes values and annotations so that a query can combine
     stores from different datasets. The other steps are not specified yet.
@@ -651,6 +736,7 @@ def harmonize(
     adata = project_obs(adata, config, refdata)
     adata = add_tissue_general(adata, config, refdata)
     adata = select_counts(adata, config, refdata)
+    adata = add_obs_stats(adata, config, refdata)
     return project_genes(adata, config, refdata)
 
 
@@ -949,17 +1035,21 @@ def create(
     `source` is a path to an h5ad or an open `h5py.File`. `dest` is a path, a
     remote URL, or a zarr Store. `dataset_id` and `dataset_version_id` go into
     the store's summary record. The source stays open across the write, because
-    the expression matrix is read lazily. `threads` bounds the write; see
-    `write`.
+    the expression matrix is read lazily. `threads` bounds the write, and the
+    read of `X` in `add_obs_stats`; see `write`.
     """
+    limit = (
+        dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
+    )
     with _opened(source) as f:
-        adata, result = build(
-            f,
-            dataset_id=dataset_id,
-            dataset_version_id=dataset_version_id,
-            config=config,
-            refdata=refdata,
-        )
+        with limit:
+            adata, result = build(
+                f,
+                dataset_id=dataset_id,
+                dataset_version_id=dataset_version_id,
+                config=config,
+                refdata=refdata,
+            )
         if adata is None:
             return result
         summary = summary_record(result)

@@ -63,8 +63,9 @@ A store holds the dataset's cells, with the counts on the organism's pinned gene
 
 - `X` holds the counts: `raw.X` when the source has `raw`, else `X`. The store has no `raw`.
 - `var` is the reference (GENCODE v48 for human, 78,894 rows; GENCODE M37 for mouse), in reference
-  order. Every store of one organism has the same `var`, so a reader concatenates stores by
-  position. A gene that the dataset did not measure is a zero column.
+  order. Every store of one organism has the same genes in `var`, so a reader concatenates stores
+  by position. A gene that the dataset did not measure is a zero column. The `measured` column of
+  `var` marks the genes that the dataset measured, because a zero column cannot show that.
 - The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
   gene that is not in the reference fails the dataset. The writer does not map genes across
   reference versions.
@@ -108,8 +109,12 @@ each with its `ColType`.
   `tissue_ontology_term_id` to a high-level tissue, through `cellxgene-ontology-guide` at the
   version that Census 1 pins. The package holds its ontologies and reads no network. The receipt
   records its version.
-- Census 1 also holds five statistics of the counts, which a store does not hold yet. It also
-  holds `soma_joinid`, a corpus-wide number that a store for one dataset cannot assign.
+- `raw_sum`, `nnz`, `raw_mean_nnz`, `raw_variance_nnz`, and `n_measured_vars` are the Census 1
+  statistics of the counts. The writer computes them as Census 1 does, before the gene projection,
+  so they are bit-identical to Census 1. `n_measured_vars` is the number of genes in `measured`.
+  The writer reads `X` once for the statistics and once more for the write.
+- Census 1 also holds `soma_joinid`, a corpus-wide number that a store for one dataset cannot
+  assign.
 
 ## Summary record
 

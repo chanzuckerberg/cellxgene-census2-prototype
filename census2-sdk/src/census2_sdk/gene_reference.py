@@ -21,3 +21,7 @@ ORGANISMS: dict[str, Organism] = {
     "mus_musculus": {"taxon": "NCBITaxon:10090", "version": "GENCODE M37"},
 }
 TAXON_TO_ORGANISM = {spec["taxon"]: name for name, spec in ORGANISMS.items()}
+
+# The store's `var` column of the dataset's assayed genes. The writer names it in
+# `census2_dataset_writer.store_format.MEASURED_COLUMN`.
+MEASURED_COLUMN = "measured"

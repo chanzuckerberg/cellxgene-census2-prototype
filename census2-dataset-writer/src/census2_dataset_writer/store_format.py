@@ -6,6 +6,7 @@ format, so that the writer and a reader of a store use one definition:
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
 - `OBS_COLUMNS`, the columns of a store's `obs`, in order, each with its
   `ColType`, and `DERIVED_OBS_COLUMNS`, the ones that the writer computes.
+- `MEASURED_COLUMN`, the `var` column of the dataset's assayed genes.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
@@ -96,13 +97,17 @@ class ColType(Enum):
     BOOL = "bool"
     # Plain strings, not categorical.
     STRING = "string"
+    # NumPy int64.
+    INT64 = "int64"
+    # NumPy float64.
+    FLOAT64 = "float64"
 
 
 # The columns of a store's `obs`, in Census 1's order: `dataset_id`, the columns
-# that Census 1 copies from every CxG h5ad, and the `tissue_general` pair. A store
-# holds no other `obs` column yet. Census 1 also writes five statistics of the
-# counts, which a store does not hold yet, and `soma_joinid`, a corpus-wide number
-# that a store for one dataset cannot assign. No value is null.
+# that Census 1 copies from every CxG h5ad, the `tissue_general` pair, and five
+# statistics of the counts. A store holds no other `obs` column yet. Census 1 also
+# writes `soma_joinid`, a corpus-wide number that a store for one dataset cannot
+# assign. No value is null.
 OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     (DATASET_ID_COLUMN, ColType.CATEGORY),
     ("assay", ColType.CATEGORY),
@@ -126,10 +131,22 @@ OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     ("tissue_type", ColType.CATEGORY),
     ("tissue_general", ColType.CATEGORY),
     ("tissue_general_ontology_term_id", ColType.CATEGORY),
+    ("raw_sum", ColType.FLOAT64),
+    ("nnz", ColType.INT64),
+    ("raw_mean_nnz", ColType.FLOAT64),
+    ("raw_variance_nnz", ColType.FLOAT64),
+    ("n_measured_vars", ColType.INT64),
 )
 
 # The `obs` columns that the writer computes. Each other column of `OBS_COLUMNS`
 # is a copy of a source column.
 DERIVED_OBS_COLUMNS = frozenset(
     {DATASET_ID_COLUMN, "tissue_general", "tissue_general_ontology_term_id"}
+    | {"raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz", "n_measured_vars"}
 )
+
+# The `var` column that marks the dataset's assayed genes. `X` holds a zero for a
+# gene that the dataset did not measure, so `X` cannot tell that gene from a
+# measured zero. This column is the only part of `var` that differs between the
+# stores of one organism.
+MEASURED_COLUMN = "measured"
