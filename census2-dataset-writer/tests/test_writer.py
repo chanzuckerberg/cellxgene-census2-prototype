@@ -29,9 +29,10 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
-# dataset_id comes first. The writer adds it, and copies OBS_NAMES[1:] from the
-# source.
+# dataset_id comes first. The writer adds it and the other derived columns, and
+# copies the rest (COPIED) from the source.
 OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
+COPIED = [n for n in OBS_NAMES if n not in census2_dataset_writer.DERIVED_OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
 # A Discover h5ad holds no identifiers, so every store needs these from its caller.
@@ -228,8 +229,9 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # source's values.
     assert list(obs.columns) == OBS_NAMES
     assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
-    for name in OBS_NAMES[1:]:
+    for name in COPIED:
         assert list(obs[name].astype(str)) == list(source.obs[name].astype(str))
+    assert set(obs["tissue_general"]) == {"lung"}
 
     # X is the counts on the reference genes, and sparse even from a dense source.
     x = stored_x(dest)
@@ -674,16 +676,17 @@ def test_project_obs_drops_the_author_columns() -> None:
     """Names with a `/` go with every other author column."""
     adata = with_obs_columns(dataset(), "leiden", *SLASH_COLS)
     kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
-    assert kept == OBS_NAMES[1:]
+    assert kept == COPIED
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
-    """harmonize is the seam; project_obs, select_counts, and project_genes are
-    what it does."""
+    """harmonize is the seam; project_obs, add_tissue_general, select_counts,
+    and project_genes are what it does."""
     adata = with_obs_columns(dataset(), *SLASH_COLS)
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
     assert list(harmonized.obs.columns) == OBS_NAMES[1:]
+    assert set(harmonized.obs["tissue_general_ontology_term_id"]) == {"UBERON:0002048"}
     assert list(harmonized.var.index) == REF_IDS
     assert harmonized.raw is None
     x: Any = harmonized.X
@@ -867,6 +870,45 @@ def test_a_dataset_with_no_cell_left_is_rejected(tmp_path: Path) -> None:
     assert not dest.exists()
 
 
+# --- tissue_general --------------------------------------------------------
+
+
+def test_tissue_general_rolls_up_as_census_1_does() -> None:
+    assert census2_dataset_writer.tissues.tissue_general(
+        ["UBERON:0008952", "UBERON:0000966", "UBERON:0002048"]
+    ) == {
+        "UBERON:0008952": ("UBERON:0002048", "lung"),  # upper lobe of left lung
+        "UBERON:0000966": ("UBERON:0000970", "eye"),  # retina
+        "UBERON:0002048": ("UBERON:0002048", "lung"),
+    }
+
+
+def test_tissue_general_refuses_a_term_outside_the_ontology() -> None:
+    with pytest.raises(ValueError, match="UBERON:9999999"):
+        census2_dataset_writer.tissues.tissue_general(["UBERON:9999999"])
+
+
+def test_the_store_holds_tissue_general(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(20)
+    retina = np.arange(20) % 2 == 0
+    adata.obs["tissue_ontology_term_id"] = pd.Categorical(
+        np.where(retina, "UBERON:0000966", "UBERON:0002048")
+    )
+    adata.write_h5ad(source)
+
+    create(source, dest, refdata=tmp_path / "refdata")
+
+    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
+    assert list(obs.columns[-2:]) == [
+        "tissue_general",
+        "tissue_general_ontology_term_id",
+    ]
+    assert list(obs["tissue_general"]) == list(np.where(retina, "eye", "lung"))
+    assert list(obs["tissue_general"].cat.categories) == ["eye", "lung"]
+
+
 def test_default_allowlist_holds_rna_and_spatial() -> None:
     """The default is Census 1's two lists, merged."""
     allowlist = set(census2_dataset_writer.DEFAULTS["assay_allowlist"])
@@ -930,6 +972,7 @@ def test_provenance_reports_the_code_that_wrote_a_store() -> None:
     assert p["census2_dataset_writer_version"] == version("census2-dataset-writer")
     assert p["anndata_version"] == version("anndata")
     assert p["zarr_version"] == version("zarr")
+    assert p["cellxgene_ontology_guide_version"] == version("cellxgene-ontology-guide")
 
 
 def test_provenance_follows_the_slot_policy() -> None:

@@ -118,9 +118,10 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     dropped.
 
     The store's obs must hold exactly the columns of `OBS_COLUMNS`, in order,
-    each of its type. `dataset_id` must hold the summary record's value, and
-    each other column the source's values, compared as strings, or as bool for
-    a bool column.
+    each of its type. `dataset_id` must hold the summary record's value, the
+    `tissue_general` pair the roll-up of the source's `tissue_ontology_term_id`
+    (from `census2_dataset_writer.tissues`), and each other column the source's
+    values. The comparison is as strings, or as bool for a bool column.
 
     `written` is the result of `census2_dataset_writer.create`.
 
@@ -186,10 +187,16 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         if list(b.columns) != [name for name, _ in schema]:
             fail("obs", f"columns {list(b.columns)} are not the schema's")
         else:
+            tissue = a["tissue_ontology_term_id"].astype(str)
+            general = census2_dataset_writer.tissues.tissue_general(tissue.unique())
             for name, col_type in schema:
                 # The writer adds dataset_id, with the summary record's value.
                 if name == census2_dataset_writer.DATASET_ID_COLUMN:
                     want = pd.Series(summary["dataset_id"], index=b.index)
+                elif name == "tissue_general":
+                    want = tissue.map({t: pair[1] for t, pair in general.items()})
+                elif name == "tissue_general_ontology_term_id":
+                    want = tissue.map({t: pair[0] for t, pair in general.items()})
                 else:
                     want = a[name]
                 problem = obs_column_problem(b[name], want, col_type)

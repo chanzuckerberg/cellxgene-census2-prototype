@@ -62,10 +62,12 @@ script's uv header therefore bounds Python below 3.14. Without the bound, uv sel
 a source build, which fails.
 
 `census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`:
-`dataset_id` and the 19 CxG columns that Census 1 copies, each with a fixed type. Every other source
-column goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets
-that drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
-order, each of its type, with the source's values and the summary record's `dataset_id`.
+`dataset_id`, the 19 CxG columns that Census 1 copies, and the `tissue_general` pair, each with a
+fixed type. `add_tissue_general` computes the pair. Every other source column goes. The receipt
+names them in `dropped_obs_columns`, and the run report counts the datasets that drop any, which is
+most of them. The round-trip check requires exactly the schema's columns, in order, each of its
+type. The values must be the source's values, the roll-up of the source's tissue terms, and the
+summary record's `dataset_id`.
 
 `census2_dataset_writer.cell_mask` applies the Census 1 cell filters (tissue type, assay, primary
 data on a spatial assay), and the store keeps only the cells that pass. The receipt counts the cells

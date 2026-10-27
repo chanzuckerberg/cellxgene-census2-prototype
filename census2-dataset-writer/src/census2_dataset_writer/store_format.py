@@ -5,7 +5,7 @@ format, so that the writer and a reader of a store use one definition:
 
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
 - `OBS_COLUMNS`, the columns of a store's `obs`, in order, each with its
-  `ColType`.
+  `ColType`, and `DERIVED_OBS_COLUMNS`, the ones that the writer computes.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
@@ -98,12 +98,11 @@ class ColType(Enum):
     STRING = "string"
 
 
-# The columns of a store's `obs`, in order. They are the columns that Census 1
-# copies from every CxG h5ad, in Census 1's order, after `dataset_id`. A store
-# holds no other `obs` column yet. Census 1 also writes the `tissue_general`
-# pair and five statistics of the counts, which a store does not hold yet, and
-# `soma_joinid`, a corpus-wide number that a store for one dataset cannot
-# assign. No value is null: the CxG schema requires each of these.
+# The columns of a store's `obs`, in Census 1's order: `dataset_id`, the columns
+# that Census 1 copies from every CxG h5ad, and the `tissue_general` pair. A store
+# holds no other `obs` column yet. Census 1 also writes five statistics of the
+# counts, which a store does not hold yet, and `soma_joinid`, a corpus-wide number
+# that a store for one dataset cannot assign. No value is null.
 OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     (DATASET_ID_COLUMN, ColType.CATEGORY),
     ("assay", ColType.CATEGORY),
@@ -125,4 +124,12 @@ OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     ("tissue", ColType.CATEGORY),
     ("tissue_ontology_term_id", ColType.CATEGORY),
     ("tissue_type", ColType.CATEGORY),
+    ("tissue_general", ColType.CATEGORY),
+    ("tissue_general_ontology_term_id", ColType.CATEGORY),
+)
+
+# The `obs` columns that the writer computes. Each other column of `OBS_COLUMNS`
+# is a copy of a source column.
+DERIVED_OBS_COLUMNS = frozenset(
+    {DATASET_ID_COLUMN, "tissue_general", "tissue_general_ontology_term_id"}
 )

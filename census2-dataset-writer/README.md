@@ -93,9 +93,9 @@ reuse one store.
 
 ## obs schema
 
-A store's `obs` holds a fixed set of columns in a fixed order: `dataset_id`, then the 19 columns
-that the CxG schema requires in every dataset and that Census 1 copies. `store_format.OBS_COLUMNS`
-lists them, each with its `ColType`.
+A store's `obs` holds a fixed set of columns in a fixed order. These are `dataset_id`, the 19 CxG
+columns that Census 1 copies, and the `tissue_general` pair. `store_format.OBS_COLUMNS` lists them,
+each with its `ColType`.
 
 - Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
   strings, and every other column is a categorical whose categories are the observed values,
@@ -104,9 +104,12 @@ lists them, each with its `ColType`.
   not boolean, or has an `observation_joinid` that is not unique fails the build.
 - A store does not yet hold any other source column. The result names each one that it drops,
   in `dropped_obs_columns`.
-- Census 1 also holds `tissue_general`, `tissue_general_ontology_term_id`, and five statistics of
-  the counts, which a store does not hold yet. It also holds `soma_joinid`, a corpus-wide number
-  that a store for one dataset cannot assign.
+- `tissue_general` and `tissue_general_ontology_term_id` are the Census 1 roll-up of
+  `tissue_ontology_term_id` to a high-level tissue, through `cellxgene-ontology-guide` at the
+  version that Census 1 pins. The package holds its ontologies and reads no network. The receipt
+  records its version.
+- Census 1 also holds five statistics of the counts, which a store does not hold yet. It also
+  holds `soma_joinid`, a corpus-wide number that a store for one dataset cannot assign.
 
 ## Summary record
 

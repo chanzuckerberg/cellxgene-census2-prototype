@@ -57,9 +57,11 @@ a `dataset_id` column is an error, because that name belongs to the store.
    counts from `raw` in `X`, and removes the slots that index the source
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. It runs three steps in order. `project_obs`
+   query can combine stores. It runs four steps in order. `project_obs`
    projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census
-   1 copies, each with a fixed type; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
+   1 copies, each with a fixed type; it drops every other source column.
+   `add_tissue_general` adds the Census 1 tissue roll-up (see
+   `census2_dataset_writer.tissues`). `select_counts` puts the counts in `X`: `raw.X`
    when the dataset has `raw`, else `X`. The store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
    dataset's organism. Thus every store of one organism has the same `var`,
@@ -148,11 +150,12 @@ from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
 from zarr.abc.store import Store
 
-from . import assays, genes
+from . import assays, genes, tissues
 from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
+from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
@@ -306,6 +309,8 @@ class StoreProvenance(TypedDict):
     census2_dataset_writer_version: str
     anndata_version: str
     zarr_version: str
+    # The package version decides the `tissue_general` mapping.
+    cellxgene_ontology_guide_version: str
 
 
 class Receipt(StoreProvenance, total=False):
@@ -365,6 +370,9 @@ def provenance(config: Config | None = None) -> StoreProvenance:
         ),
         "anndata_version": importlib.metadata.version("anndata"),
         "zarr_version": importlib.metadata.version("zarr"),
+        "cellxgene_ontology_guide_version": importlib.metadata.version(
+            "cellxgene-ontology-guide"
+        ),
     }
 
 
@@ -491,18 +499,19 @@ def project_obs(
     Census 1 projects `obs` onto a closed schema, with fixed types: the columns
     that the CxG schema requires in every dataset, plus columns that it adds.
     This step copies the CxG columns, every column of `OBS_COLUMNS` except
-    `dataset_id`, in schema order, and gives each one its type: a categorical with the sorted
-    observed values as string categories, NumPy `bool` for `is_primary_data`,
-    and plain strings for `observation_joinid`. The source index stays. Every
-    other source column goes: the result reports them in `dropped_obs_columns`.
+    `DERIVED_OBS_COLUMNS`, in schema order, and gives each one its type: a
+    categorical with the sorted observed values as string categories, NumPy
+    `bool` for `is_primary_data`, and plain strings for `observation_joinid`.
+    The source index stays. Every other source column goes: the result reports
+    them in `dropped_obs_columns`.
 
     It raises `ValueError` when the source lacks a schema column, when a column
     holds a null, when `is_primary_data` is not boolean, or when
     `observation_joinid` is not unique. The CxG schema requires each of these,
     so the writer does not choose a repair.
 
-    It does not yet add Census 1's `tissue_general` pair or the statistics of
-    the counts. `build` adds `dataset_id` after harmonization.
+    `add_tissue_general` adds the `tissue_general` pair. `build` adds
+    `dataset_id` after harmonization.
 
     This step consumes `adata`, as `harmonize` states.
     """
@@ -511,7 +520,9 @@ def project_obs(
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
     columns = [
-        (name, col_type) for name, col_type in OBS_COLUMNS if name != DATASET_ID_COLUMN
+        (name, col_type)
+        for name, col_type in OBS_COLUMNS
+        if name not in DERIVED_OBS_COLUMNS
     ]
     missing = [name for name, _ in columns if name not in obs.columns]
     if missing:
@@ -556,6 +567,27 @@ def _project_obs_column(column: pd.Series, name: str, col_type: ColType) -> pd.S
             raise ValueError(f"obs {name} is not unique")
         return values
     assert_never(col_type)
+
+
+def add_tissue_general(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Add the `tissue_general` pair to `obs`, after `tissue_type`.
+
+    Each cell's `tissue_ontology_term_id` maps to a high-level tissue term and
+    its label, as in Census 1; see `census2_dataset_writer.tissues`. Run
+    `project_obs` first. Raises `ValueError` for a tissue term that the ontology
+    does not hold. This step consumes `adata`, as `harmonize` states.
+    """
+    obs = cast("pd.DataFrame", adata.obs)
+    terms = obs["tissue_ontology_term_id"].astype(str)
+    mapping = tissues.tissue_general(terms.unique())
+    for name, part in (("tissue_general", 1), ("tissue_general_ontology_term_id", 0)):
+        values = terms.map({term: pair[part] for term, pair in mapping.items()})
+        obs[name] = _project_obs_column(values, name, ColType.CATEGORY)
+    return adata
 
 
 def select_counts(
@@ -603,7 +635,8 @@ def harmonize(
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Apply harmonization: `project_obs`, `select_counts`, then `project_genes`.
+    """Apply harmonization: `project_obs`, `add_tissue_general`, `select_counts`,
+    then `project_genes`.
 
     Harmonization changes values and annotations so that a query can combine
     stores from different datasets. The other steps are not specified yet.
@@ -616,6 +649,7 @@ def harmonize(
     copy.
     """
     adata = project_obs(adata, config, refdata)
+    adata = add_tissue_general(adata, config, refdata)
     adata = select_counts(adata, config, refdata)
     return project_genes(adata, config, refdata)
 
