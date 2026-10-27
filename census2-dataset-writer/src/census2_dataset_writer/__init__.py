@@ -193,8 +193,7 @@ class Result(TypedDict):
     admitted: bool
     reason: str | None
     slots: list[str]
-    # The number of cells that each cell filter dropped; see `cell_mask`. Empty
-    # for a dataset that `admit` rejects, which `build` does not filter.
+    # The cells that each filter drops (see `cell_mask`). Empty when `admit` rejects.
     dropped_cells: dict[str, int]
     # The `obs` columns that harmonization removed, in source order. Empty for
     # a rejected dataset, which is never harmonized.
@@ -264,11 +263,9 @@ DEFAULTS: Config = {
     # frozenset, because a config file is JSON.
     # See census2_dataset_writer.assays for where the terms come from.
     "assay_allowlist": sorted(assays.DEFAULT_ALLOWLIST),
-    # The `tissue_type` values of the cells that a store keeps. Census 1 keeps
-    # these two, and so drops cell culture. See `cell_mask`.
+    # Census 1 keeps these `tissue_type` values and drops cell culture.
     "tissue_types": ["organoid", "tissue"],
-    # The assays whose cells a store keeps only when `is_primary_data` is true.
-    # Census 1 sets this rule on its spatial experiments. See `cell_mask`.
+    # Census 1 requires `is_primary_data` on these assays, in its spatial experiments.
     "primary_data_assays": sorted(assays.SPATIAL),
     # The gene reference of each organism, keyed by organism ontology term: the
     # file name in `refdata`, the annotation version, the SHA-256 digest, and
@@ -426,8 +423,7 @@ def admit(
     return None
 
 
-# The cell filters in the order that `cell_mask` applies them, each with the
-# `obs` columns that it reads.
+# A cell that fails several filters counts under the first one in this order.
 CELL_FILTERS = {
     "tissue_type": ("tissue_type",),
     "assay": ("assay_ontology_term_id",),
@@ -460,7 +456,6 @@ def cell_mask(
         raise ValueError(
             f"the source obs lacks the columns {missing} of the cell filters"
         )
-    # A config value is Any by design, so name its shape where it is read.
     tissue_types = cast(
         "list[str]", config.get("tissue_types", DEFAULTS["tissue_types"])
     )
@@ -736,8 +731,7 @@ def build(
             for sub in f[key]:
                 slot[sub] = read_elem(f[key][sub])
 
-    # The subset keeps every slot aligned, and `X` and `raw.X` stay lazy. It runs
-    # before harmonize, so that `project_obs` sees only the kept cells.
+    # This runs before harmonize, so `project_obs` sees only the kept cells.
     if not keep.all():
         adata = adata[keep].copy()
 

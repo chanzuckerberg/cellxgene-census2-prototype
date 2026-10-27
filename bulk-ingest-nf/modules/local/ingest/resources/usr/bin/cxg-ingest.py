@@ -173,7 +173,6 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
         schema = census2_dataset_writer.OBS_COLUMNS
-        # The kept cells, as a mask over the source rows.
         keep = a.index.isin(b.index)
         if not a.index[keep].equals(b.index):
             fail("obs", "index is not the source index without the dropped cells")
@@ -231,8 +230,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
             else:
                 step = census2_dataset_writer.row_chunk(h5o, n_rows)
                 nnz = 0
-                # The store rows of one source block are the kept rows of the
-                # block, and they follow the store rows of the blocks before it.
+                # The store keeps source order, so a running offset finds each block.
                 start = 0
                 for i in range(0, n_rows, step):
                     rows = slice(i, min(i + step, n_rows))
