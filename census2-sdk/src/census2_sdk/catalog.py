@@ -107,7 +107,6 @@ def normalize(obs_filter: Filter | None) -> Normalized:
     return normalized
 
 
-# A catalog URI, or the content that `read` returned for one.
 Source = str | os.PathLike[str] | io.BytesIO
 
 

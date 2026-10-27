@@ -71,8 +71,7 @@ class Census:
     def __init__(self, sources: Sequence[PathLike]) -> None:
         self.sources = [str(s) for s in sources]
         self._counts: pd.DataFrame | None = None
-        # The content of each catalog, read once. The rows and the cell counts come
-        # from the same version, also when the catalog changes after this read.
+        # One read per catalog, so that the rows and the counts come from one version.
         self._contents = [_catalog.read(source) for source in self.sources]
         frames = []
         for source, content in zip(self.sources, self._contents, strict=True):

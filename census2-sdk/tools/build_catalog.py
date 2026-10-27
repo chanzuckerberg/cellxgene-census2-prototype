@@ -32,8 +32,7 @@ from anndata.io import read_elem
 from census2_sdk.catalog import COUNTED, COUNTS, INDEXED, is_remote, open_store
 from census2_sdk.gene_reference import TAXON_TO_ORGANISM
 
-# The type of one cell count entry. A column that no store holds is still a string,
-# so that catalogs from different builds concatenate.
+# The declared type keeps a column that no store holds as a string in every catalog.
 COUNT_ENTRY = pa.struct(
     [pa.field(c, pa.string()) for c in COUNTED]
     + [pa.field("is_primary_data", pa.bool_()), pa.field("n_cells", pa.int64())]
