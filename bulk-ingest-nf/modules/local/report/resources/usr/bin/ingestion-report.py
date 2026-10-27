@@ -52,10 +52,12 @@ def main() -> int:
         "source_bytes": sum(r["source_filesize"] for r in receipts),
         "output_bytes": sum(r.get("output_bytes") or 0 for r in admitted),
         # The cells in the stores: each source count less the cells that the
-        # cell filters dropped from that dataset.
+        # cell filters dropped from that dataset. A dataset whose manifest gives
+        # no count adds nothing.
         "cells": sum(
-            (r.get("cell_count") or 0) - sum(r.get("dropped_cells", {}).values())
+            r["cell_count"] - sum(r.get("dropped_cells", {}).values())
             for r in admitted
+            if r.get("cell_count") is not None
         ),
         "elapsed_sec": round(sum(r.get("elapsed_sec") or 0 for r in receipts), 1),
         "slot_policy": sorted(
