@@ -35,12 +35,12 @@ Each store's summary record, in the attributes of its root group, gives `dataset
 the record. The builder reads the other fields from the store's `obs` and `uns`. It refuses a store
 that has no summary record.
 
-Next to the catalog, the builder writes the cell count table, `catalog.cell_counts.parquet`. It has
-one row for each dataset and each combination of the counted values, with the number of cells in
-`n_cells`. The counted values are assay, cell type, disease, sex, and tissue (each as the label and
-the ontology term), and `is_primary_data`. The builder counts in the same pass that reads the values
-for the catalog row. For the 1,258 stores of
-the Census 1 LTS `2025-11-08` run, the table has 117,740 rows in 739 KiB.
+Each row also holds the cell counts of its store, in the `cell_counts` column. The column has one
+entry for each combination of the counted values, with the number of cells in `n_cells`. The counted
+values are assay, cell type, disease, sex, and tissue (each as the label and the ontology term), and
+`is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
+For the 1,258 stores of the Census 1 LTS `2025-11-08` run, the column holds 117,740 entries, and the
+catalog is 925 KiB.
 
 ## Query
 
@@ -73,16 +73,16 @@ n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
 n = census.count_cells("homo_sapiens", {"tissue": "blood"}, primary_only=True)
 ```
 
-`count_cells` sums the cell count tables and opens no store. A cell matches by the rule of
-`get_anndata`, and the catalog excludes the same datasets. When `get_anndata` returns a result, the
-count thus equals its `n_obs`. A count joins no matrices, so it does not apply the checks before
-concatenation. The filter takes the columns of the table and `dataset_id`; a filter on another
-indexed column raises `ValueError`. With
-`primary_only`, only the cells with `is_primary_data` count. The SDK refuses a count table whose
-total for a dataset differs from the catalog `n_obs`, such as a table from another build.
+`count_cells` sums the cell counts in the catalog rows and opens no store. A cell matches by the
+rule of `get_anndata`, and the catalog excludes the same datasets. Thus, without `primary_only`, the
+count equals the `n_obs` of the result of `get_anndata` when there is one. A count joins no
+matrices, so it does not apply the checks before concatenation. The filter takes the counted columns
+and `dataset_id`, and a filter on another indexed column raises `ValueError`. With `primary_only`,
+the count includes only the cells whose `is_primary_data` is true.
 
 On the 1,258 stores, the call counts 374,463 human neutrophils, and Census 1 gives the same count.
-The call takes 25 ms on a laptop, and this time includes the read of the table.
+On a laptop, `open_census` and the first count take about 40 ms together, and a later count takes
+15 ms.
 
 The writer projects each store onto the gene reference of its organism. Thus every store of one
 organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads

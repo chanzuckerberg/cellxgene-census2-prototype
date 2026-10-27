@@ -8,15 +8,14 @@ summary record, in the attributes of its root group, gives the dataset's identif
 the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
 The builder reads no receipt.
 
-Next to the catalog, the builder writes the cell count table (tracker 5.9). The table
-has one row for each dataset and each combination of the `COUNTED` values and
-`is_primary_data`, with the number of cells in `n_cells`. The builder counts the
+Each row also holds the cell counts of its store, in the `cell_counts` column
+(tracker 5.9). The column has one entry for each combination of the `COUNTED` values
+and `is_primary_data`, with the number of cells in `n_cells`. The builder counts the
 cells in the same pass that reads the values for the catalog row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
-The command writes `catalog.parquet` and `catalog.cell_counts.parquet`. A remote
-prefix needs the `s3` extra and credentials in the environment.
+A remote prefix needs the `s3` extra and credentials in the environment.
 """
 
 import pathlib
@@ -25,11 +24,20 @@ from typing import Any
 
 import census2_dataset_writer
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import zarr
 from anndata.io import read_elem
 
-from census2_sdk.catalog import COUNTED, INDEXED, cell_counts_uri, is_remote, open_store
+from census2_sdk.catalog import COUNTED, COUNTS, INDEXED, is_remote, open_store
 from census2_sdk.gene_reference import TAXON_TO_ORGANISM
+
+# The type of one cell count entry. A column that no store holds is still a string,
+# so that catalogs from different builds concatenate.
+COUNT_ENTRY = pa.struct(
+    [pa.field(c, pa.string()) for c in COUNTED]
+    + [pa.field("is_primary_data", pa.bool_()), pa.field("n_cells", pa.int64())]
+)
 
 
 def _stores(prefix: str) -> list[str]:
@@ -73,13 +81,11 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
     """One catalog row for each store under `prefix`.
 
     The store's summary record supplies `dataset_id`, `dataset_version_id`, and
-    `gene_reference_version`. The store's `obs` and `uns` supply the rest. With
-    `out`, the builder writes the catalog to `out` and the cell count table to
-    `cell_counts_uri(out)`.
+    `gene_reference_version`. The store's `obs` and `uns` supply the rest, the
+    cell counts included.
     """
     prefix = prefix.rstrip("/")
     rows: list[dict[str, Any]] = []
-    counts: list[pd.DataFrame] = []
     for name in _stores(prefix):
         store_uri = f"{prefix}/{name}"
         group = open_store(store_uri)
@@ -92,21 +98,16 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
                 "store_uri": store_uri,
                 "gene_reference_version": record["gene_reference_version"],
                 **row,
+                COUNTS: cells.to_dict("records"),
             }
         )
-        cells.insert(0, "dataset_version_id", record["dataset_version_id"])
-        cells.insert(0, "dataset_id", record["dataset_id"])
-        counts.append(cells)
     frame = pd.DataFrame(rows)
     if out is not None:
-        frame.to_parquet(out, index=False)
-        columns = ["dataset_id", "dataset_version_id", *COUNTED, "is_primary_data"]
-        table = (
-            pd.concat(counts, ignore_index=True)
-            if counts
-            else pd.DataFrame(columns=[*columns, "n_cells"])
+        table = pa.Table.from_pandas(
+            frame.drop(columns=COUNTS, errors="ignore"), preserve_index=False
         )
-        table.to_parquet(cell_counts_uri(out), index=False)
+        counts = pa.array(list(frame.get(COUNTS, [])), type=pa.list_(COUNT_ENTRY))
+        pq.write_table(table.append_column(COUNTS, counts), str(out))
     return frame
 
 

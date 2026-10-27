@@ -7,6 +7,7 @@ dataset's identifiers and `gene_reference_version`. Each store measured a differ
 reference genes, so the others are zero columns.
 """
 
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, cast
@@ -475,7 +476,7 @@ def test_recorded_reference_must_match_the_pin(
     assert query(census, {"tissue": "lung"}).n_obs > 0
 
 
-# --- the cell count table and count_cells (tracker 5.9) -----------------------
+# --- the cell counts and count_cells (tracker 5.9) -----------------------------
 
 COUNT_FILTERS: list[dict[str, Any]] = [
     {},
@@ -499,16 +500,19 @@ def test_count_cells_equals_the_query(
     assert census.count_cells("homo_sapiens", obs_filter) == want
 
 
-def test_cell_count_table_adds_up_to_n_obs(corpus: dict[str, Path]) -> None:
+def test_cell_counts_add_up_to_n_obs(corpus: dict[str, Path]) -> None:
     rows = catalog.load(corpus["catalog"])
-    counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))
-    assert set(counts.columns) == {
-        "dataset_id",
+    assert catalog.COUNTS not in rows.columns
+    counts = catalog.load_counts(corpus["catalog"])
+    assert list(counts.columns) == [
         "dataset_version_id",
         *catalog.COUNTED,
         "is_primary_data",
         "n_cells",
-    }
+    ]
+    # No store holds cell_type, and the column keeps its declared string type.
+    assert counts["cell_type"].isna().all()
+    assert str(counts["cell_type"].dtype).startswith("string")
     totals = counts.groupby("dataset_version_id")["n_cells"].sum().to_dict()
     assert totals == dict(zip(rows["dataset_version_id"], rows["n_obs"], strict=True))
 
@@ -532,21 +536,20 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
     assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
 
 
-def test_count_cells_takes_the_dataset_from_the_catalog(
+def test_count_cells_reads_the_catalog_that_open_census_read(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:
-    """The catalog answers a `dataset_id` filter, as in `get_anndata`.
-
-    The `dataset_id` column of the cell count table has no effect on the count.
-    """
-    path = tmp_path / "ids.parquet"
-    catalog.load(corpus["catalog"]).to_parquet(path, index=False)
-    counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))
-    counts["dataset_id"] = "another"
-    counts.to_parquet(catalog.cell_counts_uri(path), index=False)
+    """A catalog that changes after `open_census` does not change the counts."""
+    want = census2_sdk.open_census([corpus["catalog"]]).count_cells("homo_sapiens")
+    path = tmp_path / "catalog.parquet"
+    shutil.copy(corpus["catalog"], path)
     census = census2_sdk.open_census([path])
-    want = query(census, {"dataset_id": "ds-a"}).n_obs
-    assert census.count_cells("homo_sapiens", {"dataset_id": "ds-a"}) == want
+    # The builder writes a catalog of one small store over the same path.
+    one_store_catalog(
+        tmp_path, make_store("ds-z", 2, REFERENCE_IDS, ["lung"], ["normal"], 15), "ds-z"
+    )
+    assert census2_sdk.open_census([path]).count_cells("homo_sapiens") == 2
+    assert census.count_cells("homo_sapiens") == want
 
 
 def test_count_cells_refuses_an_uncounted_column(corpus: dict[str, Path]) -> None:
@@ -555,22 +558,12 @@ def test_count_cells_refuses_an_uncounted_column(corpus: dict[str, Path]) -> Non
         census.count_cells("homo_sapiens", {"development_stage": "adult"})
 
 
-def test_count_cells_needs_the_table(corpus: dict[str, Path], tmp_path: Path) -> None:
-    catalog.load(corpus["catalog"]).to_parquet(tmp_path / "bare.parquet", index=False)
-    census = census2_sdk.open_census([tmp_path / "bare.parquet"])
-    with pytest.raises(FileNotFoundError, match="no cell count table"):
-        census.count_cells("homo_sapiens")
-
-
-def test_count_cells_refuses_a_table_from_another_build(
+def test_count_cells_needs_the_counts_column(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:
-    path = tmp_path / "stale.parquet"
-    catalog.load(corpus["catalog"]).to_parquet(path, index=False)
-    counts = catalog.load(catalog.cell_counts_uri(corpus["catalog"]))
-    counts.iloc[1:].to_parquet(catalog.cell_counts_uri(path), index=False)
-    census = census2_sdk.open_census([path])
-    with pytest.raises(census2_sdk.SourceConflict, match="n_obs"):
+    catalog.load(corpus["catalog"]).to_parquet(tmp_path / "bare.parquet", index=False)
+    census = census2_sdk.open_census([tmp_path / "bare.parquet"])
+    with pytest.raises(ValueError, match="no cell_counts column"):
         census.count_cells("homo_sapiens")
 
 
