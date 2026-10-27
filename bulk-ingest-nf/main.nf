@@ -58,7 +58,9 @@ workflow {
 
     INGEST(datasets, ch_config, ch_refdata)
 
-    REPORT(INGEST.out.receipt.collect())
+    // An ignored INGEST task writes no receipt. If every task is ignored,
+    // collect() emits nothing and REPORT does not run, so fail the run instead.
+    REPORT(INGEST.out.receipt.collect().ifEmpty { error "No INGEST task wrote a receipt" })
 
     REPORT.out.report.view { "ingestion report: ${it}" }
 }

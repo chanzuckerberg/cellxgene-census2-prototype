@@ -8,10 +8,8 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 ## Iteration 1 scaffolding
 
-The `ponytail:` comments in the code mark the `dataset_id` stamp and the list columns.
+The `ponytail:` comments in the code mark the list columns.
 
-- The stores hold no `dataset_id` column in `obs`. The catalog builder reads `dataset_id` from
-  each store's summary record, and the SDK stamps it into `obs` (disposition row 13).
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
 - The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no

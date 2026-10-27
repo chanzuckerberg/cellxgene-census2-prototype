@@ -77,8 +77,6 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
     `out`, the builder writes the catalog to `out` and the cell count table to
     `cell_counts_uri(out)`.
     """
-    # ponytail: dataset_id comes from the summary record until the writer stamps it
-    # into obs (disposition row 13).
     prefix = prefix.rstrip("/")
     rows: list[dict[str, Any]] = []
     counts: list[pd.DataFrame] = []
