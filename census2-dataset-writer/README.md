@@ -55,6 +55,7 @@ first; `AWS_PROFILE` alone does not work.
 | Decision | State | Where |
 |---|---|---|
 | Admission — does the dataset belong in Census 2 | Minimal stub: the `assay_allowlist`, and an organism with a gene reference | `admit` |
+| Cell filters — which cells of an admitted dataset a store keeps | Decided: the Census 1 filters on tissue type, assay, and primary data on a spatial assay | `cell_mask` |
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
 | Harmonization — what makes stores queryable together | Partly made: the `obs` schema, the counts matrix, and the gene projection | `harmonize` |
 
@@ -74,6 +75,14 @@ The assay criterion rejects a dataset with no cell on the assay allowlist, which
 Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk ingestion
 workflow away from modalities a Census is unlikely to carry, not to settle what Census 2 admits.
 The organism criterion rejects a dataset whose organism has no gene reference.
+
+The cell filters then drop the cells that Census 1 drops. A store keeps a cell when its
+`tissue_type` is tissue or organoid and its assay is on the allowlist. On a spatial assay, the cell
+must also be primary data (`is_primary_data`). The configuration holds the values (`tissue_types`,
+`assay_allowlist`, `primary_data_assays`). The result counts the cells that each filter drops, and a
+dataset with no cell left is rejected. On Census 1 LTS `2025-11-08`, the filters drop 32,069 cells
+from 6 of 1,258 datasets. They drop cell culture cells from 3 human datasets and Patch-seq cells
+from 3 mouse datasets.
 
 A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.

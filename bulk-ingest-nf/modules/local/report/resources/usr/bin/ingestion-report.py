@@ -51,7 +51,12 @@ def main() -> int:
         ),
         "source_bytes": sum(r["source_filesize"] for r in receipts),
         "output_bytes": sum(r.get("output_bytes") or 0 for r in admitted),
-        "cells": sum(r.get("cell_count") or 0 for r in admitted),
+        # The cells in the stores: each source count less the cells that the
+        # cell filters dropped from that dataset.
+        "cells": sum(
+            (r.get("cell_count") or 0) - sum(r.get("dropped_cells", {}).values())
+            for r in admitted
+        ),
         "elapsed_sec": round(sum(r.get("elapsed_sec") or 0 for r in receipts), 1),
         "slot_policy": sorted(
             {r["slot_policy"] for r in admitted if "slot_policy" in r}
@@ -68,6 +73,13 @@ def main() -> int:
         # schema, so most datasets drop some. The report gives the count; each
         # receipt names its dataset's columns.
         "datasets_with_dropped_obs_columns": len(dropped),
+        # The cells that the cell filters drop, by filter, over every dataset.
+        "dropped_cells": {
+            name: sum(r.get("dropped_cells", {}).get(name, 0) for r in receipts)
+            for name in sorted(
+                {k for r in receipts for k in r.get("dropped_cells", {})}
+            )
+        },
         # More than one value means the stores do not concatenate by position.
         "gene_reference_version": sorted(
             {str(r["summary"]["gene_reference_version"]) for r in admitted}

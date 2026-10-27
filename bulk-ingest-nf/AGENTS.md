@@ -67,6 +67,14 @@ column goes. The receipt names them in `dropped_obs_columns`, and the run report
 that drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
 order, each of its type, with the source's values and the summary record's `dataset_id`.
 
+`census2_dataset_writer.cell_mask` applies the Census 1 cell filters (tissue type, assay, primary
+data on a spatial assay), and the store keeps only the cells that pass. The receipt counts the cells
+that each filter drops in `dropped_cells`, and the run report totals them. The round-trip check
+compares the store with the source rows that its `obs` index names. It requires that index to be the
+source index without the dropped cells, in order, and the number dropped to equal the receipt's
+total. The check does not apply the filters itself. On Census 1 LTS `2025-11-08`, the filters drop
+32,069 cells from 6 of 1,258 datasets. Each of the 6 stores then holds the Census 1 cell count.
+
 A breadcrumb for when the projection carries more columns, for example the perturbation fields that
 schema 7.1.0 adds, or author columns: some datasets name an `obs` column with a `/` in it, and Zarr
 gives `/` its path meaning, so the write fails on that column. The names seen are clinical units
