@@ -318,9 +318,10 @@ class Census:
         """The `obs` of the selected cells of `organism`, from the `obs` tables alone.
 
         The SDK opens no store. `columns` names the `obs` columns to return; None
-        returns all. The frame also holds the row columns of `obs_table.ROW_COLUMNS`.
-        Its index is `<dataset_id>_<observation_joinid>` when it holds
-        `observation_joinid`. Every source needs an `obs` table.
+        returns all. The frame always holds the cell key and the row columns of
+        `obs_table.ROW_COLUMNS`, and the columns keep the order of the table schema.
+        Its index is `<dataset_id>_<observation_joinid>`. `frame.attrs["census2"]`
+        holds the statistics of the scan. Every source needs an `obs` table.
         """
         from census2_sdk import expressions
 

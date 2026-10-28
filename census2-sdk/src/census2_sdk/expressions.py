@@ -22,7 +22,8 @@ to each cell.
 
 The `disease` columns hold `" || "`-joined values. For these columns, `=`, `!=`, `IN`, and
 `NOT IN` mean membership: `disease = 'COVID-19'` selects a cell when one of its values is
-`COVID-19`. Iceberg has no membership term for a string, so `with_members` rewrites each
+`COVID-19`. A literal that holds the separator, as a Census 1 filter gives, selects the
+cells with exactly its values. Iceberg has no membership term for a string, so `with_members` rewrites each
 such term into `IN` or `NOT IN` over the joined values that the catalog records for the
 remaining datasets. Every other term on these columns compares the joined string.
 """
@@ -60,6 +61,7 @@ from pyiceberg.expressions.visitors import rewrite_not
 
 from census2_sdk.catalog import (
     INDEXED,
+    MULTIVALUE_SEP,
     MULTIVALUED,
     Filter,
     members,
@@ -281,12 +283,26 @@ _HOLDS: dict[type, Callable[[Any, Any], bool]] = {
     NotNaN: lambda p, v: not (isinstance(v, float) and math.isnan(v)),
 }
 
+
 # The membership rule of each term on a multi-valued column, for one joined value.
+def _member(literal: Any, held: set[str]) -> bool:
+    """True when a cell with the members `held` matches one literal.
+
+    A bare term matches when it is a member. A joined literal, as a Census 1 filter
+    gives, matches the cells with exactly its members.
+    """
+    text = str(literal)
+    separator = MULTIVALUE_SEP.strip()
+    if separator in text:
+        return held == {m.strip() for m in text.split(separator)}
+    return text in held
+
+
 _HOLDS_MEMBER: dict[type, Callable[[Any, set[str]], bool]] = {
-    EqualTo: lambda p, m: str(_literal(p)) in m,
-    NotEqualTo: lambda p, m: str(_literal(p)) not in m,
-    In: lambda p, m: bool(m & {str(v) for v in _literals(p)}),
-    NotIn: lambda p, m: not (m & {str(v) for v in _literals(p)}),
+    EqualTo: lambda p, m: _member(_literal(p), m),
+    NotEqualTo: lambda p, m: not _member(_literal(p), m),
+    In: lambda p, m: any(_member(v, m) for v in _literals(p)),
+    NotIn: lambda p, m: not any(_member(v, m) for v in _literals(p)),
 }
 
 

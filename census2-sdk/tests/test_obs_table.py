@@ -368,3 +368,35 @@ def test_with_members_rewrites_membership_into_joined_values() -> None:
     assert expr == parser.parse("disease NOT IN ('flu', 'normal ||  flu')")
     expr = expressions.with_members(parser.parse("disease = 'cold'"), rows)
     assert expr == parser.parse("false")
+
+
+def test_a_joined_literal_selects_exactly_its_values() -> None:
+    """A Census 1 filter names the joined value; its translation keeps that meaning."""
+    rows = [{"dataset_id": "d", "disease": ["flu", "normal ||  flu", "flu || normal"]}]
+    census1 = expressions.from_value_filter("disease in ['normal || flu']")
+    expr = expressions.with_members(census1, rows)
+    assert expr == parser.parse("disease IN ('normal ||  flu', 'flu || normal')")
+
+
+@pytest.mark.parametrize(
+    ("value_filter", "text"),
+    [
+        ("tissue == 'lung' and cell_type != 'T cell'", "(tissue = 'lung' AND cell_type != 'T cell')"),
+        ("nnz >= 500 or not (sex in ['male'])", "(nnz >= 500 OR NOT sex = 'male')"),
+        ("is_primary_data == True", "is_primary_data = true"),
+    ],
+)  # fmt: skip
+def test_a_value_filter_translates_to_an_expression(
+    value_filter: str, text: str
+) -> None:
+    expr = expressions.from_value_filter(value_filter)
+    assert expressions.to_text(expr) == text
+    assert parser.parse(text) == expr
+
+
+@pytest.mark.parametrize(
+    "value_filter", ["a == b", "1 < nnz", "tissue in 'lung'", "f(x)"]
+)
+def test_a_value_filter_without_an_iceberg_term_is_refused(value_filter: str) -> None:
+    with pytest.raises(ValueError, match="Iceberg|column|list"):
+        expressions.from_value_filter(value_filter)
