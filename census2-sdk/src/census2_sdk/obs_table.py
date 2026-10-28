@@ -28,6 +28,7 @@ import logging
 import os
 import pathlib
 import time
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -177,8 +178,15 @@ def scan(
     selected: tuple[str, ...],
     *,
     dictionary: tuple[str, ...] = (),
+    datasets: Collection[str] | None = None,
 ) -> tuple[pa.Table, ScanStats]:
     """The rows of `table` that satisfy `row_filter`, with the `selected` columns.
+
+    `datasets` keeps only the data files of those datasets, by their partition value.
+    The plan drops the other files after pyiceberg plans the files of `row_filter`.
+    A `dataset_id IN (...)` term in `row_filter` gives the same files, but pyiceberg
+    tests each file against each value of the list, so its plan time grows with the
+    product: 23 s for 2,060 files and 2,060 values.
 
     `dictionary` names the string columns to return dictionary-encoded, which is what a
     categorical column of pandas needs. pyiceberg reads the manifests and the data files
@@ -188,6 +196,10 @@ def scan(
     t0 = time.monotonic()
     data_scan = table.scan(row_filter=row_filter, selected_fields=selected)
     tasks = list(data_scan.plan_files())
+    stats.extra["files_after_bounds"] = len(tasks)
+    if datasets is not None:
+        wanted = set(datasets)
+        tasks = [t for t in tasks if str(t.file.partition[0]) in wanted]
     t1 = time.monotonic()
     arrow = ArrowScan(
         table.metadata,

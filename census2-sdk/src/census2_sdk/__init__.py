@@ -201,7 +201,6 @@ class Census:
         """
         import pyarrow as pa  # type: ignore[import-untyped]
         import pyarrow.compute as pc  # type: ignore[import-untyped]
-        from pyiceberg.expressions import And
 
         from census2_sdk import expressions, obs_table
 
@@ -212,11 +211,8 @@ class Census:
             if not len(mine):
                 continue
             records = cast("list[dict[str, Any]]", mine.to_dict("records"))
-            ids = sorted(str(d) for d in mine["dataset_id"])
-            row_filter = And(
-                expressions.with_members(expr, records),
-                expressions.is_in("dataset_id", ids),
-            )
+            ids = {str(d) for d in mine["dataset_id"]}
+            row_filter = expressions.with_members(expr, records)
             names = [f.name for f in table.schema().fields]
             obs_names = [n for n in names if n not in obs_table.ROW_COLUMNS]
             wanted = obs_names if columns is None else list(columns)
@@ -236,17 +232,15 @@ class Census:
             if SCAN_KEY_FIRST and expressions.columns(expr) - {"dataset_id"}:
                 # A first scan of the key alone finds the datasets with a match, so
                 # that the second scan reads every column of those fragments only.
-                keys, first = obs_table.scan(table, row_filter, ("dataset_id",))
-                stats.append({"source": source, "step": "key", **first.as_dict()})
-                hits = sorted(set(keys.column("dataset_id").to_pylist()))
-                if not hits:
-                    continue
-                row_filter = And(
-                    expressions.with_members(expr, records),
-                    expressions.is_in("dataset_id", hits),
+                keys, first = obs_table.scan(
+                    table, row_filter, ("dataset_id",), datasets=ids
                 )
+                stats.append({"source": source, "step": "key", **first.as_dict()})
+                ids = set(keys.column("dataset_id").to_pylist())
+                if not ids:
+                    continue
             arrow, scan_stats = obs_table.scan(
-                table, row_filter, selected, dictionary=strings
+                table, row_filter, selected, dictionary=strings, datasets=ids
             )
             stats.append({"source": source, **scan_stats.as_dict()})
             if not arrow.num_rows:
@@ -391,7 +385,6 @@ class Census:
         an `obs` table.
         """
         import pyarrow as pa
-        from pyiceberg.expressions import And
 
         from census2_sdk import expressions, obs_table
 
@@ -405,12 +398,11 @@ class Census:
             if not len(mine):
                 continue
             records = cast("list[dict[str, Any]]", mine.to_dict("records"))
-            row_filter = And(
-                expressions.with_members(expr, records),
-                expressions.is_in("dataset_id", (str(d) for d in mine["dataset_id"])),
-            )
             arrow, scan_stats = obs_table.scan(
-                table, row_filter, tuple(dict.fromkeys(["dataset_id", *by]))
+                table,
+                expressions.with_members(expr, records),
+                tuple(dict.fromkeys(["dataset_id", *by])),
+                datasets={str(d) for d in mine["dataset_id"]},
             )
             stats.append({"source": source, **scan_stats.as_dict()})
             parts.append(arrow.group_by(list(by)).aggregate([([], "count_all")]))

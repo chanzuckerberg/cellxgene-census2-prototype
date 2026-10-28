@@ -164,6 +164,7 @@ def main() -> int:
     else:
         n, extra = run_pyarrow(args.catalog, args.query_shape, expr, rows)
     seconds = time.monotonic() - t0
+    record_keys = {"reader", "query_shape", "query", "threads", "rows", "seconds"}
     record = {
         "reader": args.reader,
         "query_shape": args.query_shape,
@@ -172,7 +173,7 @@ def main() -> int:
         "rows": n,
         "seconds": round(seconds, 3),
         "peak_rss_mb": peak_rss_mb(),
-        **{k: v for k, v in extra.items() if k != "plan"},
+        **{k: v for k, v in extra.items() if k not in record_keys},
     }
     after = io_read_mb()
     if before is not None and after is not None:
