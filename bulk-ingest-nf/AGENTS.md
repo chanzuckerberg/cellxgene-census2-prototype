@@ -28,6 +28,12 @@ come from `census2_dataset_writer.provenance`, so the script that writes a recei
 that reads one agree on it. Policy that a caller might choose lives in the configuration rather than
 in function arguments, so there is one place to look.
 
+On the obs Iceberg spike branch, the writer also writes an `obs` fragment next to each store
+(`<dataset_version_id>.obs.parquet`). The task publishes it as it publishes the store: the
+`publishDir` that moves `*.zarr` also moves it (`'*.{zarr,obs.parquet}'`), and a remote task writes
+it directly, where `verify_written` checks its size against the store's fragment record. The
+receipt copies the record and names the fragment.
+
 These arrangements suit the harmonization steps that exist: the `obs` projection and the gene
 projection. Expect to revisit them when more steps are known, particularly if a step needs data
 that the current read order does not fetch.

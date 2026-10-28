@@ -132,7 +132,9 @@ this branch's path. `requests` and `MB` count the reads at the zarr store interf
 those counts; `scan MB` is the compressed size of the columns that the scan reads, from the
 column sizes in the manifests, an upper bound.
 
-**The queries.** (a) one dataset, `dataset_id` of the first catalog row (3,799 cells). (b)
+**The queries.** The compaction spike chose its own values for (a), (c), and (d)
+(`census2-sdk/tools/results/compaction-queries.json` on its branch); (b) and (e) are the same in
+both. (a) one dataset, `dataset_id` of the first catalog row (3,799 cells). (b)
 `cell_type = neutrophil`, the cell type whose share of the datasets is nearest 15 percent. (c)
 "macrophages in lung": `tissue` in 6 lung terms, `cell_type` in 9 macrophage terms, and
 `is_primary_data`. (d) catalog false positives: (d1) `tissue = mesenteric lymph node AND
@@ -219,12 +221,18 @@ of 2, so these are indications, not measures of a difference. Seconds at 1 / 8 /
 | (b) neutrophil | – / – / 94 | – / – / 121 | 2,893 / 1,361 | 873 / 824 | 42 |
 | (d1) no matching cell | 44 / 24 / 29 | 16 / 27 / 30 | 225 / 0 | 44.8 / 0 | 42 |
 | (d2) 2 of 4 hold cells | 51 / 43 / 24 | 25 / 47 / 41 | 862 / 215 | 68.3 / 28.2 | 36 |
+| (e) all obs | | – / – / 35 | – / 0 | – / 0 | 187 |
+| count by donor, (b) | – / – / 12.7 | – / – / 3.5 | 693 / 0 | 44.3 / 0 | 0.2 |
 
 On this link, bytes decide. The table path reads fewer `X` and `obs` bytes from the stores, but
 its scan reads the fragments of the candidate datasets in full, 36 to 42 MB for (d1) and (d2),
 and the catalog's false positives are large atlases. The table path still sends a third to a
-quarter of the requests. The laptop runs of the counts, of (c), of (e), and of the key-first scan
-did not get the laptop in the time of the spike; `tools/results/obs_iceberg/laptop-103.jsonl`
+quarter of the requests. A count is a laptop case with a clear difference (3.5 s against 12.7 s), because the scan reads
+two columns. The key-first scan is the other: (d1) took 4.1 s against 27 s at 8 workers, because
+its first scan reads only the filter columns of the four atlas fragments and finds no match. For
+(d2), whose two matching datasets are atlases, it took 41 s against 47 s. (e) through the stores
+took 55 s (one run) against 35 s, and (b) with the whole `indptr` read 95 s against 121 s, within
+the noise of this link. The laptop runs of (c) did not get the laptop in the time of the spike; `tools/results/obs_iceberg/laptop-103.jsonl`
 holds the runs that did.
 
 ### 3.4 Other measures
@@ -292,8 +300,8 @@ holds the runs that did.
    label column exclude few row groups: (d1) reads up to 42 MB of four atlas fragments to find no
    cell. A key-first scan (`SCAN_KEY_FIRST`: the filter columns first, then every column of the
    datasets with a match) and fragments sorted by the common filter columns (the store row
-   ordinal keeps the link to the store) are the two remedies; the first is in the branch as an
-   option, and it does not pay in-region.
+   ordinal keeps the link to the store) are the two remedies. The first is in the branch as an
+   option: on the laptop it took (d1) from 27 s to 4.1 s, and in-region it does not pay.
 8. **The expression language suffices for the corpus, with one rewrite.** All 50 corpus queries
    with an `obs` filter are expressible (14 of them wait for `tissue_general` or `nnz` in the
    stores). The gap is membership on the multi-valued `disease` columns, which the SDK supplies by
@@ -421,16 +429,20 @@ and Rarr remain the path for the stores themselves (design record, existing user
 
 ## 8. Relation to the compaction spike
 
-- **The store row ordinal stays per-dataset.** A member of a compacted store keeps its rows
-  contiguous and in order, so its row in the compacted store is `member row offset + store_row`.
-  Its values in the compacted `X` are at `member value offset + x_start`. The compaction spike
-  should record both offsets for each member, the row offset and the value offset
-  (`compacted indptr[member row offset]`), so that the ranges in the fragments translate without
-  a read of the compacted `indptr`. Then the obs table needs no change when compaction happens,
-  and the SDK chooses the compacted store or the member store per query.
+- **The store row ordinal stays per-dataset.** The compaction spike keeps each member
+  contiguous and in its source row order, and its catalog builder writes `compacted_store_uri`,
+  `compacted_row_start`, and `compacted_row_stop` into each member's row. A member's row in the
+  compacted store is then `compacted_row_start + store_row`, so the fragments and the obs table
+  need no rebuild when compaction happens. The member's values in the compacted `X` are at
+  `value offset + x_start`, where the value offset is `indptr[compacted_row_start]` of the
+  compacted store. One more catalog column for that offset would let the ranges translate with
+  no `indptr` read; without it, the SDK reads one `indptr` entry for each compacted store.
 - **The table removes the open cost of non-hit stores; compaction removes the open cost of many
-  small stores.** They compose: with both, a query plans over the fragments, opens only the
-  compacted stores that hold a hit, and reads only the hit ranges.
+  small stores.** The compaction spike measured about 28 ms of fixed CPU for each store open
+  (about 100 KB of consolidated metadata), and 103 opens took about 3 s at both 8 and 32
+  workers: more threads did not help, fewer stores did. So a store that the table proves to hold
+  no hit is worth more than another thread. The two compose: with both, a query plans over the
+  fragments, opens only the compacted stores that hold a hit, and reads only the hit ranges.
 - **They can coalesce.** A compacted store could carry one materialized fragment for all its
   members (the member fragments concatenated, with `store_row`, `x_start`, and `x_end` rebased).
   One commit then deletes the member fragments from the table and adds the compacted fragment:
@@ -462,6 +474,12 @@ and Rarr remain the path for the stores themselves (design record, existing user
   the store `obs` read. A design could keep only one of the two exclusion structures; the spike
   keeps both.
 - **The per-chunk `obs_index`** of the store layout is unnecessary on the table path.
+- **The `X` read by ranges builds a position index**, one int64 for each selected stored value,
+  as anndata's integer row selection does; the compaction spike measured 5.7 GB of such an index
+  for 152,000 cells. `_rows_by_range` reads a single slice only when the whole selection is one
+  run of rows. Reading each run of contiguous rows as a slice, as anndata does for slices, would
+  bound that memory; the spike does not yet do it. Peak memory for (c) was 14.4 GiB on the table
+  path against 16.6 GiB on the store path.
 - **`get_anndata_lazy()`** of the design record maps onto the scan: the lazy result can be the
   scan's `obs` plus the per-store ranges, with `X` read on demand.
 
