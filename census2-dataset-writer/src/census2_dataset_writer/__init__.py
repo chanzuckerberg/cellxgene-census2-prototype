@@ -26,11 +26,11 @@ Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
 
 `slots_of(adata)` lists what a store written from an AnnData will hold.
-`read_summary(dest)` returns the summary record of a store, and
-`validate_summary(obj)` checks one read from elsewhere. `load_config(path)`
+`read_summary(dest)` returns the summary record of a store. `load_config(path)`
 returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
-which ships no S3 client.
+which ships no S3 client. `census2_dataset_writer.store_format` names what a
+store holds beyond AnnData-Zarr, for the writer and for a reader of a store.
 
 Decisions
 ---------
@@ -88,10 +88,10 @@ it exists.
 Summary record
 --------------
 Every store holds a summary record: a small JSON object in the attributes of
-the store's root Zarr group, under `SUMMARY_NAMESPACE`. It holds the facts
-about the store that a catalog needs and that the store does not otherwise
-hold: the dataset's identifiers and the version of the gene reference.
-`SummaryRecord` declares its shape, and its `version` is `SUMMARY_VERSION`.
+the store's root Zarr group. It holds the facts about the store that a catalog
+needs and that the store does not otherwise hold: the dataset's identifiers and
+the version of the gene reference. `store_format` defines the record, where it
+is, and its check.
 `build` also adds `dataset_id` to `obs`, as the first column, so that a cell
 keeps its dataset when stores are concatenated.
 
@@ -145,6 +145,16 @@ from anndata.io import read_elem
 from zarr.abc.store import Store
 
 from . import assays, genes
+from . import store_format as store_format  # a public module; callers name it
+
+# The store format, re-exported, so a caller writes census2_dataset_writer.X.
+from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
+from .store_format import SUMMARY_KEY as SUMMARY_KEY
+from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
+from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
+from .store_format import SummaryRecord as SummaryRecord
+from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
     import dask.array as da
@@ -203,69 +213,6 @@ RECIPE = "v1"
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
 # have to infer it.
 ZARR_FORMAT = 3
-
-# Where the summary record is: a key of the root group's attributes, and a key
-# under it. The namespace keeps the record clear of anndata's own attributes.
-SUMMARY_NAMESPACE = "cellxgene-census2"
-SUMMARY_KEY = "summary"
-
-# The format of the summary record. Raise it when a field changes meaning or
-# goes away. A reader refuses a version that it does not know.
-SUMMARY_VERSION = 1
-
-# The `obs` column that names each cell's dataset. `build` adds it after
-# harmonization, so a cell keeps its dataset when stores are concatenated.
-DATASET_ID_COLUMN = "dataset_id"
-
-
-class SummaryRecord(TypedDict):
-    """The facts about a store that a catalog needs, held in the store.
-
-    The store holds everything else that a catalog reads, such as the organism
-    and the curation schema version in `uns`, so the record does not copy it.
-    """
-
-    version: int
-    dataset_id: str
-    dataset_version_id: str
-    # The label of the gene reference in the store's `var`, as in
-    # `genes.REFERENCES`, for example "GENCODE v48".
-    gene_reference_version: str
-
-
-class SummaryRecordError(ValueError):
-    """A summary record that is malformed: a missing, unknown, or wrongly typed field."""
-
-
-def validate_summary(obj: object) -> SummaryRecord:
-    """Return `obj` as a summary record, or raise `SummaryRecordError` saying why not.
-
-    A summary record is read from a store, which is external input, so its type is
-    checked here at run time and not only asserted. The record must have exactly
-    the fields of `SummaryRecord`, `version` must be `SUMMARY_VERSION`, and the
-    other fields must be strings that are not empty.
-    """
-    if not isinstance(obj, dict):
-        raise SummaryRecordError(
-            f"a summary record is a JSON object, not {type(obj).__name__}"
-        )
-    fields = set(SummaryRecord.__annotations__)
-    if set(obj) != fields:
-        missing, extra = sorted(fields - set(obj)), sorted(set(obj) - fields)
-        raise SummaryRecordError(
-            f"summary record fields: missing {missing}, unknown {extra}"
-        )
-    version = obj["version"]
-    if type(version) is not int or version != SUMMARY_VERSION:
-        raise SummaryRecordError(
-            f"summary record version {version!r}; this package reads {SUMMARY_VERSION}"
-        )
-    for field in sorted(fields - {"version"}):
-        if not isinstance(obj[field], str) or not obj[field]:
-            raise SummaryRecordError(
-                f"summary record {field} is {obj[field]!r}, not a string"
-            )
-    return cast("SummaryRecord", obj)
 
 
 def row_chunk(h5_obj: H5Matrix, n_rows: int) -> int:
@@ -625,9 +572,9 @@ def build(
     obs = cast("pd.DataFrame", read_elem(f["obs"]))
     if DATASET_ID_COLUMN in obs.columns:
         raise ValueError(
-            f"unexpected {DATASET_ID_COLUMN} column in the source obs: a CxG h5ad "
-            f"does not hold one, and in a store {DATASET_ID_COLUMN} is the column "
-            "that the writer adds. The input is not a Discover dataset as published"
+            f"unexpected {DATASET_ID_COLUMN} column in the source obs: "
+            "a CxG h5ad does not hold one, and in a store it is the column that the "
+            "writer adds. The input is not a Discover dataset as published"
         )
     var = cast("pd.DataFrame", read_elem(f["var"]))
     n_rows = int(obs.shape[0])
@@ -795,7 +742,8 @@ def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
     """The summary record of a store, or None when the store has none.
 
     `dest` is a store's location, or its root group already open. A record that is
-    present but malformed raises `SummaryRecordError`; see `validate_summary`.
+    present but malformed raises `SummaryRecordError`; see
+    `validate_summary`.
     """
     root = (
         dest

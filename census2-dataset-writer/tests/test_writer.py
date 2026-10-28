@@ -408,7 +408,8 @@ def test_validate_summary_refuses_a_malformed_record(
 def test_validate_summary_refuses_a_missing_field() -> None:
     record = {k: v for k, v in GOOD_RECORD.items() if k != "dataset_id"}
     with pytest.raises(
-        census2_dataset_writer.SummaryRecordError, match="missing \\['dataset_id'\\]"
+        census2_dataset_writer.SummaryRecordError,
+        match="missing \\['dataset_id'\\]",
     ):
         census2_dataset_writer.validate_summary(record)
 
@@ -905,3 +906,31 @@ def test_write_refuses_obs_for_another_dataset(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="must hold only the summary record's d"):
         write(adata, tmp_path / "store.zarr", summary=dict(GOOD_RECORD))
     assert not (tmp_path / "store.zarr").exists()
+
+
+# --- the store format module -------------------------------------------------
+
+
+def test_store_format_imports_only_the_standard_library() -> None:
+    """A reader can take the store format without the writer's dependencies.
+
+    The test loads the module file alone, in a new interpreter, so that the
+    package's own imports do not count.
+    """
+    import subprocess
+    import sys
+
+    path = Path(census2_dataset_writer.store_format.__file__)
+    code = (
+        "import importlib.util, sys\n"
+        f"spec = importlib.util.spec_from_file_location('store_format', {str(path)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(module)\n"
+        "heavy = {'anndata', 'numpy', 'pandas', 'zarr', 'dask', 'h5py', 'scipy'}\n"
+        "print(sorted(heavy & set(sys.modules)))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+    )
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
