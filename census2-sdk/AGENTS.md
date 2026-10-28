@@ -22,6 +22,29 @@ it, and checks its fields with `read_summary`. The builder thus shares one defin
 with the writer. The SDK package does not depend on the writer, so a user of the SDK does not
 install it. The tests and mypy do need it, and CI installs it.
 
+## The cell counts
+
+`tools/build_catalog.py` writes the cell counts of each store into its catalog row, in the
+`cell_counts` column (tracker 5.9), and `Census.count_cells` sums them. The catalog stays one file,
+and the counts and `n_obs` of a store come from the same build. `catalog.COUNTED` names the counted
+columns, and the builder and the SDK both read that tuple. A null is a group of its own, so the
+entries of a store add up to its `n_obs`. A null matches no filter, as in `get_anndata`. A store
+without a counted column holds a null in that column. For a store without `is_primary_data`, every
+entry has `is_primary_data` false. The builder groups on categorical keys, because on object columns
+a store of millions of cells takes much longer.
+
+The builder writes the column with pyarrow and the declared type `build_catalog.COUNT_ENTRY`.
+Type inference gives a null type to a counted column that no store holds. The counts of two
+catalogs from different builds then differ in type. `catalog.load` reads the catalog without the
+column, because pandas turns the column into Python dicts. For the 1,258 stores, that read takes
+135 ms instead of 5 ms. `catalog.load_counts` flattens the column with the Arrow list and struct
+accessors of pandas in about 20 ms. pyarrow ships no type information, so its imports carry
+`type: ignore[import-untyped]`.
+
+`open_census` reads the content of each catalog once and keeps it. The rows and the counts come
+from that content, so they agree also when the catalog changes later. The live catalog of design
+3.3 changes with each update of the catalog builder.
+
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the

@@ -5,15 +5,22 @@ Census 2 team publishes it; `tools/build_catalog.py` is the Iteration 1 stand-in
 that builder. `exclude` applies the one correctness rule of design 2.2. A query
 excludes a dataset only when the catalog proves that no cell of the dataset can match.
 An absent column or an unknown value keeps the dataset.
+
+Each catalog row holds the cell counts of its store in the `cell_counts` column
+(tracker 5.9). The column has one entry for each combination of the `COUNTED` values
+and `is_primary_data`, with the number of cells in `n_cells`. `load` reads the catalog
+without this column, and `load_counts` reads only the entries.
 """
 
 import io
 import os
+import pathlib
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pq  # type: ignore[import-untyped]  # pyarrow has no types
 import zarr
 
 # obstore is the optional `s3` extra. It is imported here, at module level, when it
@@ -50,6 +57,13 @@ PAIRS = (
 INDEXED = tuple(c for p in PAIRS for c in (p, f"{p}_ontology_term_id")) + (
     "suspension_type",
     "tissue_type",
+)
+# The catalog column of cell counts and the columns that it counts (tracker 5.9).
+COUNTS = "cell_counts"
+COUNTED = tuple(
+    c
+    for p in ("assay", "cell_type", "disease", "sex", "tissue")
+    for c in (p, f"{p}_ontology_term_id")
 )
 # Schema 2.4.0 made these two columns multi-valued. Equality is membership.
 MULTIVALUED = frozenset({"disease", "disease_ontology_term_id"})
@@ -93,13 +107,60 @@ def normalize(obs_filter: Filter | None) -> Normalized:
     return normalized
 
 
-def load(uri: str | os.PathLike[str]) -> pd.DataFrame:
+Source = str | os.PathLike[str] | io.BytesIO
+
+
+def read(uri: str | os.PathLike[str]) -> io.BytesIO:
+    """The content of a catalog. `load` and `load_counts` of it see one version."""
     if is_remote(uri):
         _require_obstore()
         base, _, name = str(uri).rpartition("/")
-        data = bytes(obstore.get(obstore.store.from_url(base), name).bytes())
-        return pd.read_parquet(io.BytesIO(data))
-    return pd.read_parquet(uri)
+        return io.BytesIO(
+            bytes(obstore.get(obstore.store.from_url(base), name).bytes())
+        )
+    return io.BytesIO(pathlib.Path(uri).read_bytes())
+
+
+def _parquet(source: Source) -> tuple[io.BytesIO, list[str]]:
+    """The content of `source`, at its start, and its column names."""
+    content = source if isinstance(source, io.BytesIO) else read(source)
+    content.seek(0)
+    names = [str(n) for n in pq.read_schema(content).names]
+    content.seek(0)
+    return content, names
+
+
+def load(source: Source) -> pd.DataFrame:
+    """Read a catalog without its `cell_counts` column.
+
+    pandas turns that column into Python dicts, which multiplies the read time of a
+    catalog by about 30. Only `count_cells` needs it, through `load_counts`.
+    """
+    content, names = _parquet(source)
+    return pd.read_parquet(content, columns=[c for c in names if c != COUNTS])
+
+
+def load_counts(source: Source) -> pd.DataFrame:
+    """The cell count entries of a catalog, one row each, with `dataset_version_id`.
+
+    A catalog without the `cell_counts` column raises ValueError.
+    """
+    content, names = _parquet(source)
+    if COUNTS not in names:
+        raise ValueError(
+            f"the catalog has no {COUNTS} column; "
+            "build it again with tools/build_catalog.py"
+        )
+    frame = pd.read_parquet(
+        content, columns=["dataset_version_id", COUNTS], dtype_backend="pyarrow"
+    )
+    # The Arrow accessors flatten the column without one Python object per entry.
+    entries = frame[COUNTS]
+    counts = cast("pd.DataFrame", entries.list.flatten().struct.explode())
+    owners = frame["dataset_version_id"].to_numpy()
+    lengths = entries.list.len().to_numpy()
+    counts.insert(0, "dataset_version_id", np.repeat(owners, lengths))
+    return counts.reset_index(drop=True)
 
 
 def unrecorded(value: Any) -> bool:
@@ -148,4 +209,5 @@ def exclude(
         return scoped
     records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
     keep = [not excludes(row, normalized) for row in records]
-    return scoped[keep]
+    # pandas reads an empty Python list as a column selection.
+    return scoped[np.array(keep, dtype=bool)]

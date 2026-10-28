@@ -1,8 +1,8 @@
 """Query Census 2 stores through a catalog and return one AnnData.
 
-The SDK runs on the user's machine. It reads the catalog, excludes the datasets that
-cannot match, opens the remaining stores, and concatenates the selected cells by gene
-position (design 4.1 to 4.4).
+The SDK runs on the user's machine. It reads the catalog and excludes the datasets that
+cannot match. It then opens the remaining stores and concatenates the selected cells by
+gene position (design 4.1 to 4.4).
 
     import census2_sdk
 
@@ -13,14 +13,21 @@ position (design 4.1 to 4.4).
 a cell when every column holds one of its values. The columns are the 18 indexed
 columns of design 2.2 and `dataset_id`. A filter grammar is open (design section 8).
 
-The result carries counts in `X`, the pinned gene reference as `var`, the `obs` columns
-that all selected stores hold, and `uns["census2"]` with the sources and the store
-counts. The cell key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names`
-is `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns
-None.
+The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
+has the columns that all selected stores hold. `uns["census2"]` has the sources, the
+number of catalog rows for the organism, and the number of stores opened. The cell
+key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
+`<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
 The writer projects each store onto the reference. Thus every selected store has
-the same `var`. The SDK checks this, and concatenates by position.
+the same `var`. The SDK checks that every store has the same gene identifiers in the
+same order, and concatenates by position.
+
+`count_cells` counts the selected cells and opens no store. It sums the cell counts
+that each catalog row holds (tracker 5.9). Its filter takes the columns of
+`catalog.COUNTED` and `dataset_id`.
+
+    n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
 
 Each store's `obs` holds `dataset_id`, which the writer adds. The SDK refuses a
 store whose `dataset_id` differs from the dataset of its catalog row.
@@ -56,13 +63,19 @@ class SourceConflict(ValueError):
 
 
 class Census:
-    """A set of sources, opened. `get_anndata` runs one query over them."""
+    """`Census` holds a set of opened sources.
+
+    Each call to `get_anndata` or `count_cells` runs one query over them.
+    """
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
         self.sources = [str(s) for s in sources]
+        self._counts: pd.DataFrame | None = None
+        # One read per catalog, so that the rows and the counts come from one version.
+        self._contents = [_catalog.read(source) for source in self.sources]
         frames = []
-        for source in self.sources:
-            frame = _catalog.load(source)
+        for source, content in zip(self.sources, self._contents, strict=True):
+            frame = _catalog.load(content)
             frame["source"] = source
             frames.append(frame)
         self.catalog = pd.concat(frames, ignore_index=True)
@@ -115,6 +128,59 @@ class Census:
             "stores_opened": len(rows),
         }
         return result
+
+    def count_cells(
+        self,
+        organism: str,
+        obs_filter: Filter | None = None,
+        *,
+        primary_only: bool = False,
+    ) -> int:
+        """Return the number of cells of `organism` that match `obs_filter`.
+
+        The SDK sums the cell counts in the catalog rows and opens no store. A
+        cell matches by the rule of `get_anndata`, and the catalog excludes the
+        same datasets. Thus, without `primary_only`, the count equals the `n_obs`
+        of the result of `get_anndata` when there is one. The count does not
+        apply the checks of design 4.3, because a count joins no matrices.
+
+        The filter takes the columns of `catalog.COUNTED` and `dataset_id`, and a
+        filter on another column raises ValueError. With `primary_only`, the count
+        includes only the cells whose `is_primary_data` is true. A catalog without
+        the `cell_counts` column raises ValueError.
+        """
+        normalized = _catalog.normalize(obs_filter)
+        uncounted = sorted(set(normalized) - {"dataset_id", *_catalog.COUNTED})
+        if uncounted:
+            raise ValueError(f"the catalog counts no {uncounted}; use get_anndata")
+        counts = self._cell_counts()
+        candidates = _catalog.exclude(self.catalog, organism, normalized)
+        rows = counts[
+            counts["dataset_version_id"].isin(candidates["dataset_version_id"])
+        ]
+        if primary_only:
+            rows = rows[rows["is_primary_data"].astype(bool)]
+        keep = np.ones(len(rows), dtype=bool)
+        for column, wanted in normalized.items():
+            if column == "dataset_id":
+                continue  # the catalog answered it
+            # Test each distinct value once; a null's code -1 indexes the last False.
+            codes, values = pd.factorize(rows[column])
+            by_value = [_hit(v, column, wanted) for v in values]
+            keep &= np.array(by_value + [False], dtype=bool)[codes]
+        return int(rows["n_cells"].to_numpy()[keep].sum())
+
+    def _cell_counts(self) -> pd.DataFrame:
+        """The cell count entries of all sources, from the catalog content."""
+        if self._counts is None:
+            frames = []
+            for source, content in zip(self.sources, self._contents, strict=True):
+                try:
+                    frames.append(_catalog.load_counts(content))
+                except ValueError as e:
+                    raise ValueError(f"{source}: {e}") from e
+            self._counts = pd.concat(frames, ignore_index=True)
+        return self._counts
 
 
 def open_census(sources: Sequence[PathLike]) -> Census:
