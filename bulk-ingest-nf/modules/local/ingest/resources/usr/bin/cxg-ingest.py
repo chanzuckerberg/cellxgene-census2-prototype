@@ -78,6 +78,30 @@ def ingest(
     )
 
 
+def obs_column_problem(
+    got: pd.Series, want: pd.Series, col_type: census2_dataset_writer.ColType
+) -> str | None:
+    """What is wrong with the store's obs column `got`, or None.
+
+    `want` holds the values that the column must hold. A categorical must have
+    the sorted distinct values of `want` as its string categories.
+    """
+    categorical = isinstance(got.dtype, pd.CategoricalDtype)
+    if col_type is census2_dataset_writer.ColType.CATEGORY:
+        categories = sorted(set(want.astype(str)))
+        if not categorical or list(got.cat.categories) != categories:
+            return "not a categorical of the sorted distinct values"
+    elif col_type is census2_dataset_writer.ColType.BOOL:
+        if got.dtype != bool:
+            return f"dtype {got.dtype}, not bool"
+    elif categorical:
+        return "categorical, not plain strings"
+    as_type = bool if col_type is census2_dataset_writer.ColType.BOOL else str
+    if not np.array_equal(want.astype(as_type), got.astype(as_type)):
+        return "values differ"
+    return None
+
+
 def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
@@ -86,9 +110,12 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
 
     `summary` is the summary record that the store must hold.
 
-    `written` is the result of `census2_dataset_writer.create`. The obs columns
-    are compared against the source minus exactly the `dropped_obs_columns`, so
-    a deliberate projection passes and an unreported drop still fails.
+    The store's obs must hold exactly the columns of `OBS_COLUMNS`, in order,
+    each of its type, and the source's index. `dataset_id` must hold the summary
+    record's value, and each other column the source's values, compared as
+    strings, or as bool for a bool column.
+
+    `written` is the result of `census2_dataset_writer.create`.
 
     The store's `var` is the gene reference, so it is not compared with the
     source `var`. The store's `X` must hold the source counts (`raw/X`, else
@@ -136,30 +163,23 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
             if stored != summary:
                 fail("summary", f"the store holds {stored}, expected {summary}")
 
-        dropped = set(written["dropped_obs_columns"])
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
-        # The writer adds dataset_id as the first column. Its value must be the
-        # summary record's dataset_id.
-        id_column = census2_dataset_writer.DATASET_ID_COLUMN
-        kept = [c for c in a.columns if c not in dropped]
-        expected = [id_column, *kept]
+        schema = census2_dataset_writer.OBS_COLUMNS
         if not a.index.equals(b.index):
             fail("obs", "index differs")
-        if list(b.columns) != expected:
-            fail(
-                "obs", f"columns differ: expected {len(expected)}, got {len(b.columns)}"
-            )
+        if list(b.columns) != [name for name, _ in schema]:
+            fail("obs", f"columns {list(b.columns)} are not the schema's")
         else:
-            if {str(v) for v in b[id_column].unique()} != {summary["dataset_id"]}:
-                fail(f"obs.{id_column}", f"does not hold only {summary['dataset_id']}")
-            for col in kept:
-                if str(a[col].dtype) != str(b[col].dtype):
-                    fail(f"obs.{col}", f"dtype {a[col].dtype} != {b[col].dtype}")
-                elif isinstance(a[col].dtype, pd.CategoricalDtype) and (
-                    list(a[col].cat.categories) != list(b[col].cat.categories)
-                ):
-                    fail(f"obs.{col}", "categories differ")
+            for name, col_type in schema:
+                # The writer adds dataset_id, with the summary record's value.
+                if name == census2_dataset_writer.DATASET_ID_COLUMN:
+                    want = pd.Series(summary["dataset_id"], index=b.index)
+                else:
+                    want = a[name]
+                problem = obs_column_problem(b[name], want, col_type)
+                if problem:
+                    fail(f"obs.{name}", problem)
 
         var = read_elem(zroot["var"])
         result["compared"].append("var")

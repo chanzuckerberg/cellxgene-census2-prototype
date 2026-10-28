@@ -56,7 +56,7 @@ first; `AWS_PROFILE` alone does not work.
 |---|---|---|
 | Admission — does the dataset belong in Census 2 | Minimal stub: the `assay_allowlist`, and an organism with a gene reference | `admit` |
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
-| Harmonization — what makes stores queryable together | Partly made: the `obs` columns that Zarr cannot name, the counts matrix, and the gene projection | `harmonize` |
+| Harmonization — what makes stores queryable together | Partly made: the `obs` schema, the counts matrix, and the gene projection | `harmonize` |
 
 A store holds the dataset's cells, with the counts on the organism's pinned gene reference:
 
@@ -81,6 +81,23 @@ caller records that and succeeds.
 Ingestion reads one dataset at a time and not the corpus. A harmonization step that needs a
 corpus-wide aggregate must be redesigned or eliminated. This constraint lets many Census releases
 reuse one store.
+
+## obs schema
+
+A store's `obs` holds a fixed set of columns in a fixed order: `dataset_id`, then the 19 columns
+that the CxG schema requires in every dataset and that Census 1 copies. `store_format.OBS_COLUMNS`
+lists them, each with its `ColType`.
+
+- Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
+  strings, and every other column is a categorical whose categories are the observed values,
+  sorted, as strings.
+- No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
+  not boolean, or has an `observation_joinid` that is not unique fails the build.
+- A store does not yet hold any other source column. The result names each one that it drops,
+  in `dropped_obs_columns`.
+- Census 1 also holds `tissue_general`, `tissue_general_ontology_term_id`, and five statistics of
+  the counts, which a store does not hold yet. It also holds `soma_joinid`, a corpus-wide number
+  that a store for one dataset cannot assign.
 
 ## Summary record
 

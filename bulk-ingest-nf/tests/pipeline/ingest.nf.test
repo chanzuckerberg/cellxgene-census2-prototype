@@ -30,8 +30,9 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
-                // A pass means nothing unless the check compared the matrices
-                // and the summary record.
+                // A pass means nothing unless the check compared the matrices,
+                // the obs schema and values, and the summary record.
+                assert rec.check.compared.contains("obs")
                 assert rec.check.compared.contains("X")
                 assert rec.check.compared.contains("var")
                 assert rec.check.compared.contains("summary")

@@ -54,8 +54,8 @@ a `dataset_id` column is an error, because that name belongs to the store.
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs three steps in order. `project_obs`
-   decides which `obs` columns a store carries, and removes only the columns
-   that Zarr cannot name. `select_counts` puts the counts in `X`: `raw.X`
+   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census
+   1 copies, each with a fixed type; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
    when the dataset has `raw`, else `X`. The store has no `raw`.
    `project_genes` projects the counts onto the pinned gene reference of the
    dataset's organism. Thus every store of one organism has the same `var`,
@@ -132,7 +132,7 @@ import contextlib
 import importlib.metadata
 import os
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, assert_never, cast
 
 import anndata
 import dask
@@ -149,9 +149,11 @@ from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
+from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
+from .store_format import ColType as ColType
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
 from .store_format import validate_summary as validate_summary
@@ -415,21 +417,23 @@ def project_obs(
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Project `obs` onto the columns a store carries.
+    """Project `obs` onto the columns of `OBS_COLUMNS`.
 
-    THIS IS A MINIMAL STUB. It removes the `obs` columns whose names hold a
-    `/`, and keeps every other column. It is not production-ready projection
-    logic. Zarr gives `/` its path meaning, so a column named that way fails
-    the write. Removing it is what lets the dataset be stored at all.
+    Census 1 projects `obs` onto a closed schema, with fixed types: the columns
+    that the CxG schema requires in every dataset, plus columns that it adds.
+    This step copies the CxG columns, every column of `OBS_COLUMNS` except
+    `dataset_id`, in schema order, and gives each one its type: a categorical with the sorted
+    observed values as string categories, NumPy `bool` for `is_primary_data`,
+    and plain strings for `observation_joinid`. The source index stays. Every
+    other source column goes: the result reports them in `dropped_obs_columns`.
 
-    Census 1 projects `obs` onto a closed schema: about 20 named CxG fields,
-    plus columns it computes. It carries no author-chosen column, because its
-    `obs` is one dataframe joined across every dataset and so must have one
-    column set. Census 2 writes one store per dataset and has no such
-    constraint, so what a store carries is open. Until that is decided, this
-    keeps every column that Zarr can hold.
+    It raises `ValueError` when the source lacks a schema column, when a column
+    holds a null, when `is_primary_data` is not boolean, or when
+    `observation_joinid` is not unique. The CxG schema requires each of these,
+    so the writer does not choose a repair.
 
-    `var` is not projected. The names seen with a `/` were all in `obs`.
+    It does not yet add Census 1's `tissue_general` pair or the statistics of
+    the counts. `build` adds `dataset_id` after harmonization.
 
     This step consumes `adata`, as `harmonize` states.
     """
@@ -437,10 +441,52 @@ def project_obs(
     # `read_lazy` produces. `build` always assembles obs with `read_elem`, so
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
-    dropped = [c for c in obs.columns if "/" in str(c)]
-    if dropped:
-        adata.obs = obs.drop(columns=dropped)
+    columns = [
+        (name, col_type) for name, col_type in OBS_COLUMNS if name != DATASET_ID_COLUMN
+    ]
+    missing = [name for name, _ in columns if name not in obs.columns]
+    if missing:
+        raise ValueError(f"the source obs lacks the schema columns {missing}")
+    adata.obs = pd.DataFrame(
+        {
+            name: _project_obs_column(obs[name], name, col_type)
+            for name, col_type in columns
+        },
+        index=obs.index,
+    )
     return adata
+
+
+def _project_obs_column(column: pd.Series, name: str, col_type: ColType) -> pd.Series:
+    """One `obs` column with the type that `OBS_COLUMNS` gives it."""
+    if bool(column.isna().any()):
+        raise ValueError(f"obs {name} holds a null")
+    if col_type is ColType.CATEGORY:
+        if isinstance(column.dtype, pd.CategoricalDtype):
+            # Work on the categories, not on one value per cell.
+            column = column.cat.remove_unused_categories()
+            names = column.cat.categories.astype(str)
+            if not names.is_unique:
+                raise ValueError(f"obs {name} has categories that are equal as strings")
+            column = column.cat.rename_categories(list(names))
+        else:
+            column = column.astype(str).astype("category")
+        categories = sorted(column.cat.categories)
+        return column.cat.reorder_categories(categories).cat.as_unordered()
+    if col_type is ColType.BOOL:
+        if column.dtype == bool:
+            return column
+        if str(column.dtype) == "boolean":
+            return column.astype(bool)
+        raise ValueError(f"obs {name} is {column.dtype}, not boolean")
+    if col_type is ColType.STRING:
+        values = pd.Series(
+            column.astype(str).to_numpy(dtype=object), index=column.index
+        )
+        if not values.is_unique:
+            raise ValueError(f"obs {name} is not unique")
+        return values
+    assert_never(col_type)
 
 
 def select_counts(
