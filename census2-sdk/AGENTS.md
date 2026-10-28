@@ -73,7 +73,16 @@ categories of its per-dataset store, and the result does not depend on where a d
 
 `get_anndata` opens each store once, then reads each selected dataset. Both steps use the thread
 pool of `max_workers`. A read does not wait for another task of the pool, so the two steps cannot
-deadlock it.
+deadlock it. Each read of a dataset also reads its `obs` columns at the same time, with up to
+`OBS_THREADS` threads of its own pool. Each column is a read of its own, and in a compacted store,
+whose columns are sharded, a column costs a round trip for the shard index and one for the data.
+Read one column after another, a member of a compacted store read 25 to 35% slower than its
+per-dataset store in region; read at the same time, the two were within 0.5 s.
+
+Opening a store parses its consolidated metadata, about 100 KB of JSON for a store of either kind.
+In region, opening 103 stores took 2.9 s with 8 workers and also with 32, and so did the laptop with
+32 workers. That is consistent with a cost in the client's CPU of about 28 ms for each store, which
+more threads do not divide. Fewer stores is the lever for that cost.
 
 zarr has no S3 client. A remote URI goes through `zarr.storage.ObjectStore` over `obstore`, as in
 the writer. `obstore` reads credentials from the environment and not from an AWS profile, so export

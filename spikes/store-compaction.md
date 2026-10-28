@@ -193,20 +193,150 @@ FINDINGS
 
 ## 8. Deviations from the design record
 
-DEVIATIONS
+1. **The tentpoles.** The repository tentpoles say one store per dataset, independent writes, and
+   one store per access boundary. A compacted store holds several datasets, and a compaction run
+   reads several stores. The operator's brief overrides the tentpoles on this branch, as a
+   secondary optimization. The per-dataset stores stay the primary copy, every per-dataset store
+   is still written alone, and the SDK keeps the uncompacted path, as the design record's section
+   on compaction and other materializations requires.
+2. **Small groups, not one store for each organism.** The design record's example of compaction is
+   a per-organism store for corpus-wide queries. The pilot compacts groups of small stores of at
+   most 1 GiB. Reason: one store for each organism is the colossal store that the brief rules out,
+   and it is outside the envelope in which AnnData-Zarr is proven. Groups of 1 GiB stay inside the
+   size distribution of the per-dataset stores, and keep enough stores for a client to read at the
+   same time.
+3. **An explicit address in the catalog.** The design record has the SDK compute a public store's
+   URI from `dataset_version_id` and `writer_version`, and keeps an explicit `store_uri` for private
+   stores only. A compacted store serves many datasets, so its address comes from its member set,
+   and the catalog row holds it explicitly (`compacted_store_uri`) with the row range. The
+   prototype catalog already holds `store_uri` for every row.
+4. **A compaction record beside the summary record.** The design record defines one summary record
+   for each store. A compacted store holds a compaction record instead, under the same namespace,
+   and no summary record. Reason: a reader that expects one dataset must refuse a store of many,
+   and a separate record does that with no change to the per-dataset record or its version.
+5. **The `obs` layout of the design record, in compacted stores only.** The design record gives
+   `obs` chunks of 8,192 rows in shards of 65,536 rows. The compacted store uses that layout; the
+   per-dataset writer does not yet. Reason: a partial read needs it, and a per-dataset store is read
+   whole today.
+6. **The compaction runs now.** The design record defers compaction. The spike builds it to measure
+   it; nothing here makes it a decision.
 
 ## 9. Relation to the obs Iceberg spike
 
-ICEBERG
+The other half of the super-spike (`spike/obs-iceberg`) writes a Parquet `obs` fragment beside each
+per-dataset store, with a store row ordinal, and queries a release-wide Iceberg table over the
+fragments for `(dataset_id, observation_joinid, ordinal)`. The SDK then opens only the stores with
+a hit and reads the rows of `X` by ordinal.
+
+The two compose without a rebuild of either:
+
+- A member of a compacted store holds the rows of its per-dataset store in order, so a row of the
+  compacted store is `compacted_row_start + ordinal`. The Iceberg table needs no change when a
+  dataset is compacted, and a catalog row tells the SDK where the ordinal points.
+- The Iceberg table answers the `obs` filter exactly, so it removes the catalog false positives and
+  the `obs` reads of the stores. What remains for the stores is the read of `X`. Compaction then
+  lowers the count of stores that a hit opens. The two optimizations cut different costs: Iceberg
+  cuts the `obs` bytes and the stores without a hit; compaction cuts the stores that each hold a
+  few hits.
+- The materialized consolidation that the brief defers would be one Parquet fragment for each
+  compacted store, with its members in the same row order. The fragment ordinal is then the
+  compacted row, and the table holds fewer, larger files. A compaction plan could write both in
+  one task.
+- Both need the same access rule: a fragment and a compacted store each have one grant.
 
 ## 10. Open questions
 
-OPEN
+- **Continuous ingestion: append or rebuild.** A compacted store is immutable and addressed by its
+  member set, so nothing appends to it. New small stores wait in their per-dataset form until
+  enough of them fill a group, and then a new compacted store holds them. That is a size-tiered,
+  LSM-like scheme of two levels: the per-dataset stores, then the compacted stores. A third level
+  (merging compacted stores into larger ones) is possible, but the store count falls slowly once
+  the large stores dominate it (section 2). A quarterly rollup is the same scheme with the
+  quarter as the group boundary.
+- **Re-curation of a member.** A re-curated dataset gets a new `dataset_version_id` and a new
+  per-dataset store. Its catalog row then names no compacted store, and the old compacted store
+  still serves its other members by row range; the old member's rows are never read. A later
+  compaction can rewrite a group when the share of rows no catalog row reads passes a threshold,
+  as an LSM tree drops dead entries. The builder of this spike refuses a member with no matching
+  per-dataset store; a production builder would instead keep the other members.
+- **Release manifests and retention.** A release manifest that pins a compacted store must pin it
+  as it pins a per-dataset store, with a digest, and retention must keep it while a supported
+  release names it. A compacted store is a second copy: at the pilot thresholds it adds about 8% of
+  the corpus bytes.
+- **Access domains.** A group must share one grant. A dataset whose grant changes (an embargo that
+  ends) joins a later group. Private data stays in per-dataset stores.
+- **The pull requests in flight.** PR #31 adds a per-dataset assayed-gene marker to `var`. A shared
+  `var` cannot hold a per-dataset annotation, and `compact` refuses members whose `var` differs, so
+  that marker must move: into the compaction record for each member, or into the per-release
+  presence matrix that the design record plans and that is not built yet. Its `obs` columns
+  (`tissue_general` and the five count statistics) compact as any other column. PR #30 drops cells
+  in the writer, so a member holds fewer cells; compaction does not see the difference.
+- **Medium stores.** Compacting stores of up to 512 MiB would leave 382 of the 1,081 human stores
+  instead of 506. Whether the opening cost of a store justifies that depends on the measures of
+  section 6 at corpus scale.
+- **The `X` layout of a compacted store.** The chunk of `X/data` (131,072 values) is a guess. A
+  smaller chunk lowers the over-read at member boundaries and for scattered rows; a larger one
+  lowers the requests.
 
 ## 11. Reproduce
 
-REPRODUCE
+The commands use placeholders for the bucket, the account, and the image.
+
+```bash
+# 1. Ingest the 103 datasets with bulk-ingest-nf on HealthOmics (see its README), to
+#    s3://my-bucket/census2/stores/, with --check.
+
+# 2. Build the per-dataset catalog and plan.
+python census2-sdk/tools/build_catalog.py s3://my-bucket/census2/stores/ catalog-pd.parquet
+compact-nf/tools/compaction-plan.py catalog-pd.parquet --small-mib 256 --target-mib 1024 \
+    --strategy size --sizes sizes.json --out plan-size.jsonl
+aws s3 cp plan-size.jsonl s3://my-bucket/census2/compacted/plan-size.jsonl
+
+# 3. Compact on HealthOmics. The image is the bulk-ingest-nf runtime image.
+compact-nf/tools/build-healthomics-bundle.sh compact-bundle.zip
+aws omics create-workflow --engine NEXTFLOW --main main.nf \
+    --definition-zip fileb://compact-bundle.zip \
+    --parameter-template file://compact-nf/tools/healthomics-parameters.json \
+    --storage-type DYNAMIC --name census2-compact
+aws omics start-run --workflow-id <id> --role-arn <run role> --storage-type DYNAMIC \
+    --output-uri s3://my-bucket/census2/compacted/omics-run-output \
+    --parameters '{"plan": "s3://my-bucket/census2/compacted/plan-size.jsonl",
+                   "outdir": "s3_//my-bucket/census2/compacted/size",
+                   "container": "<account>.dkr.ecr.<region>.amazonaws.com/<repo>:<tag>",
+                   "check": "true"}'
+
+# 4. Build the compacted catalog, with its checks.
+python census2-sdk/tools/build_catalog.py s3://my-bucket/census2/stores/ catalog-size.parquet \
+    --compacted s3://my-bucket/census2/compacted/size/
+
+# 5. Measure. queries.json is in the pull request description; main is a checkout of main.
+cd census2-sdk/tools
+python -m bench.fanout catalog-pd.parquet --queries queries.json --plan size=plan-size.jsonl
+PYTHONPATH=. <venv of main>/bin/python -m bench.matrix --catalog catalog-pd.parquet \
+    --queries queries.json --workers 1,8,32 --repeats 3 --config main --where ec2 --out runs.jsonl
+python -m bench.matrix --catalog catalog-size.parquet --queries queries.json --per-dataset \
+    --workers 1,8,32 --repeats 3 --config per_dataset --where ec2 --out runs.jsonl
+python -m bench.matrix --catalog catalog-size.parquet --queries queries.json \
+    --workers 1,8,32 --repeats 3 --config compacted --where ec2 --out runs.jsonl
+```
 
 ## 12. Sharp edges
 
-SHARP
+- pandas 3 infers the `str` type for strings, so a column of `observation_joinid` written from
+  a pandas Series is a `nullable-string-array` in the store (values and mask), not a
+  `string-array`. A partial reader must handle both, and build the same pandas type as
+  `read_elem`; `_column_rows` follows anndata's reader for it.
+- A frame built from a dict of Series aligns them on their index. A Series with a `RangeIndex`
+  in a frame with a cell-name index becomes all nulls, without an error.
+  `compaction.union_obs` builds from arrays for that reason, and `compact` refuses a null
+  `observation_joinid`.
+- anndata's row selection on a backed CSR matrix builds an integer array of every selected stored
+  value. For a single dataset of 152,509 cells, the `main` SDK peaked at about 5.9 GB on the
+  instance. Reading one slice when the rows follow one another avoids that array.
+- The equality check of all 65 compacted members at once needs two results of 1.5 million cells
+  in memory, which passed 64 GB on the instance; one compacted store at a time peaked at 15 GB.
+  A result of millions of cells costs memory in any layout.
+- A 1-D zarr array without explicit chunks gets one chunk for a small array. A partial read of it
+  reads the whole column. The compacted store sets its chunks.
+- Nextflow's launcher computes a cache key with `md5`, which on macOS is in `/sbin`. Without
+  `/sbin` on `PATH`, the launcher fails with `exec: Usage:: not found`.

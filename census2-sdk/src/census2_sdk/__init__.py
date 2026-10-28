@@ -425,6 +425,10 @@ def _read_rows(opened: _Opened, read: _Read, obs_filter: Normalized) -> anndata.
     return anndata.AnnData(X=matrix, obs=obs, var=opened.var)
 
 
+# The obs columns of one dataset that the SDK reads at the same time.
+OBS_THREADS = 8
+
+
 def _obs_rows(opened: _Opened, start: int, stop: int) -> pd.DataFrame:
     """Rows `start` to `stop` of a store's `obs`, read without the other rows.
 
@@ -437,8 +441,14 @@ def _obs_rows(opened: _Opened, start: int, stop: int) -> pd.DataFrame:
     group = opened.group["obs"]
     assert isinstance(group, zarr.Group), "obs must be an encoded dataframe"
     columns = [str(c) for c in cast("list[str]", group.attrs["column-order"])]
-    data = {name: _column_rows(opened, group, name, start, stop) for name in columns}
-    return pd.DataFrame(data, columns=columns)
+    # Each column is a read of its own, with a round trip or two, so read them at the
+    # same time. The pool waits on no other task, so it cannot deadlock the pool of
+    # `get_anndata`.
+    with ThreadPoolExecutor(max_workers=max(1, min(len(columns), OBS_THREADS))) as pool:
+        values = list(
+            pool.map(lambda c: _column_rows(opened, group, c, start, stop), columns)
+        )
+    return pd.DataFrame(dict(zip(columns, values, strict=True)), columns=columns)
 
 
 def _column_rows(
