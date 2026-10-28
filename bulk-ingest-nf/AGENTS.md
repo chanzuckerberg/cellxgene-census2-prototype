@@ -175,6 +175,11 @@ with a `coverage` failure. `not_compared` in the receipt lists the groups that t
 the check skipped. A new slot in the writer thus fails the check until the check compares it or
 `NOT_COMPARED` names it, and the tests assert `not_compared` rather than each entry of `compared`.
 
+The audit shows that the check compared each slot, not that the store format is right. The check
+takes the `obs` schema from `census2_dataset_writer.OBS_COLUMNS`, the same definition that the
+writer uses, and no test restates the list. Thus an error in `OBS_COLUMNS`, such as a missing
+column, passes the check. Review is what catches it.
+
 CI runs `--tag validation,ingest`, the union of the two tags. `ingest` is a second tag on the
 ingest suite so that CI takes those tests without the `s3_//` escape test, which writes to object
 storage and proves nothing against a mock. `nf-test list` takes `--tags` rather than `--tag`, and
