@@ -1,0 +1,20 @@
+# Nextflow
+work/
+.nextflow/
+.nextflow.log*
+# nf-test
+.nf-test/
+.nf-test.log
+nf-test
+# python
+__pycache__/
+# pipeline output
+out/
+reports/
+# scratch plans; tests/fixtures/empty.jsonl is tracked on purpose
+/*.jsonl
+healthomics-bundle.zip
+# the stores and the plan of the tests, from tools/seed-stores.py
+tests/stores/
+# receipts of a hand run of compact-group.py
+/*.json

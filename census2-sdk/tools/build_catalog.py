@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build the prototype catalog from the Iteration 1 stores: one Parquet row for each store.
+"""Build the prototype catalog from the Iteration 1 stores: one Parquet row for each dataset.
 
 The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 2 team
 publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for that
-builder. It reads a prefix that holds `<dataset_version_id>.zarr` stores. Each store's
-summary record, in the attributes of its root group, gives the dataset's identifiers and
-the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
-The builder reads no receipt.
+builder. It reads one or more prefixes that hold `<dataset_version_id>.zarr` stores.
+Each store's summary record, in the attributes of its root group, gives the dataset's
+identifiers and the gene reference version. The rest of the row comes from the store's
+`obs` and `uns`. The builder reads no receipt.
 
 Each row also holds the cell counts of its store, in the `cell_counts` column
 (tracker 5.9). The column has one entry for each combination of the `COUNTED` values
@@ -15,27 +15,53 @@ cells in the same pass that reads the values for the catalog row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
+`--compacted` names a prefix of compacted stores, each a second copy of several
+datasets (see `census2_dataset_writer.compaction`). The builder checks each compacted
+store against the per-dataset stores, and then writes the store and the rows of each
+member into the member's row (`COMPACTED`). A row keeps its per-dataset `store_uri`,
+which stays the primary copy. The builder refuses the catalog when a check fails.
+
+    python census2-sdk/tools/build_catalog.py s3://bucket/stores/ catalog.parquet \\
+        --compacted s3://bucket/compacted/
+
 A remote prefix needs the `s3` extra and credentials in the environment.
 """
 
+import argparse
 import pathlib
 import sys
-from typing import Any
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, cast
 
 import census2_dataset_writer
+import numpy as np
 import pandas as pd
 import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import zarr
 from anndata.io import read_elem
+from census2_dataset_writer import compaction
 
-from census2_sdk.catalog import COUNTED, COUNTS, INDEXED, is_remote, open_store
+from census2_sdk.catalog import (
+    COMPACTED,
+    COUNTED,
+    COUNTS,
+    INDEXED,
+    is_remote,
+    open_store,
+)
 from census2_sdk.gene_reference import TAXON_TO_ORGANISM
 
 # The declared type keeps a column that no store holds as a string in every catalog.
 COUNT_ENTRY = pa.struct(
     [pa.field(c, pa.string()) for c in COUNTED]
     + [pa.field("is_primary_data", pa.bool_()), pa.field("n_cells", pa.int64())]
+)
+# Declared for the same reason: a catalog without compacted stores has the columns,
+# with the same types, and every value null.
+COMPACTED_TYPES = dict(
+    zip(COMPACTED, (pa.string(), pa.int64(), pa.int64()), strict=True)
 )
 
 
@@ -76,38 +102,199 @@ def summary_record(
     return record
 
 
-def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
-    """One catalog row for each store under `prefix`.
+def _row(store_uri: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The catalog row of one per-dataset store, and the identity of its cells.
+
+    The identity is what a compacted store must match: the digest of the
+    `observation_joinid` values and the stored values of `X`.
+    """
+    name = store_uri.rsplit("/", 1)[1]
+    group = open_store(store_uri)
+    record = summary_record(group, name)
+    row, cells = summarize(group)
+    identity: dict[str, Any] = {"obs_digest": None, "nnz": None}
+    obs = group["obs"]
+    assert isinstance(obs, zarr.Group)
+    if "observation_joinid" in obs:
+        joinids = pd.Series(read_elem(obs["observation_joinid"])).astype(str)
+        identity["obs_digest"] = census2_dataset_writer.obs_digest(joinids)
+    x = group["X"]
+    if isinstance(x, zarr.Group) and "indptr" in x:
+        indptr = cast("zarr.Array[Any]", x["indptr"])
+        identity["nnz"] = int(np.asarray(indptr[-1:])[0])
+    return {
+        "dataset_id": record["dataset_id"],
+        "dataset_version_id": record["dataset_version_id"],
+        "store_uri": store_uri,
+        "gene_reference_version": record["gene_reference_version"],
+        **row,
+        COUNTS: cells.to_dict("records"),
+    }, identity
+
+
+def build(
+    prefixes: Sequence[str],
+    out: str | pathlib.Path | None = None,
+    *,
+    compacted: Sequence[str] = (),
+    workers: int = 8,
+) -> pd.DataFrame:
+    """One catalog row for each per-dataset store under `prefixes`.
 
     The store's summary record supplies `dataset_id`, `dataset_version_id`, and
     `gene_reference_version`. The store's `obs` and `uns` supply the rest, the
-    cell counts included.
+    cell counts included. The compacted stores under `compacted` supply the
+    `COMPACTED` columns; see `compacted_rows`. `workers` stores are read at the
+    same time.
     """
-    prefix = prefix.rstrip("/")
-    rows: list[dict[str, Any]] = []
-    for name in _stores(prefix):
-        store_uri = f"{prefix}/{name}"
-        group = open_store(store_uri)
-        record = summary_record(group, name)
-        row, cells = summarize(group)
-        rows.append(
-            {
-                "dataset_id": record["dataset_id"],
-                "dataset_version_id": record["dataset_version_id"],
-                "store_uri": store_uri,
-                "gene_reference_version": record["gene_reference_version"],
-                **row,
-                COUNTS: cells.to_dict("records"),
-            }
+    uris = [
+        f"{prefix.rstrip('/')}/{name}"
+        for prefix in prefixes
+        for name in _stores(prefix.rstrip("/"))
+    ]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(_row, uris))
+    frame = pd.DataFrame([row for row, _ in results])
+    if len(frame) and frame["dataset_version_id"].duplicated().any():
+        dupes = frame[frame["dataset_version_id"].duplicated(keep=False)]
+        raise ValueError(
+            f"a dataset version occurs twice: {sorted(dupes['store_uri'])}"
         )
-    frame = pd.DataFrame(rows)
+    identities = {
+        row["dataset_version_id"]: {**row, **identity} for row, identity in results
+    }
+    serving = compacted_rows(compacted, identities, workers=workers)
+    for column, kind in zip(COMPACTED, ("object", "Int64", "Int64"), strict=True):
+        values = [
+            serving.get(v, (None, None, None))
+            for v in frame.get("dataset_version_id", [])
+        ]
+        position = COMPACTED.index(column)
+        frame[column] = pd.Series([v[position] for v in values], dtype=kind)
     if out is not None:
         table = pa.Table.from_pandas(
-            frame.drop(columns=COUNTS, errors="ignore"), preserve_index=False
+            frame.drop(columns=[COUNTS, *COMPACTED], errors="ignore"),
+            preserve_index=False,
         )
+        for column, kind in COMPACTED_TYPES.items():
+            cells = frame[column].astype(object).where(frame[column].notna(), None)
+            table = table.append_column(column, pa.array(list(cells), type=kind))
         counts = pa.array(list(frame.get(COUNTS, [])), type=pa.list_(COUNT_ENTRY))
         pq.write_table(table.append_column(COUNTS, counts), str(out))
     return frame
+
+
+def compacted_rows(
+    prefixes: Sequence[str],
+    rows: dict[str, dict[str, Any]],
+    *,
+    workers: int = 8,
+) -> dict[str, tuple[str, int, int]]:
+    """The compacted store and the rows of each member, by dataset version.
+
+    `rows` holds the catalog row and the cell identity of each per-dataset store.
+    Each compacted store must agree with them; see `check_compacted`. A dataset
+    version may be in one compacted store only.
+    """
+    uris = [
+        f"{prefix.rstrip('/')}/{name}"
+        for prefix in prefixes
+        for name in _stores(prefix.rstrip("/"))
+    ]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        records = list(pool.map(lambda uri: check_compacted(uri, rows), uris))
+    serving: dict[str, tuple[str, int, int]] = {}
+    for uri, record in zip(uris, records, strict=True):
+        for member in record["members"]:
+            version = member["dataset_version_id"]
+            if version in serving:
+                raise ValueError(
+                    f"{version} is in two compacted stores: {serving[version][0]}, {uri}"
+                )
+            serving[version] = (uri, member["row_start"], member["row_stop"])
+    return serving
+
+
+def check_compacted(
+    uri: str, rows: dict[str, dict[str, Any]]
+) -> census2_dataset_writer.CompactionRecord:
+    """Check one compacted store against the per-dataset stores. Return its record.
+
+    Each member must match a per-dataset store: the same `dataset_id`, number of
+    cells, gene reference, `obs_digest`, and `nnz`. The members must compose: one
+    organism, one gene reference, and one spatial value. The compacted store must
+    hold what its record says: the member's `dataset_id` and `observation_joinid`
+    values in its rows, and its stored values of `X`. These checks read two `obs`
+    columns and some values of `X/indptr`, not the matrix.
+    """
+    name = uri.rsplit("/", 1)[1]
+    group = open_store(uri)
+    try:
+        record = compaction.read_compaction(group)
+    except census2_dataset_writer.SummaryRecordError as e:
+        raise ValueError(f"{name}: {e}") from e
+    if record is None:
+        raise ValueError(f"{name}: no compaction record")
+    members = record["members"]
+    matched = []
+    for member in members:
+        version = member["dataset_version_id"]
+        row = rows.get(version)
+        if row is None:
+            raise ValueError(f"{name}: member {version} has no per-dataset store")
+        n_obs = member["row_stop"] - member["row_start"]
+        expected = {
+            "dataset_id": row["dataset_id"],
+            "n_obs": row["n_obs"],
+            "gene_reference_version": row["gene_reference_version"],
+            "obs_digest": row["obs_digest"],
+            "nnz": row["nnz"],
+        }
+        found = {
+            "dataset_id": member["dataset_id"],
+            "n_obs": n_obs,
+            "gene_reference_version": record["gene_reference_version"],
+            "obs_digest": member["obs_digest"],
+            "nnz": member["nnz"],
+        }
+        differ = sorted(k for k in expected if expected[k] != found[k])
+        if differ:
+            raise ValueError(
+                f"{name}: member {version} differs from its per-dataset store in {differ}"
+            )
+        matched.append(row)
+    for field in ("organism", "gene_reference_version", "spatial"):
+        values = {str(r[field]) for r in matched}
+        if len(values) > 1:
+            raise ValueError(f"{name}: the members differ in {field}: {sorted(values)}")
+
+    # The compacted store holds what its record says.
+    x = group["X"]
+    obs = group["obs"]
+    assert isinstance(x, zarr.Group) and isinstance(obs, zarr.Group)
+    n_rows = int(cast("list[int]", x.attrs["shape"])[0])
+    if n_rows != members[-1]["row_stop"]:
+        raise ValueError(
+            f"{name}: {n_rows} rows; the record lists {members[-1]['row_stop']}"
+        )
+    dataset_ids = pd.Series(read_elem(obs["dataset_id"])).astype(str).to_numpy()
+    joinids = pd.Series(read_elem(obs["observation_joinid"])).astype(str)
+    bounds = [m["row_start"] for m in members] + [n_rows]
+    indptr = np.asarray(
+        cast("zarr.Array[Any]", x["indptr"]).get_orthogonal_selection(np.array(bounds))
+    )
+    for k, member in enumerate(members):
+        start, stop = member["row_start"], member["row_stop"]
+        if set(dataset_ids[start:stop]) != {member["dataset_id"]}:
+            raise ValueError(f"{name}: rows {start}:{stop} hold another dataset_id")
+        if (
+            census2_dataset_writer.obs_digest(joinids[start:stop])
+            != member["obs_digest"]
+        ):
+            raise ValueError(f"{name}: rows {start}:{stop} hold other cells")
+        if int(indptr[k + 1] - indptr[k]) != member["nnz"]:
+            raise ValueError(f"{name}: rows {start}:{stop} hold other values of X")
+    return record
 
 
 def summarize(group: zarr.Group) -> tuple[dict[str, Any], pd.DataFrame]:
@@ -196,11 +383,29 @@ def _categorical(values: pd.Series) -> pd.Categorical:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(__doc__, file=sys.stderr)
-        return 2
-    frame = build(argv[0], argv[1])
-    print(f"{len(frame)} rows -> {argv[1]}")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "paths", nargs="+", help="prefixes of per-dataset stores, then the catalog"
+    )
+    p.add_argument(
+        "--compacted",
+        action="append",
+        default=[],
+        help="a prefix of compacted stores; give it once for each prefix",
+    )
+    p.add_argument(
+        "--workers", type=int, default=8, help="stores read at the same time"
+    )
+    args = p.parse_args(argv)
+    if len(args.paths) < 2:
+        p.error("give one or more store prefixes, then the catalog")
+    *prefixes, out = args.paths
+    frame = build(prefixes, out, compacted=args.compacted, workers=args.workers)
+    served = int(frame[COMPACTED[0]].notna().sum())
+    stores = int(frame[COMPACTED[0]].nunique())
+    print(f"{len(frame)} rows -> {out}; {served} read from {stores} compacted stores")
     return 0
 
 

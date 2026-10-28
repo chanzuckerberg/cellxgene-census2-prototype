@@ -1,0 +1,69 @@
+nextflow_pipeline {
+
+    name "parameter validation"
+    script "../../main.nf"
+
+    test("fails clearly when no plan is given") {
+        tag "validation"
+
+        when {
+            params { plan = null }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("Missing --plan") }
+            assert workflow.stdout.any { it.contains("tools/compaction-plan.py") }
+        }
+    }
+
+    test("refuses a local outdir when the profile needs a remote one") {
+        tag "validation"
+
+        when {
+            params {
+                remote_outdir_required = true
+                outdir                 = "./out"
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("must be an s3:// URI") }
+        }
+    }
+
+    test("a boolean parameter given as the string \"false\" is false") {
+        // Every HealthOmics parameter arrives as a string, and a non-empty
+        // string is true in Groovy. The run must get past the guard and stop at
+        // the empty plan instead.
+        tag "validation"
+
+        when {
+            params {
+                remote_outdir_required = "false"
+                outdir                 = "./out"
+                plan                   = "$projectDir/tests/fixtures/empty.jsonl"
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("No groups in") }
+            assert !workflow.stdout.any { it.contains("must be an s3:// URI") }
+        }
+    }
+
+    test("the healthomics profile requires a container") {
+        tag "validation"
+
+        when {
+            params {
+                remote_outdir_required = false
+                container_required     = true
+                container              = null
+            }
+        }
+        then {
+            assert workflow.failed
+            assert workflow.stdout.any { it.contains("--container must be a private ECR image URI") }
+        }
+    }
+}

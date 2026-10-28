@@ -65,6 +65,10 @@ COUNTED = tuple(
     for p in ("assay", "cell_type", "disease", "sex", "tissue")
     for c in (p, f"{p}_ontology_term_id")
 )
+# The columns that name a compacted store that also holds the dataset, and the
+# dataset's rows there (start, then stop, exclusive). They are null when no
+# compacted store holds the dataset. `store_uri` stays the per-dataset store.
+COMPACTED = ("compacted_store_uri", "compacted_row_start", "compacted_row_stop")
 # Schema 2.4.0 made these two columns multi-valued. Equality is membership.
 MULTIVALUED = frozenset({"disease", "disease_ontology_term_id"})
 MULTIVALUE_SEP = " || "

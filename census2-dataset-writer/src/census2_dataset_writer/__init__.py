@@ -31,6 +31,8 @@ returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
 which ships no S3 client. `census2_dataset_writer.store_format` names what a
 store holds beyond AnnData-Zarr, for the writer and for a reader of a store.
+`census2_dataset_writer.compaction` writes a compacted store: a second copy of
+several per-dataset stores in one store.
 
 Decisions
 ---------
@@ -148,14 +150,20 @@ from . import assays, genes
 from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
+from .store_format import COMPACTION_KEY as COMPACTION_KEY
+from .store_format import COMPACTION_VERSION as COMPACTION_VERSION
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
 from .store_format import ColType as ColType
+from .store_format import CompactedMember as CompactedMember
+from .store_format import CompactionRecord as CompactionRecord
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import obs_digest as obs_digest
+from .store_format import validate_compaction as validate_compaction
 from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
@@ -851,3 +859,7 @@ def create(
         summary = summary_record(result)
         write(adata, dest, summary=summary, consolidate=consolidate, threads=threads)
     return result
+
+
+# Last, because the module imports the functions above from this package.
+from . import compaction as compaction  # a public module; callers name it

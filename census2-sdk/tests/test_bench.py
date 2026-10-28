@@ -108,13 +108,32 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.mark.parametrize("workers", [1, 2])
 def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> None:
     run.COUNTER.requests = run.COUNTER.nbytes = 0
-    record = run.run(str(stores / "catalog.parquet"), shape, workers, None)
+    obs_filter = {"cell_type": "T cell"} if shape == "filter" else None
+    record = run.run(
+        str(stores / "catalog.parquet"), shape, workers, None, obs_filter=obs_filter
+    )
     assert record["status"] == "ok"
     assert record["catalog_stores"] == 2
     expected = {"single": (1, 30), "open": (2, 0)}.get(shape, (2, 50))
     assert (record["stores_opened"], record["cells"]) == expected
     assert record["requests"] > 0
     assert record["mb_payload"] > 0
+
+
+def test_serving_uris_open_a_compacted_store_once() -> None:
+    rows = pd.DataFrame(
+        {
+            "store_uri": ["a.zarr", "b.zarr", "c.zarr"],
+            "compacted_store_uri": ["ab.zarr", "ab.zarr", None],
+        }
+    )
+    assert run.serving_uris(rows) == ["ab.zarr", "c.zarr"]
+    assert run.serving_uris(rows, per_dataset=True) == ["a.zarr", "b.zarr", "c.zarr"]
+    assert run.serving_uris(rows.drop(columns="compacted_store_uri")) == [
+        "a.zarr",
+        "b.zarr",
+        "c.zarr",
+    ]
 
 
 def test_memory_limit_stops_the_run(
