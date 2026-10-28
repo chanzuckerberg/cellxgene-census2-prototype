@@ -146,7 +146,8 @@ The run time includes the start of the HealthOmics run and its tasks, about 5 mi
 passed. A compacted store is 2 to 3% smaller than its members together. The ingestion of the 103
 datasets, with its check, took 42.9 minutes and 394 task-minutes, so compaction of the small stores
 costs about 5% of the task time of ingestion. The peak memory followed the member count more than
-the cells: each member read its own copy of the 78,894-row `var`.
+the cells: each member read its own copy of the 78,894-row `var`. `compact` now keeps one copy after
+the check of the members; that change is not yet measured.
 
 The catalog builder took 46 seconds for the 103 per-dataset stores on the in-region instance, with
 16 workers, and 48 seconds with the 5 compacted stores. The compacted checks read two `obs`
@@ -164,8 +165,9 @@ result of the per-dataset path by construction as well as by test. The path:
 3. Open each store once, up to `max_workers` at the same time. The open reads the consolidated
    metadata, the `var` index, and the categories of each categorical `obs` column.
 4. Read each dataset, up to `max_workers` at the same time: the member's rows of each `obs`
-   column, then the `indptr` from the first to the last selected row, then the `data` and
-   `indices` of the selected rows. The datasets of one compacted store read at the same time.
+   column, up to 8 columns at the same time, then the `indptr` from the first to the last selected
+   row, then the `data` and `indices` of the selected rows. The datasets of one compacted store
+   read at the same time.
 5. Concatenate in catalog order, as before.
 
 `anndata.io.sparse_dataset` reads the whole `indptr`, which in a compacted store holds every
@@ -185,11 +187,143 @@ equals its per-dataset read, and so do the single, cell type, and compound queri
 
 ## 6. Measures
 
-MEASURES
+The rig is `census2-sdk/tools/bench`: each run is a new process, and the record holds the elapsed
+time of the query, the requests and the payload at the zarr store interface, and the peak RSS.
+The numbers are medians of 3 runs. The machines are an in-region EC2 instance (us-west-2,
+m6in.4xlarge, 16 vCPU, 64 GiB) and a remote laptop (Apple silicon, about 6 to 8 MB/s from the
+bucket on the day, and with a large spread between runs). The configurations:
+
+- `main`: the SDK of `main`, over the per-dataset catalog.
+- `per-dataset`: this branch, with `open_census(..., compacted=False)`.
+- `compacted`: this branch, over the catalog of the `size` plan (43 stores).
+
+The queries, chosen from the catalog of the sample:
+
+| query | filter | datasets kept | with a matching cell | cells |
+|---|---|---|---|---|
+| one dataset, compacted member | `dataset_id` of a 152,509-cell member (255 MiB store) | 1 | 1 | 152,509 |
+| one dataset, not compacted | `dataset_id` of a 59,738-cell dataset (313 MiB store) | 1 | 1 | 59,738 |
+| cell type | `cell_type` neutrophil, the cell type nearest to 15% of datasets | 14 | 14 | 35,795 |
+| compound | `tissue` blood and `cell_type` in three dendritic cell types | 14 | 14 | 29,930 |
+| catalog false positive | `assay` 10x 3' v3 and `tissue` mesenteric lymph node | 6 | 0 | 0 |
+| `obs` of every store | the bench's `corpus_obs` | 103 | | 13.3 M |
+| open every store | the bench's `open` | 103 | | |
+
+The compound query has no `is_primary_data` term: the SDK of `main` does not yet take that column
+in a filter. The lung macrophage query of the brief selects 311,063 cells in 5 large stores; it
+needed more than 30 GB on the instance in each path, so the compound query takes a rarer cell type.
+
+**In region, 8 workers.** Seconds and peak RSS for `main` / `per-dataset` / `compacted`.
+
+| query | stores | seconds | requests (per-dataset / compacted) | MB read | peak RSS GB |
+|---|---|---|---|---|---|
+| one dataset, compacted member | 1 → 1 | 7.9 / 3.1 / 4.1 | 133 / 170 | 252 | 5.7 / 2.4 / 2.4 |
+| one dataset, not compacted | 1 → 1 | 8.6 / 3.4 / 3.8 | 154 / 154 | 313 | 6.7 / 3.0 / 2.9 |
+| cell type | 14 → 8 | 12.6 / 8.9 / 9.1 | 2,791 / 3,073 | 866 | 1.9 / 1.9 / 1.8 |
+| compound | 14 → 11 | 16.2 / 13.3 / 13.6 | 3,825 / 4,023 | 1,808 | 3.2 / 3.1 / 3.3 |
+| catalog false positive | 6 → 6 | 3.9 / 2.4 / 2.9 | 270 / 324 | 24 | 1.0 / 1.1 / 1.0 |
+| `obs` of every store | 103 → 43 | 25.0 / 25.5 / 18.4 | 4,800 / 2,769 | 204 | 1.5 / 1.4 / 1.6 |
+| open every store | 103 → 43 | 2.9 / 3.1 / 1.2 | 412 / 172 | 4 | 0.2 / 0.2 / 0.2 |
+
+**In region, by workers.** Seconds, `per-dataset` → `compacted`.
+
+| query | 1 | 8 | 32 |
+|---|---|---|---|
+| one dataset, compacted member | 3.2 → 4.0 | 3.1 → 4.1 | 3.1 → 4.0 |
+| cell type | 24.2 → 26.4 | 8.9 → 9.1 | 7.7 → 8.7 |
+| catalog false positive | 6.0 → 6.8 | 2.4 → 2.9 | 2.4 → 2.9 |
+| `obs` of every store | 122.6 → 65.2 | 25.5 → 18.4 | 20.6 → 15.6 |
+| open every store | 7.4 → 3.2 | 3.1 → 1.2 | 3.1 → 1.3 |
+
+**Laptop.** Seconds for `main` / `per-dataset` / `compacted`. The laptop ran a subset, to keep each
+hold of the shared machine short, and its runs spread widely: the three runs of one cell differ by
+up to 3 times.
+
+| query | workers | stores | seconds | requests (per-dataset / compacted) |
+|---|---|---|---|---|
+| one dataset, compacted member | 8 | 1 → 1 | 62.0 / 32.8 / 46.5 | 133 / 170 |
+| catalog false positive | 8 | 6 → 6 | 37.3 / 8.1 / 14.3 | 270 / 324 |
+| cell type (before the parallel `obs` read) | 8 | 14 → 8 | 150.8 / 151.1 / 132.8 | 2,791 / 3,073 |
+| `obs` of every store | 8 | 103 → 43 | 96.8 / 91.8 / 60.1 | 4,800 / 2,769 |
+| `obs` of every store | 32 | 103 → 43 | 36.9 / 44.5 / 37.4 | 4,800 / 2,769 |
+| open every store | 1 | 103 → 43 | 73.7 / 71.8 / 31.0 | 412 / 172 |
+| open every store | 8 | 103 → 43 | 10.0 / 8.7 / 4.9 | 412 / 172 |
+| open every store | 32 | 103 → 43 | 3.0 / 3.3 / 2.3 | 412 / 172 |
+
+`open` and `obs` of every store do not call `get_anndata`, so the later change to the SDK's `obs`
+read does not reach them. The cell type row ran before that change, in all three configurations.
+The compound and single-dataset-alone queries ran in region only.
+
+**Corpus scale, planned only.** `bench.fanout` over the catalog of the 1,084 human LTS stores and
+the two plans: datasets kept, then stores opened per-dataset → `size` → `tissue`. No compacted store
+of the LTS was written, and nothing here was timed.
+
+| query | datasets kept | with a matching cell | stores |
+|---|---|---|---|
+| `cell_type` vascular associated smooth muscle cell (15%) | 160 | 160 | 160 → 135 → 128 |
+| `cell_type` neutrophil | 133 | 133 | 133 → 94 → 89 |
+| `tissue` lung | 73 | 73 | 73 → 59 → 48 |
+| lung macrophages (compound) | 34 | 34 | 34 → 34 → 31 |
+| 10x 3' v3 in mesenteric lymph node | 27 | 3 | 27 → 26 → 26 |
+| female in thalamic complex | 30 | 0 | 30 → 29 → 28 |
+| every store | 1,084 | | 1,084 → 509 → 515 |
+
+An extrapolation, not a measure: opening a store cost about 28 ms of client time at 8 or more
+workers in region, for either kind of store. At that rate, opening all 1,084 human stores takes
+about 30 s and opening 509 about 14 s.
+
+The compaction of the sample's small stores itself is in section 4.
 
 ## 7. Findings
 
-FINDINGS
+1. **Compaction pays where a query opens many stores, and little where it reads many bytes.**
+   In region, opening every store took 2.6 times less time (3.1 s → 1.2 s at 8 workers), and
+   reading every store's `obs` 1.4 times less (25.5 s → 18.4 s). On the laptop the same shapes
+   took 1.8 and 1.5 times less at 8 workers. The selective queries read 0.9 to 1.8 GB of `X` for
+   30,000 to 36,000 cells, because a CSR row selection touches most chunks of a dataset whose
+   matching cells are spread out. The bytes then dominate, and the cell type query opened 8 stores
+   in place of 14 with no gain (8.9 s → 9.1 s).
+2. **The open cost is a CPU floor, not a latency.** Opening 103 stores took 2.9 s to 3.1 s in region
+   with 8 workers and with 32, and 3.0 s from the laptop with 32 workers. Each open parses about
+   100 KB of consolidated metadata, the same for a compacted store and a per-dataset store. More
+   threads do not divide that cost; fewer stores do. At low concurrency the latency also counts:
+   one worker opened the 103 stores in 72 s from the laptop and 7.4 s in region, against 31 s and
+   3.2 s for the 43 stores.
+3. **The gain is largest at low concurrency.** For `obs` of every store in region, compaction
+   took 1.9 times less time with 1 worker (122.6 s → 65.2 s), 1.4 times less with 8, and 1.3
+   times less with 32. A client with few threads, or with a high latency to the bucket, gains the
+   most; 8 workers already hide much of the cost of many stores.
+4. **A member of a compacted store reads somewhat slower than its per-dataset store.** One dataset
+   from a compacted store took 4.0 s against 3.1 s in region, with 170 requests against 133. A
+   member's rows start and stop inside shards, so each column and each array of `X` most likely
+   pays a read of a shard index that a whole-store read does not. Read one column after another,
+   the gap was larger (4.6 s against 3.6 s). The SDK now reads the `obs` columns of a dataset at
+   the same time, which also made the per-dataset read faster. The catalog false positive, which reads `obs` only, shows the same cost: 2.4 s → 2.9 s.
+   On the laptop, where each round trip costs more, the member read took 46.5 s against 32.8 s,
+   and the false positive 14.3 s against 8.1 s. A layout with fewer partial shards for a
+   member, such as shard boundaries at member boundaries where the members are large, is not
+   yet tried.
+5. **The datasets that a selective query keeps are often large.** At corpus scale, compaction
+   removes 53% of the stores, but the selective queries open 0 to 30% fewer stores with `size`
+   packing, and the catalog false-positive queries open almost the same stores (27 → 26, 30 → 29). Large atlases hold many
+   cell types and tissues, and they stay alone.
+6. **Grouping by similarity keeps exclusion effective.** The `tissue` packing opens fewer stores for
+   a tissue query (lung, 59 → 48 at corpus scale; blood dendritic cells, 11 → 8 in the sample) for
+   about 1% more stores in total. The two packings are equal in cost to run.
+7. **Memory does not rise much.** Compacted reads peaked within 15% of per-dataset reads, also
+   for `obs` of every store, where each read of a compacted store holds the `obs` of all its members. The
+   largest change of memory is in the reader: one dataset of 152,509 cells peaked at 5.7 GB in the
+   SDK of `main` and at 2.4 GB on this branch, because anndata's row selection builds an integer
+   array of every selected stored value, and the branch reads one slice.
+8. **Compaction is cheap to run and to check.** 5 groups of about 1 GiB took 2 minutes each to
+   write and 1.5 minutes to check, on 2 vCPU with less than 1.4 GiB of memory: about 5% of the task
+   time of ingestion. The catalog builder's checks added 2 seconds to a 46-second build.
+9. **The equality holds on real data.** Every one of the 65 and 64 members, read whole through the
+   SDK, equals its per-dataset read in `obs` (types and categories), `var`, and `X`, and so do the
+   single, cell type, and compound queries.
+10. **The sample is small for this question.** 103 stores are well below the thousands of the
+    concern. The corpus-scale store counts come from the LTS catalog and are planned, not written;
+    the open times at corpus scale are extrapolated from the measured cost of one open.
 
 ## 8. Deviations from the design record
 
