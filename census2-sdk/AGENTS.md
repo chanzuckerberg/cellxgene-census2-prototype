@@ -76,8 +76,10 @@ pool of `max_workers`. A read does not wait for another task of the pool, so the
 deadlock it. Each read of a dataset also reads its `obs` columns at the same time, with up to
 `OBS_THREADS` threads of its own pool. Each column is a read of its own, and in a compacted store,
 whose columns are sharded, a column costs a round trip for the shard index and one for the data.
-Read one column after another, a member of a compacted store read 25 to 35% slower than its
-per-dataset store in region; read at the same time, the two were within 0.5 s.
+Read one column after another, a member of 152,509 cells read in 4.6 s from a compacted store and
+in 3.6 s from its per-dataset store, in region. Read at the same time, the two took 3.7 to 4.1 s
+and 3.1 s in two runs of the matrix. On the laptop the member read is still about 1.4 times slower
+from a compacted store, because each round trip costs more there.
 
 Opening a store parses its consolidated metadata, about 100 KB of JSON for a store of either kind.
 In region, opening 103 stores took 2.9 s with 8 workers and also with 32, and so did the laptop with

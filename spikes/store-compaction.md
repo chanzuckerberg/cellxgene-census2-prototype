@@ -283,10 +283,11 @@ The compaction of the sample's small stores itself is in section 4.
    30,000 to 36,000 cells, because a CSR row selection touches most chunks of a dataset whose
    matching cells are spread out. The bytes then dominate, and the cell type query opened 8 stores
    in place of 14 with no gain (8.9 s → 9.1 s).
-2. **The open cost is a CPU floor, not a latency.** Opening 103 stores took 2.9 s to 3.1 s in region
-   with 8 workers and with 32, and 3.0 s from the laptop with 32 workers. Each open parses about
-   100 KB of consolidated metadata, the same for a compacted store and a per-dataset store. More
-   threads do not divide that cost; fewer stores do. At low concurrency the latency also counts:
+2. **The open cost looks like a floor of client CPU.** Opening 103 stores took 2.9 s to 3.1 s in
+   region with 8 workers and with 32, and 3.0 s from the laptop with 32 workers. Each open parses
+   about 100 KB of consolidated metadata, the same for a compacted store and a per-dataset store.
+   That is consistent with about 28 ms of client CPU for each store, which more threads do not
+   divide; fewer stores do. A profile would confirm it. At low concurrency the latency also counts:
    one worker opened the 103 stores in 72 s from the laptop and 7.4 s in region, against 31 s and
    3.2 s for the 43 stores.
 3. **The gain is largest at low concurrency.** For `obs` of every store in region, compaction
@@ -298,21 +299,21 @@ The compaction of the sample's small stores itself is in section 4.
    member's rows start and stop inside shards, so each column and each array of `X` most likely
    pays a read of a shard index that a whole-store read does not. Read one column after another,
    the gap was larger (4.6 s against 3.6 s). The SDK now reads the `obs` columns of a dataset at
-   the same time, which also made the per-dataset read faster. The catalog false positive, which reads `obs` only, shows the same cost: 2.4 s → 2.9 s.
-   On the laptop, where each round trip costs more, the member read took 46.5 s against 32.8 s,
-   and the false positive 14.3 s against 8.1 s. A layout with fewer partial shards for a
-   member, such as shard boundaries at member boundaries where the members are large, is not
-   yet tried.
+   the same time, which also made the per-dataset read faster. The catalog false positive, which
+   reads `obs` only, shows the same cost: 2.4 s → 2.9 s. On the laptop, where each round trip
+   costs more, the member read took 46.5 s against 32.8 s, and the false positive 14.3 s against
+   8.1 s. A layout with fewer partial shards for a member, such as shard boundaries at member
+   boundaries where the members are large, is not yet tried.
 5. **The datasets that a selective query keeps are often large.** At corpus scale, compaction
    removes 53% of the stores, but the selective queries open 0 to 30% fewer stores with `size`
-   packing, and the catalog false-positive queries open almost the same stores (27 → 26, 30 → 29). Large atlases hold many
-   cell types and tissues, and they stay alone.
+   packing, and the catalog false-positive queries open almost the same stores (27 → 26 and
+   30 → 29). Large atlases hold many cell types and tissues, and they stay alone.
 6. **Grouping by similarity keeps exclusion effective.** The `tissue` packing opens fewer stores for
    a tissue query (lung, 59 → 48 at corpus scale; blood dendritic cells, 11 → 8 in the sample) for
    about 1% more stores in total. The two packings are equal in cost to run.
 7. **Memory does not rise much.** Compacted reads peaked within 15% of per-dataset reads, also
-   for `obs` of every store, where each read of a compacted store holds the `obs` of all its members. The
-   largest change of memory is in the reader: one dataset of 152,509 cells peaked at 5.7 GB in the
+   for `obs` of every store, where each read of a compacted store holds the `obs` of all its
+   members. The largest change of memory is in the reader: one dataset of 152,509 cells peaked at 5.7 GB in the
    SDK of `main` and at 2.4 GB on this branch, because anndata's row selection builds an integer
    array of every selected stored value, and the branch reads one slice.
 8. **Compaction is cheap to run and to check.** 5 groups of about 1 GiB took 2 minutes each to
