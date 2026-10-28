@@ -38,6 +38,7 @@ import pathlib
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import census2_dataset_writer
@@ -104,10 +105,13 @@ def fragments(catalog: pd.DataFrame, organism: str) -> pd.DataFrame:
     return rows
 
 
-def check_fragments(rows: pd.DataFrame, verify_digest: bool) -> None:
-    """Each fragment exists with the size, and optionally the digest, of its record."""
-    row: Any
-    for row in rows.itertuples():
+def check_fragments(rows: pd.DataFrame, verify_digest: bool, workers: int = 32) -> None:
+    """Each fragment exists with the size, and optionally the digest, of its record.
+
+    The checks run in a thread pool, because each one is a request to object storage.
+    """
+
+    def check(row: Any) -> None:
         fs, path = filesystem(str(row.fragment_uri).removeprefix("file://"))
         info = fs.get_file_info(path)
         if info.type != pafs.FileType.File or info.size != int(row.obs_fragment_bytes):
@@ -120,6 +124,9 @@ def check_fragments(rows: pd.DataFrame, verify_digest: bool) -> None:
                 digest = hashlib.sha256(fh.read()).hexdigest()
             if digest != row.obs_fragment_sha256:
                 raise ValueError(f"{row.fragment_uri}: digest differs from its record")
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(check, rows.itertuples()))
 
 
 def open_catalog(tmp: str, location: str) -> Catalog:
