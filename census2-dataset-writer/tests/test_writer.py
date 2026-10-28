@@ -984,6 +984,21 @@ def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> No
     assert dask.config.get("num_workers", None) == before
 
 
+def test_a_failed_call_restores_the_thread_setting(tmp_path: Path) -> None:
+    """The bound applies when its block starts, so a call that fails before the
+    block leaves the setting as it was."""
+    import dask
+
+    before = dask.config.get("num_workers", None)
+    with pytest.raises(FileNotFoundError):
+        create(tmp_path / "missing.h5ad", tmp_path / "store.zarr", threads=2)
+    with pytest.raises(census2_dataset_writer.SummaryRecordError):
+        census2_dataset_writer.write(
+            dataset(), tmp_path / "store.zarr", summary=cast(Any, {}), threads=2
+        )
+    assert dask.config.get("num_workers", None) == before
+
+
 # --- the memory contract --------------------------------------------------
 
 

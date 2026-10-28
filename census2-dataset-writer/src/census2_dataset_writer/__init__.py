@@ -905,6 +905,17 @@ def as_store(dest: StoreLike) -> StoreLike:
     return dest
 
 
+def _thread_limit(threads: int | None) -> contextlib.AbstractContextManager[Any]:
+    """Bound the dask threads to `threads`, or leave the default when None.
+
+    `dask.config.set` changes the setting when it is called, not when its block
+    starts, so call this in the `with` statement that it bounds.
+    """
+    if threads:
+        return dask.config.set(num_workers=threads)
+    return contextlib.nullcontext()
+
+
 def write(
     adata: anndata.AnnData,
     dest: StoreLike,
@@ -933,9 +944,6 @@ def write(
     no quota, so the default over-counts: a HealthOmics task allocated 2 vCPU
     was measured using 4.67.
     """
-    limit = (
-        dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
-    )
     # Refuse a malformed record before anything is written, so that a caller with
     # no type checker cannot leave a store with one.
     validate_summary(summary)
@@ -949,7 +957,7 @@ def write(
             f"{summary['dataset_id']}; `build` adds that column"
         )
     store = as_store(dest)
-    with limit:
+    with _thread_limit(threads):
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
     root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
@@ -1038,11 +1046,8 @@ def create(
     the expression matrix is read lazily. `threads` bounds the write, and the
     read of `X` in `add_obs_stats`; see `write`.
     """
-    limit = (
-        dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
-    )
     with _opened(source) as f:
-        with limit:
+        with _thread_limit(threads):
             adata, result = build(
                 f,
                 dataset_id=dataset_id,

@@ -95,12 +95,13 @@ reuse one store.
 ## obs schema
 
 A store's `obs` holds a fixed set of columns in a fixed order. These are `dataset_id`, the 19 CxG
-columns that Census 1 copies, and the `tissue_general` pair. `store_format.OBS_COLUMNS` lists them,
-each with its `ColType`.
+columns that Census 1 copies, the `tissue_general` pair, and five statistics of the counts.
+`store_format.OBS_COLUMNS` lists them, each with its `ColType`.
 
-- Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
-  strings, and every other column is a categorical whose categories are the observed values,
-  sorted, as strings.
+- Each column has a fixed type. `is_primary_data` is `bool`, and `observation_joinid` is plain
+  strings. `nnz` and `n_measured_vars` are `int64`, and `raw_sum`, `raw_mean_nnz`, and
+  `raw_variance_nnz` are `float64`. Every other column is a categorical whose categories are the
+  observed values, sorted, as strings.
 - No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
   not boolean, or has an `observation_joinid` that is not unique fails the build.
 - A store does not yet hold any other source column. The result names each one that it drops,
