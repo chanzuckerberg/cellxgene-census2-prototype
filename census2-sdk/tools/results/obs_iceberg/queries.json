@@ -1,0 +1,31 @@
+{
+ "compound": {
+  "tissue": [
+   "epithelial cell of lung",
+   "lower lobe of left lung",
+   "lung",
+   "lung epithelium",
+   "middle lobe of right lung",
+   "upper lobe of left lung"
+  ],
+  "cell_type": [
+   "TREM2-positive macrophage",
+   "alveolar macrophage",
+   "central nervous system macrophage",
+   "gastrointestinal tract (lamina propria) macrophage",
+   "inflammatory macrophage",
+   "kidney resident macrophage",
+   "lung interstitial macrophage",
+   "lung macrophage",
+   "macrophage"
+  ],
+  "is_primary_data": true
+ },
+ "false_positive": {
+  "tissue": "mesenteric lymph node",
+  "cell_type": "megakaryocyte"
+ },
+ "cell_type": {
+  "cell_type": "neutrophil"
+ }
+}

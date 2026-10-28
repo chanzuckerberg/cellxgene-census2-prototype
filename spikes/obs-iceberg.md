@@ -100,10 +100,12 @@ adata = census.get_anndata(
    For a mapping filter this gives exactly the rows of `catalog.exclude` (tested).
 3. `expressions.with_members` rewrites the membership terms of the multi-valued `disease`
    columns into `IN` / `NOT IN` over the joined values that the remaining catalog rows record.
-4. One `table.scan` with `expression AND dataset_id IN (remaining)`. Iceberg prunes the
-   manifest entries by partition, then by column bounds; pyarrow prunes row groups by their
-   statistics and filters rows. The SDK plans once and gives the tasks to pyiceberg's
-   `ArrowScan`; pyiceberg reads the files in its thread pool.
+4. One `table.scan` of the expression. Iceberg prunes the manifest entries by the column
+   bounds, and the SDK then keeps the files of the remaining datasets by their partition value;
+   pyarrow prunes row groups by their statistics and filters rows. The SDK plans once and gives
+   the tasks to pyiceberg's `ArrowScan`, which reads the files in its thread pool. (A
+   `dataset_id IN (remaining)` term in the scan gives the same files, but pyiceberg plans it in
+   time that grows with files times values; section 3.2.)
 5. The SDK groups the rows by dataset. A thread pool (`max_workers`) opens each store with a
    selected cell, checks its `X` shape against the catalog's `n_obs` and its `var`, and reads the
    selected `X` values by their ranges: one zarr selection of the value positions, which zarr
@@ -116,11 +118,188 @@ for example `donor_id`, which the catalog's `cell_counts` does not count.
 
 ## 3. Measures
 
-MEASURES
+**Setup.** 103 human datasets: the 100-dataset prototyping manifest and the 3 harness datasets,
+ingested fresh with this branch's writer on AWS HealthOmics (103 admitted, 103 round-trip checks
+passed). 13,326,922 cells; 55.3 GiB of stores; 187.5 MiB of fragments. In-region: one EC2
+m6in.4xlarge in us-west-2 (16 vCPU, 64 GiB), the stores and the table in an S3 bucket of the same
+region. Laptop: an Apple-silicon laptop on a home connection to us-west-2, which read at about 5
+to 10 MB/s during the runs. `bench.run` runs each query in a new process; the values are medians
+of 3 runs. "Stores" is the store path of `main` (`get_anndata` through the stores), and "table" is
+this branch's path. `requests` and `MB` count the reads at the zarr store interface (stores: `obs`,
+`X`, `var`; table: `X` and `var` only). The table's own reads go through pyarrow and are not in
+those counts; `scan MB` is the compressed size of the columns that the scan reads, from the
+column sizes in the manifests, an upper bound.
+
+**The queries.** (a) one dataset, `dataset_id` of the first catalog row (3,799 cells). (b)
+`cell_type = neutrophil`, the cell type whose share of the datasets is nearest 15 percent. (c)
+"macrophages in lung": `tissue` in 6 lung terms, `cell_type` in 9 macrophage terms, and
+`is_primary_data`. (d) catalog false positives: (d1) `tissue = mesenteric lymph node AND
+cell_type = megakaryocyte`, which 4 datasets pass and none holds; (d2) `tissue = liver AND
+cell_type = mesothelial cell`, which 4 pass and 2 hold. (e) all `obs` of the corpus. Two counts:
+cells by `donor_id` for (b), and for all cells; the catalog's `cell_counts` does not count
+`donor_id`.
+
+### 3.1 In-region, 103 datasets
+
+Seconds at 1 / 8 / 32 workers. Stores opened, requests, and MB: store path / table path. The
+table path is the branch's final code; the store path ran on the same instance in the same
+session (`tools/results/obs_iceberg/ec2-103.jsonl`, `ec2-103-v2.jsonl`, `ec2-103-v3.jsonl`).
+
+| Query | Cells | Stores opened | Stores path | Table path | Requests | MB (zarr) | Scan MB |
+|---|---|---|---|---|---|---|---|
+| (a) one dataset | 3,799 | 1 / 1 | 2.50 / 2.34 / 2.29 | 1.48 / 1.26 / 1.20 | 69 / 26 | 16.7 / 16.6 | 0.06 |
+| (b) neutrophil | 35,795 | 14 / 14 | 44.0 / 13.6 / 11.0 | 10.0 / 6.2 / 6.1 | 2,893 / 1,361 | 873 / 824 | 42 |
+| (c) lung macrophages | 207,185 | 5 / 5 | 44.3 / 29.6 / 29.2 | 28.9 / 23.1 / 23.1 | 2,008 / 1,242 | 4,103 / 4,070 | 29 |
+| (d1) no matching cell | 0 | 4 / 0 | 9.0 / 4.7 / 4.4 | 0.50 / 0.51 / 0.51 | 225 / 0 | 44.8 / 0 | 42 |
+| (d2) 2 of 4 hold cells | 111 | 4 / 2 | 11.9 / 7.0 / 6.4 | 2.20 / 1.76 / 1.73 | 862 / 215 | 68.3 / 28.2 | 36 |
+| (e) all obs | 13,326,922 | 103 / 0 | 136 / 26.5 / 20.5 | 4.67 / 4.63 / 4.65 | 4,800 / 0 | 206 / 0 | 187 |
+| count by donor, (b) | 35,795 | 14 / 0 | 17.9 / 5.2 / 4.2 | 0.56 / 0.57 / 0.56 | 693 / 0 | 44.3 / 0 | 0.2 |
+| count by donor, all | 13,326,922 | 103 / 0 | – / 27.4 / 20.9 | 1.74 / 1.66 / 1.59 | 4,800 / 0 | 206 / 0 | 1.7 |
+
+- The table phase (plan and scan) took 0.18 to 0.46 s for (a) to (d), and 1.0 s for (e). The plan
+  read one manifest of 69 KB.
+- (e) on the store path reads each store's `obs` and drops it; on the table path, `get_obs` returns
+  one frame of 13.3 million rows with the cell-key index, so its peak memory is 5.6 GiB against
+  2.1 GiB. The first version of `get_obs` took 20 s, of which 16 s was the work of pandas on
+  13.3 million strings; integer-code grouping and categoricals bring it to 4.7 s.
+- Peak memory follows the result: 14.4 GiB (table) and 16.6 GiB (stores) for (c), about 2 GiB for (b).
+
+**`X` by ranges or by `indptr`.** The table path with the whole `X/indptr` read, as the store path
+reads `X`, at 32 workers: (b) 7.5 s and 2,256 requests against 7.0 s and 1,361; (c) 26.4 s and
+1,778 against 24.4 s and 1,242; (d2) 2.8 s and 647 against 1.9 s and 215 (all with the first
+version of the table path). The ranges save a third to two thirds of the requests.
+
+**pyiceberg's thread pool** (`PYICEBERG_MAX_WORKERS`), scan seconds for (e): 1 worker 2.9 s, 4
+workers 1.2 to 3.3 s, 16 or 32 workers 1.2 s. For (c), 0.2 s at any setting.
+
+### 3.2 In-region, growth with N
+
+Copies of the 103 fragments with new `dataset_id`s (`bench.fragments`): 500, 1,000, and 2,060
+fragments, one table each. A copy's catalog row points at the source store, so a query through
+the table reads the source store again for each copy; a query through the stores does the same,
+with the `dataset_id` check relaxed for copies. Both paths therefore read the same objects many
+times, which can favour both. These are measured, not extrapolated; the store count is still
+below the corpus.
+
+| N | Manifest | Plan, no filter | Plan, `dataset_id IN` all N | Plan (d1) | Files kept by bounds alone, `cell_type = neutrophil` | Catalog keeps |
+|---|---|---|---|---|---|---|
+| 103 | 73 KB | 0.13 s | 0.14 s | 0.12 s | 71 | 14 |
+| 500 | 337 KB | 0.32 s | 1.5 s | 0.15 s | 345 | 67 |
+| 1,000 | 670 KB | 0.28 s | 5.3 s | 0.24 s | 689 | 135 |
+| 2,060 | 1.37 MB | 0.30 s | 22.9 s | 0.30 s | 1,420 | 280 |
+
+| N | (b) stores | (b) table | (d1) stores | (d1) table | count (b) by donor, stores | table | count all by donor, table |
+|---|---|---|---|---|---|---|---|
+| 103 | 11.0 | 6.1 | 4.4 | 0.51 | 4.2 | 0.56 | 1.6 |
+| 500 | | 24.4 | | 0.81 | | 2.1 | 7.8 |
+| 1,000 | | 52.0 | | 1.31 | | 3.6 | 14.8 |
+| 2,060 | 189 | 113 | 64.6 | 2.1 | 75.4 | 7.4 | 31.2 |
+
+Seconds at 32 workers; the store path ran at 103 and 2,060 only. The plan of the table path
+stays below 0.3 s, and the time follows the stores that a query opens and the rows that it
+scans: (b) is `X`-bound (16.5 GB of `X` at 2,060), and a count of all 266 million cells is
+scan-bound (30 s and 24 GiB peak, because the scan holds both columns of every row before it
+groups them). The first version of the table path put `dataset_id IN (...)` into the scan, and
+its count of all cells at 2,060 took 68 s, 23 s of them in the plan. The key-first scan (section
+4, finding 7) is slower in-region: 6.2 s for (d1) at 2,060, against 2.1 s. The query (c) and
+the whole `obs` (e) at 500 or more datasets passed the 40 GiB memory limit of the runs, because
+their results hold 1 to 65 million cells.
+
+### 3.3 Laptop, 103 datasets
+
+The laptop runs share the laptop with the compaction spike, under a lock that gives one spike
+the laptop at a time. The link read at 5 to 10 MB/s, and repeats of one query varied by a factor
+of 2, so these are indications, not measures of a difference. Seconds at 1 / 8 / 32 workers:
+
+| Query | Stores path | Table path | Requests | MB (zarr) | Scan MB |
+|---|---|---|---|---|---|
+| (a) one dataset | 14.0 / 13.2 / 16.4 | 19.8 / 7.9 / 7.5 | 69 / 26 | 16.7 / 16.6 | 0.06 |
+| (b) neutrophil | – / – / 94 | – / – / 121 | 2,893 / 1,361 | 873 / 824 | 42 |
+| (d1) no matching cell | 44 / 24 / 29 | 16 / 27 / 30 | 225 / 0 | 44.8 / 0 | 42 |
+| (d2) 2 of 4 hold cells | 51 / 43 / 24 | 25 / 47 / 41 | 862 / 215 | 68.3 / 28.2 | 36 |
+
+On this link, bytes decide. The table path reads fewer `X` and `obs` bytes from the stores, but
+its scan reads the fragments of the candidate datasets in full, 36 to 42 MB for (d1) and (d2),
+and the catalog's false positives are large atlases. The table path still sends a third to a
+quarter of the requests. The laptop runs of the counts, of (c), of (e), and of the key-first scan
+did not get the laptop in the time of the spike; `tools/results/obs_iceberg/laptop-103.jsonl`
+holds the runs that did.
+
+### 3.4 Other measures
+
+- **False positives of the catalog.** Over the 10,855 (tissue, cell type) pairs that some dataset
+  passes in the catalog, the catalog passes 12,572 datasets, and 6,944 (55 percent) hold no cell of
+  the pair; 6,500 pairs hold no cell anywhere. Over the 4,355 pairs that some cell holds, 261 of
+  5,889 passing datasets (4.4 percent) hold none; the median share of such a pair is 0. The false
+  positives come from the multi-tissue atlases, which are among the largest stores
+  (`tools/results/obs_iceberg/false_positives.json`).
+- **Correctness on the real stores.** For (a) to (d), the table path and the store path give equal
+  `obs_names`, `obs` values, `X`, and `var` (`ec2-equal.jsonl`). (e) with `X` does not fit in
+  64 GiB on either path.
+- **Writer and builder costs.** The fragment adds one read of `X/indptr` and one Parquet write to
+  each ingest. The catalog of 103 stores took 133 s on EC2; the table, 1.6 s to commit 103
+  fragments (`add_files` reads each footer) and 14 s for 2,060. A size check of each new fragment is
+  one HEAD.
+- **Readers**, in-region, 16 threads, median of 3 (section 6, `ec2-readers.jsonl`). Select (c),
+  207,185 rows: pyarrow over the fragment list 0.57 s, pyiceberg 0.62 s, Polars 0.92 s, DuckDB
+  1.20 s. Count by donor over all cells: Polars 0.90 s, DuckDB 1.06 s, pyiceberg 1.06 s, pyarrow
+  2.36 s. All `obs` into Arrow: Polars 1.13 s (4.6 GiB peak), pyiceberg 1.74 s (7.4 GiB), DuckDB
+  2.23 s (11.4 GiB), pyarrow 3.14 s (7.2 GiB). Each time includes the open of the table in a new
+  process; DuckDB's includes the load of its extensions, and Polars planned through pyiceberg,
+  because its own planner is a separate package (`polars_iceberg`) that was not installed.
+- **R**: the `duckdb` R package reads the S3 table from the laptop: a filter and a group-by in 26 s
+  and a count of all 13.3 million cells in 9 s more, most of it the download of the extensions.
 
 ## 4. Findings
 
-FINDINGS
+1. **The table makes the catalog's false positives free.** The catalog tests each term alone, so
+   it keeps a dataset that has some lung cell and some macrophage but no lung macrophage. The
+   table path opens none of those stores: (d1) 4.4 s to 0.5 s at 32 workers, and at 2,060
+   datasets 64.6 s to 2.2 s, with 80 stores not opened. Over all (tissue, cell type) pairs that
+   the catalog passes, 55 percent of the passes hold no matching cell; over the pairs that some
+   cell holds, 4.4 percent do. The false positives are mostly multi-tissue atlases, which are
+   large stores, so each one costs a large `obs` read.
+2. **The table removes the per-store `obs` read and the `X/indptr` read.** The effect is largest
+   at low concurrency and grows with the number of stores: (b) 44 s to 10 s at 1 worker, 11.0 s to
+   6.1 s at 32, and 189 s to 114 s at 2,060 datasets; requests fall by half. The fragment's
+   `x_start` and `x_end` are worth their two columns: anndata writes `indptr` as one object for
+   each few thousand rows, so a full `indptr` read is many requests.
+3. **`X` dominates a large result, and the table does not change `X`.** (c) returns 207,185 cells
+   in 23 s against 29 s; both read 4.1 GB of `X`. (b) reads 824 MB of `X` chunks to return 35,795
+   cells, because the selected rows are scattered through chunks of about 124,000 values. That is
+   a cost of the store layout, which the compaction spike shares and the table cannot remove.
+4. **An `obs`-only question needs no store.** Counts by donor in 0.56 s against 4.2 s, and at 2,060
+   datasets 8.1 s against 75 s; all `obs` of 13.3 million cells in 4.7 s. The catalog's
+   `cell_counts` answers some counts with no scan at all, but only on its columns.
+5. **Iceberg's planning is cheap, and its own pruning adds little to the catalog's.** The plan
+   reads one manifest: 73 KB for 103 files, 1.37 MB for 2,060, in 0.12 to 0.30 s. But the column
+   bounds of a label are a lexicographic range: for `cell_type = neutrophil` at 2,060 datasets the
+   bounds keep 1,420 files, and the catalog's value sets keep 280. The selection is the catalog's
+   work, applied through the `dataset_id` partition. One pyiceberg edge: a `dataset_id IN` term
+   of N values plans in time that grows with files times values (23 s for 2,060 and 2,060), so
+   the SDK plans the filter alone and keeps the wanted files by partition value.
+6. **Without Iceberg, a list of fragments serves the SDK as well.** pyarrow over the catalog's
+   list of fragments selected (c) in 0.57 s, and pyiceberg in 0.62 s; the catalog already lists
+   and prunes the fragments. What Iceberg adds is a standard table that other engines read
+   (DuckDB, Polars, Spark, Trino, and R through DuckDB), snapshots that a release can pin, schema
+   evolution for curation-schema changes, and file statistics that will prune numeric ranges
+   when the stores hold the count statistics. That is a reason to publish an Iceberg table, and
+   not by itself a reason for the SDK to plan through one.
+7. **On a laptop, bytes decide, and the scan reads whole fragments.** The table path reads every
+   column of the row groups that survive statistics, and in arrival order the statistics of a
+   label column exclude few row groups: (d1) reads up to 42 MB of four atlas fragments to find no
+   cell. A key-first scan (`SCAN_KEY_FIRST`: the filter columns first, then every column of the
+   datasets with a match) and fragments sorted by the common filter columns (the store row
+   ordinal keeps the link to the store) are the two remedies; the first is in the branch as an
+   option, and it does not pay in-region.
+8. **The expression language suffices for the corpus, with one rewrite.** All 50 corpus queries
+   with an `obs` filter are expressible (14 of them wait for `tissue_general` or `nnz` in the
+   stores). The gap is membership on the multi-valued `disease` columns, which the SDK supplies by
+   rewriting terms into `IN` over the catalog's joined values (section 5).
+9. **No Iceberg catalog service is necessary** for one writer: an ephemeral SQLite catalog at build
+   time, static tables, and a version hint (section 2.2).
+10. **The access boundary does not hold for a shared table.** The manifests carry the column bounds
+    of every fragment (section 7, item 6).
 
 ## 5. The filter language
 

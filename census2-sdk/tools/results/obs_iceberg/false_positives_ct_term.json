@@ -1,0 +1,84 @@
+{
+ "pairs": 10855,
+ "pairs_without_a_cell": 6500,
+ "passing": 12572,
+ "false_positive": 6944,
+ "false_positive_share": 0.552,
+ "held_pairs": 4355,
+ "held_passing": 5889,
+ "held_false_positive": 261,
+ "held_false_positive_share": 0.044,
+ "median_false_positive_share_of_held_pairs": 0.0,
+ "worst": [
+  {
+   "tissue": "mesenteric lymph node",
+   "cell_type_ontology_term_id": "CL:0000556",
+   "passing": 4,
+   "joint": 0,
+   "false_positive": 4
+  },
+  {
+   "tissue": "jejunum",
+   "cell_type_ontology_term_id": "CL:0000646",
+   "passing": 3,
+   "joint": 0,
+   "false_positive": 3
+  },
+  {
+   "tissue": "stomach",
+   "cell_type_ontology_term_id": "CL:0000646",
+   "passing": 3,
+   "joint": 0,
+   "false_positive": 3
+  },
+  {
+   "tissue": "duodenum",
+   "cell_type_ontology_term_id": "CL:0000646",
+   "passing": 3,
+   "joint": 0,
+   "false_positive": 3
+  },
+  {
+   "tissue": "liver",
+   "cell_type_ontology_term_id": "CL:0000077",
+   "passing": 4,
+   "joint": 2,
+   "false_positive": 2
+  },
+  {
+   "tissue": "blood",
+   "cell_type_ontology_term_id": "CL:0000097",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "jejunum",
+   "cell_type_ontology_term_id": "CL:0000077",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "sigmoid colon",
+   "cell_type_ontology_term_id": "unknown",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "small intestine",
+   "cell_type_ontology_term_id": "CL:0000646",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "colon",
+   "cell_type_ontology_term_id": "unknown",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  }
+ ]
+}
