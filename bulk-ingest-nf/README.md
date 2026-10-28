@@ -156,13 +156,18 @@ tools/census1-sample.py --census-version 2025-11-08 \
 ## Output layout
 
 ```
-<outdir>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
-<outdir>/<dataset_version_id>.json     the receipt, always
+<outdir>/<dataset_version_id>.zarr/          the store, if the dataset was admitted
+<outdir>/<dataset_version_id>.obs.parquet    the store's obs fragment, with the store
+<outdir>/<dataset_version_id>.json           the receipt, always
 ```
 
 The store holds its summary record, with the dataset's identifiers and the gene reference version,
-in the attributes of its root `zarr.json`. The `census2-dataset-writer` README describes the
-record. The receipt is the run log of the pipeline, and the run report reads it.
+in the attributes of its root `zarr.json`. Beside it is the fragment record, with the digest, the
+size, and the row count of the `obs` fragment. The `census2-dataset-writer` README describes both
+records and the fragment. The receipt is the run log of the pipeline, and the run report reads it.
+The receipt holds copies of both records and the location of the fragment. `--check` also compares
+the fragment with the store: the record, each `obs` column, and the row columns against
+`X/indptr`.
 
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.

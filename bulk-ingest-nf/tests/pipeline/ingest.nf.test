@@ -23,8 +23,11 @@ nextflow_pipeline {
             // One store and one receipt per manifest line.
             def receipts = path("$outputDir").list().findAll { it.toString().endsWith(".json") }
             def stores   = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
+            def fragments = path("$outputDir").list().findAll { it.toString().endsWith(".obs.parquet") }
             assert receipts.size() == 2
             assert stores.size() == 2
+            // The obs fragment is next to each store, and published with it.
+            assert fragments.size() == 2
 
             receipts.each { r ->
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
@@ -36,6 +39,9 @@ nextflow_pipeline {
                 assert rec.check.compared.contains("X")
                 assert rec.check.compared.contains("var")
                 assert rec.check.compared.contains("summary")
+                assert rec.check.compared.contains("fragment")
+                assert rec.obs_fragment.rows > 0
+                assert rec.fragment.endsWith("${rec.dataset_version_id}.obs.parquet")
                 // Both datasets have raw, so X holds the counts from raw/X.
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0

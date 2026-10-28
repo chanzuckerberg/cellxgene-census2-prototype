@@ -131,6 +131,38 @@ Zarr group, so it is in the root `zarr.json`, beside anndata's own attributes:
 `write` adds the record after anndata writes the store and its consolidated metadata, so the
 record is the last write.
 
+## obs fragment
+
+The writer also writes an `obs` fragment for each store: one Parquet file next to the store, at
+`fragment_location(dest)`, which is `<name>.obs.parquet` for the store `<name>.zarr`. The fragment
+is outside the Zarr hierarchy, so the store stays a plain AnnData-Zarr store. A query engine can
+read the fragments of many stores as one table and select cells without a store open; see the
+`obs` table of `census2-sdk`.
+
+- The fragment holds the store's `obs` columns, in order, with the same values. A categorical
+  column is plain strings, which Parquet encodes with a dictionary. The fragment takes the `obs`
+  columns that the store holds, so a column that a later writer adds goes into the fragment too.
+- Three int64 columns follow: `store_row`, the store row ordinal from 0, and `x_start` and `x_end`,
+  the range of the cell's values in `X/data` and `X/indices`. A reader with the fragment then reads
+  a cell's values without `X/indptr`.
+- The fragment uses zstd compression and row groups of 65,536 rows. The row columns are
+  delta-encoded. For the 103 datasets of the prototyping manifests, the fragments hold 13.3
+  million cells in 187.5 MiB, about 15 bytes per cell, or 0.3 percent of the stores.
+
+`write` writes the fragment after anndata finishes, from `adata.obs` and the `X/indptr` that anndata
+wrote, and then adds a fragment record beside the summary record:
+
+```json
+"cellxgene-census2": {
+  "summary": {"version": 1, "...": "..."},
+  "obs_fragment": {"version": 1, "sha256": "...", "bytes": 54031, "rows": 3524}
+}
+```
+
+`read_fragment_record(dest)` reads it, and `validate_fragment` checks it. The record is in the
+immutable store, so a builder can prove that a fragment is the file that the writer wrote with
+the store.
+
 `build` adds `dataset_id` to `obs` as the first column, so that each cell names its dataset when
 stores are concatenated. The column is categorical with one category. A source `obs` that already
 has a `dataset_id` column is an error: `build` raises `ValueError`, because that name belongs to the
