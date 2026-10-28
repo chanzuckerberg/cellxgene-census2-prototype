@@ -19,9 +19,10 @@ zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only
 
 ## Build the catalog
 
-The catalog is a Parquet table with one row for each store. The Census 2 team publishes it, and the
-SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder.
-It reads a prefix that holds `<dataset_version_id>.zarr` stores. It reads no receipt.
+The catalog is a Parquet table with one row for each dataset. The Census 2 team publishes it, and
+the SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder.
+It reads one or more prefixes that hold `<dataset_version_id>.zarr` stores, and reads up to
+`--workers` stores at the same time. It reads no receipt.
 
 ```bash
 eval "$(aws configure export-credentials --profile <profile> --format env)"
@@ -41,6 +42,34 @@ values are assay, cell type, disease, sex, and tissue (each as the label and the
 `is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
 For the 1,258 stores of the Census 1 LTS `2025-11-08` run, the column holds 117,740 entries, and the
 catalog is 925 KiB.
+
+### Compacted stores
+
+A compacted store is a second copy of several datasets in one store; see
+[`compact-nf`](../compact-nf/README.md). `--compacted` names a prefix of compacted stores:
+
+```bash
+python census2-sdk/tools/build_catalog.py s3://bucket/stores/ catalog.parquet \
+    --compacted s3://bucket/compacted/
+```
+
+The builder then fills three columns of each member's row: `compacted_store_uri`, and
+`compacted_row_start` and `compacted_row_stop`, the rows of the dataset in that store. The row
+keeps its per-dataset `store_uri`, and all its other fields come from the per-dataset store as
+before. Exclusion therefore stays per dataset. The three columns are null for a dataset that no
+compacted store holds, and a catalog without compacted stores has them too.
+
+The builder refuses the catalog when a compacted store does not agree with the per-dataset stores:
+
+- each member has a per-dataset store, with the same `dataset_id`, number of cells, gene reference,
+  `observation_joinid` digest, and number of stored values of `X`
+- the compacted store holds the member's `dataset_id` and `observation_joinid` values at the
+  member's rows, and that number of stored values of `X`
+- the members have one organism, one gene reference, and one spatial value
+- a dataset is in one compacted store at most
+
+These checks read two `obs` columns of each compacted store and some values of `X/indptr`, not the
+matrix. The `compact-nf` pipeline can compare the whole matrix when it writes the store.
 
 ## Query
 
@@ -62,9 +91,21 @@ The result holds:
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
 - `obs_names`, `<dataset_id>_<observation_joinid>`
-- `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
+- `uns["census2"]`, the sources, the count of catalog rows for the organism
+  (`datasets_in_catalog`), the count of datasets read (`datasets_read`), and the count of stores
+  opened (`stores_opened`)
 
 When no cell matches, `get_anndata` returns None.
+
+The SDK reads a dataset from the compacted store that its catalog row names. It opens each store
+once for all of its selected datasets, and reads only the rows of each dataset from `obs` and `X`.
+The result is the same as from the per-dataset stores: the same cells in the same order, the same
+`obs` columns with the same types and categories, and the same `X`.
+`open_census(sources, compacted=False)` reads the per-dataset stores, which stay the primary copy.
+
+`max_workers` applies twice: the SDK opens up to `max_workers` stores at the same time, and then
+reads up to `max_workers` datasets at the same time. The datasets of one compacted store thus read
+at the same time as well.
 
 ## Count
 

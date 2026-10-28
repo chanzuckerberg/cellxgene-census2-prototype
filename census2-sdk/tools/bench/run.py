@@ -177,14 +177,19 @@ def source_rows(rows: pd.DataFrame) -> pd.DataFrame:
     return rows[rows["copy"] == 0] if "copy" in rows.columns else rows
 
 
+# `catalog.COMPACTED[0]`, by name, so that the SDK of an earlier commit runs this
+# file as well, for a baseline.
+COMPACTED_URI = "compacted_store_uri"
+
+
 def serving_uris(rows: pd.DataFrame, per_dataset: bool = False) -> list[str]:
     """The stores that a read of `rows` opens, each once, in catalog order.
 
     A row that names a compacted store is read there, unless `per_dataset` is set.
     """
     uris = [str(u) for u in rows["store_uri"]]
-    if not per_dataset and _catalog.COMPACTED[0] in rows.columns:
-        compacted = rows[_catalog.COMPACTED[0]]
+    if not per_dataset and COMPACTED_URI in rows.columns:
+        compacted = rows[COMPACTED_URI]
         uris = [
             str(c) if pd.notna(c) else u for c, u in zip(compacted, uris, strict=True)
         ]

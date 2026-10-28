@@ -57,10 +57,23 @@ does not remap genes.
 
 ## Sharp edges: anndata and zarr
 
-`anndata.io.sparse_dataset` over a CSR group reads the full `indptr`. It then reads only the `data`
-and `indices` of the selected rows, so a query does not load the whole `X`. `obs` and `var` are read
-whole. `read_lazy` is not used because it does not round-trip in
-anndata 0.13 (see the writer's `AGENTS.md`).
+The SDK reads a row range of a store, because a compacted store holds several datasets and a query
+reads only the rows of the selected ones. A per-dataset store is the range of all its rows, so one
+read path serves both kinds of store. `anndata.io.sparse_dataset` over a CSR group reads the full
+`indptr`, which in a compacted store holds every member's rows, so `_x_rows` reads `X` itself:
+`indptr` from the first to the last selected row, then the `data` and `indices` of the selected
+rows. When the selected rows follow one another, that is one slice; otherwise it is one integer
+selection, as anndata does. `_obs_rows` reads a row range of each `obs` column, with the type that
+`read_elem` gives the column, because anndata 0.13 has no public partial read of a dataframe.
+`anndata.experimental.read_elem_lazy` reads a dataframe lazily, but needs xarray. A categorical
+column keeps only the categories that its rows use: in a compacted store, that gives a member the
+categories of its per-dataset store, and the result does not depend on where a dataset was read.
+`read_lazy` is not used because it does not round-trip in anndata 0.13 (see the writer's
+`AGENTS.md`).
+
+`get_anndata` opens each store once, then reads each selected dataset. Both steps use the thread
+pool of `max_workers`. A read does not wait for another task of the pool, so the two steps cannot
+deadlock it.
 
 zarr has no S3 client. A remote URI goes through `zarr.storage.ObjectStore` over `obstore`, as in
 the writer. `obstore` reads credentials from the environment and not from an AWS profile, so export
