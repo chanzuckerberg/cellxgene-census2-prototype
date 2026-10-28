@@ -44,6 +44,7 @@ import census2_dataset_writer
 import pandas as pd
 import pyarrow.fs as pafs  # type: ignore[import-untyped]  # pyarrow has no types
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
+from census2_dataset_writer import fragment_location
 from pyiceberg.catalog import Catalog
 from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.partitioning import PartitionField, PartitionSpec
@@ -92,8 +93,13 @@ def fragments(catalog: pd.DataFrame, organism: str) -> pd.DataFrame:
     missing = rows[rows["obs_fragment_bytes"].isna()]
     if len(missing):
         raise ValueError(f"no obs fragment for {sorted(missing['dataset_id'])}")
+    # The fragment is next to the store, unless the row names it (`bench.fragments`).
+    named = rows.get(
+        "obs_fragment_uri", pd.Series([None] * len(rows), index=rows.index)
+    )
     rows["fragment_uri"] = [
-        uri(census2_dataset_writer.fragment_location(str(s))) for s in rows["store_uri"]
+        uri(str(f) if isinstance(f, str) else fragment_location(str(s)))
+        for s, f in zip(rows["store_uri"], named, strict=True)
     ]
     return rows
 

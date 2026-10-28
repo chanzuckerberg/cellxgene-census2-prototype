@@ -9,6 +9,12 @@ so a stopped matrix keeps its finished runs.
     python -m bench.matrix --catalogs catalogs/ --sizes 50,100 \\
         --shapes single,cell_type,open,corpus_obs --workers 1,32 --repeats 3 \\
         --where laptop --out results/bench-laptop.jsonl
+
+`--queries` names a JSON file of named mapping filters; a shape `query:<name>` runs
+one of them, and `count_donor:<name>` counts its cells by donor. `--obs-table` gives
+the `obs` table of each catalog, with `{size}` in place of the size, and `--vias`
+selects `stores`, `table`, or both. `--x-from-indptr` and `--scan-workers` pass
+through to each run.
 """
 
 import argparse
@@ -30,6 +36,7 @@ def one(
     timeout: float,
     cell_type: str,
     max_rss_gb: float | None = None,
+    extra: list[str] | None = None,
 ) -> dict[str, Any]:
     command = [
         sys.executable, "-m", "bench.run", str(catalog),
@@ -37,6 +44,7 @@ def one(
     ]  # fmt: skip
     if max_rss_gb is not None:
         command += ["--max-rss-gb", str(max_rss_gb)]
+    command += extra or []
     base: dict[str, Any] = {"catalog": str(catalog), "shape": shape, "workers": workers}
     try:
         done = subprocess.run(
@@ -69,7 +77,13 @@ def main() -> int:
     p.add_argument(
         "--cell-type", default=None, help="default: pick from the largest catalog"
     )
+    p.add_argument("--queries", type=pathlib.Path, default=None)
+    p.add_argument("--obs-table", default=None, help="with {size} for the size")
+    p.add_argument("--vias", default="stores")
+    p.add_argument("--x-from-indptr", action="store_true")
+    p.add_argument("--scan-workers", type=int, default=None)
     args = p.parse_args()
+    queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
     # One cell type for every size, so that each size runs the same query.
     sizes = args.sizes.split(",")
@@ -80,22 +94,43 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     for size in sizes:
         catalog = args.catalogs / f"catalog-{size}.parquet"
-        for shape in args.shapes.split(","):
-            for workers in (int(w) for w in args.workers.split(",")):
-                for repeat in range(args.repeats):
-                    record = one(
-                        catalog,
-                        shape,
-                        workers,
-                        args.timeout,
-                        cell_type,
-                        args.max_rss_gb,
-                    )
-                    record.update(where=args.where, repeat=repeat, size=int(size))
-                    with args.out.open("a") as fh:
-                        fh.write(json.dumps(record) + "\n")
-                    seconds = record.get("query_seconds", record["status"])
-                    print(f"{size:>5} {shape:<10} w={workers:<3} r={repeat} {seconds}")
+        for name in args.shapes.split(","):
+            shape, _, label = name.partition(":")
+            for via in args.vias.split(","):
+                extra = []
+                if label:
+                    extra += ["--query", json.dumps(queries[label]), "--label", label]
+                if via == "table":
+                    if args.obs_table is None:
+                        p.error("the table via needs --obs-table")
+                    extra += ["--obs-table", args.obs_table.format(size=size)]
+                    if args.x_from_indptr:
+                        extra.append("--x-from-indptr")
+                    if args.scan_workers is not None:
+                        extra += ["--scan-workers", str(args.scan_workers)]
+                for workers in (int(w) for w in args.workers.split(",")):
+                    for repeat in range(args.repeats):
+                        record = one(
+                            catalog,
+                            shape,
+                            workers,
+                            args.timeout,
+                            cell_type,
+                            args.max_rss_gb,
+                            extra,
+                        )
+                        record.update(
+                            where=args.where, repeat=repeat, size=int(size), via=via
+                        )
+                        if label:
+                            record["label"] = label
+                        with args.out.open("a") as fh:
+                            fh.write(json.dumps(record) + "\n")
+                        seconds = record.get("query_seconds", record["status"])
+                        print(
+                            f"{size:>5} {name:<22} {via:<6} w={workers:<3} r={repeat} "
+                            f"{seconds}"
+                        )
     return 0
 
 

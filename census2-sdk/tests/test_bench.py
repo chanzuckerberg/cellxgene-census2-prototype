@@ -87,6 +87,7 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
             index=[str(i) for i in range(n_obs)],
         )
         obs["cell_type"] = pd.Categorical(["T cell"] * n_obs)
+        obs["donor_id"] = pd.Categorical([f"donor-{k}"] * n_obs)
         var = pd.DataFrame({"feature_id": genes}, index=genes)
         uri = root / f"v-{k}.zarr"
         anndata.AnnData(X=x.astype(np.float32), obs=obs, var=var).write_zarr(uri)
@@ -108,7 +109,9 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.mark.parametrize("workers", [1, 2])
 def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> None:
     run.COUNTER.requests = run.COUNTER.nbytes = 0
-    record = run.run(str(stores / "catalog.parquet"), shape, workers, None)
+    query = {"cell_type": "T cell"} if shape == "query" else None
+    catalog = str(stores / "catalog.parquet")
+    record = run.run(catalog, shape, workers, None, query=query)
     assert record["status"] == "ok"
     assert record["catalog_stores"] == 2
     expected = {"single": (1, 30), "open": (2, 0)}.get(shape, (2, 50))
@@ -149,3 +152,66 @@ def test_a_run_over_the_limit_between_checks_is_not_ok() -> None:
     assert code == run.MEMORY_LIMIT_EXIT
     assert run.final_record(record, limit_mb=4096.0) == (record, None)
     assert run.final_record(record, limit_mb=None) == (record, None)
+
+
+@pytest.fixture(scope="module")
+def table(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Two stores with their obs fragments, the catalog, and the obs table."""
+    import build_catalog
+    import build_obs_table
+    import census2_dataset_writer
+
+    root = tmp_path_factory.mktemp("bench-table")
+    prefix = root / "out"
+    genes = [f"ENSG{j:011d}" for j in range(8)]
+    for k, n_obs in enumerate((30, 20)):
+        x = sp.random(n_obs, len(genes), density=0.3, format="csr", random_state=k)
+        obs = pd.DataFrame(
+            {
+                "dataset_id": pd.Categorical([f"ds-{k}"] * n_obs),
+                "cell_type": pd.Categorical(["T cell", "B cell"] * (n_obs // 2)),
+                "donor_id": pd.Categorical([f"donor-{k}"] * n_obs),
+                "observation_joinid": [f"j{i}" for i in range(n_obs)],
+            },
+            index=[str(i) for i in range(n_obs)],
+        )
+        var = pd.DataFrame({"feature_id": genes}, index=genes)
+        adata = anndata.AnnData(X=sp.csr_matrix(x, dtype=np.float32), obs=obs, var=var)
+        adata.uns = {"organism_ontology_term_id": "NCBITaxon:9606"}
+        path = prefix / f"v-{k}.zarr"
+        census2_dataset_writer.write(
+            adata,
+            path,
+            summary={
+                "version": census2_dataset_writer.SUMMARY_VERSION,
+                "dataset_id": f"ds-{k}",
+                "dataset_version_id": f"v-{k}",
+                "gene_reference_version": "GENCODE v48",
+            },
+            fragment=census2_dataset_writer.fragment_location(str(path)),
+        )
+    build_catalog.build(str(prefix), root / "catalog.parquet")
+    build_obs_table.build(str(root / "catalog.parquet"), str(root / "obs"))
+    return root
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    [("query", (2, 25)), ("count_donor", (0, 25)), ("corpus_obs", (0, 50))],
+)
+def test_the_table_shapes_run(
+    table: Path, shape: str, expected: tuple[int, int]
+) -> None:
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    record = run.run(
+        str(table / "catalog.parquet"),
+        shape,
+        2,
+        None,
+        query={"cell_type": "T cell"},
+        obs_table=str(table / "obs"),
+    )
+    assert record["status"] == "ok" and record["via"] == "table"
+    assert (record["stores_opened"], record["cells"]) == expected
+    assert record["files_planned"] == 2
+    assert record["files_total"] == 2
