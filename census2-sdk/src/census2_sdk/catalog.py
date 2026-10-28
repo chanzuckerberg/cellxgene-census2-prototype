@@ -39,7 +39,7 @@ def _require_obstore() -> None:
         raise ImportError("a remote URI needs obstore: pip install 'census2-sdk[s3]'")
 
 
-Filter = Mapping[str, str | Iterable[str]]
+Filter = Mapping[str, str | bool | Iterable[str] | Iterable[bool]]
 # A filter after `normalize`: one set of accepted values for each column.
 Normalized = dict[str, frozenset[str]]
 
@@ -94,14 +94,38 @@ def members(value: str, column: str) -> list[str]:
     return [value]
 
 
+# The catalog records this column as a tri-state: all true, all false, or mixed.
+PRIMARY = "is_primary_data"
+PRIMARY_VALUES = {
+    "all_true": {"True"},
+    "all_false": {"False"},
+    "mixed": {"True", "False"},
+}
+
+
 def normalize(obs_filter: Filter | None) -> Normalized:
-    """One set of accepted values for each column. Refuse a column that is not indexed."""
+    """One set of accepted values for each column. Refuse a column that is not indexed.
+
+    `is_primary_data` takes a boolean, a list of booleans, or their names, and its
+    values are `"True"` and `"False"`.
+    """
     normalized: Normalized = {}
     for column, value in (obs_filter or {}).items():
+        if column == PRIMARY:
+            single = isinstance(value, (bool, str))
+            flags = {
+                str(f) for f in ([value] if single else cast("Iterable[Any]", value))
+            }
+            if not flags <= {"True", "False"}:
+                raise ValueError(f"{PRIMARY} takes True or False")
+            normalized[column] = frozenset(flags)
+            continue
         if column != "dataset_id" and column not in INDEXED:
             raise ValueError(
                 f"{column!r} is not a catalog column; use one of {INDEXED}"
             )
+        if isinstance(value, bool):
+            raise TypeError(f"{column} takes strings, not {value!r}")
         wanted = {value} if isinstance(value, str) else {str(v) for v in value}
         normalized[column] = frozenset(wanted)
     return normalized
@@ -192,6 +216,11 @@ def excludes(row: Mapping[str, Any], obs_filter: Normalized) -> bool:
         values = row.get(column)
         if unrecorded(values):
             continue  # the row records no value set; unproven keeps the dataset
+        if column == PRIMARY:
+            state = PRIMARY_VALUES.get(str(values))
+            if state is not None and not (state & wanted):
+                return True
+            continue  # an unknown state proves nothing
         value_set = cast("Iterable[Any]", values)  # unrecorded() rules out None
         present = {m for v in value_set for m in members(str(v), column)}
         if not (present & wanted):

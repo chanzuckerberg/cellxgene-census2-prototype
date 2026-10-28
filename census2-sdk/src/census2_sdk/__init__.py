@@ -11,7 +11,18 @@ gene position (design 4.1 to 4.4).
 
 `obs_filter` maps a catalog column to one value or to a list of values. The SDK selects
 a cell when every column holds one of its values. The columns are the 18 indexed
-columns of design 2.2 and `dataset_id`. A filter grammar is open (design section 8).
+columns of design 2.2, `dataset_id`, and `is_primary_data` with a boolean value. A
+filter grammar is open (design section 8).
+
+A source can also have an `obs` table: one Iceberg table over the `obs` fragments that
+the writer puts next to the stores (`census2_sdk.obs_table`). With it, a query scans the
+table once, opens only the stores that hold a selected cell, and reads only the `X`
+values of those cells. The filter can then also be an Iceberg expression, a string such
+as `"tissue IN ('lung') AND (cell_type = 'macrophage' OR cell_type = 'monocyte')"`; see
+`census2_sdk.expressions`. `get_obs` returns the `obs` of the selected cells from the
+table alone.
+
+    census = census2_sdk.open_census(["catalog.parquet"], obs_tables=["obs/homo_sapiens"])
 
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
 has the columns that all selected stores hold. `uns["census2"]` has the sources, the
@@ -34,9 +45,9 @@ store whose `dataset_id` differs from the dataset of its catalog row.
 """
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import anndata
 import numpy as np
@@ -48,6 +59,12 @@ from anndata.io import read_elem, sparse_dataset
 from census2_sdk import catalog as _catalog
 from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
 from census2_sdk.gene_reference import ORGANISMS
+
+if TYPE_CHECKING:  # pyiceberg is the optional `iceberg` extra
+    from pyiceberg.expressions import BooleanExpression
+    from pyiceberg.table import StaticTable
+
+    from census2_sdk.expressions import AnyFilter
 
 __all__ = [
     "Census",
@@ -68,7 +85,11 @@ class Census:
     Each call to `get_anndata` or `count_cells` runs one query over them.
     """
 
-    def __init__(self, sources: Sequence[PathLike]) -> None:
+    def __init__(
+        self,
+        sources: Sequence[PathLike],
+        obs_tables: Sequence[PathLike | None] | None = None,
+    ) -> None:
         self.sources = [str(s) for s in sources]
         self._counts: pd.DataFrame | None = None
         # One read per catalog, so that the rows and the counts come from one version.
@@ -85,11 +106,29 @@ class Census:
             raise SourceConflict(
                 f"a dataset_id occurs in more than one source: {listing}"
             )
+        self._tables: dict[str, StaticTable] = {}
+        if obs_tables is not None:
+            self._open_tables([None if t is None else str(t) for t in obs_tables])
+
+    def _open_tables(self, uris: list[str | None]) -> None:
+        """Open the `obs` table of each source that has one, and check its catalog."""
+        from census2_sdk import obs_table
+
+        if len(uris) != len(self.sources):
+            raise ValueError("obs_tables needs one entry for each source")
+        for source, content, uri in zip(
+            self.sources, self._contents, uris, strict=True
+        ):
+            if uri is None:
+                continue
+            table = obs_table.open_table(uri)
+            obs_table.check_catalog(table, obs_table.catalog_sha256(content), source)
+            self._tables[source] = table
 
     def get_anndata(
         self,
         organism: str,
-        obs_filter: Filter | None = None,
+        obs_filter: "AnyFilter | None" = None,
         *,
         max_workers: int = 1,
     ) -> anndata.AnnData | None:
@@ -101,7 +140,14 @@ class Census:
         `max_workers` is the largest number of stores that the SDK reads at the
         same time, and it must be a positive integer. The result is the same for
         every allowed value: the stores keep their catalog order.
+
+        When the census has an `obs` table, the query goes through it; see
+        `_get_anndata_from_tables`. The filter can then be an Iceberg expression.
         """
+        if self._tables:
+            return self._get_anndata_from_tables(organism, obs_filter, max_workers)
+        if obs_filter is not None and not isinstance(obs_filter, Mapping):
+            raise ValueError("an expression filter needs an obs table")
         normalized = _catalog.normalize(obs_filter)
         rows = _catalog.exclude(self.catalog, organism, normalized)
         _check_composition(rows, ORGANISMS[organism]["version"])
@@ -129,6 +175,229 @@ class Census:
         }
         return result
 
+    def _candidates(self, organism: str, expr: "BooleanExpression") -> pd.DataFrame:
+        """The catalog rows of `organism` that can hold a cell that satisfies `expr`."""
+        from census2_sdk import expressions
+
+        scoped = self.catalog[self.catalog["organism"] == organism]
+        records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
+        keep = [expressions.can_match(expr, row) for row in records]
+        return scoped[np.array(keep, dtype=bool)]
+
+    def _scan(
+        self,
+        rows: pd.DataFrame,
+        expr: "BooleanExpression",
+        columns: Sequence[str] | None,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Scan the `obs` table of each source for the cells of `rows` that satisfy `expr`.
+
+        Return the selected rows of each dataset, as an Arrow table in store row order,
+        and the statistics of each scan. `columns` names the `obs` columns to return;
+        None returns all. The cell key and the row columns are always in the result.
+        """
+        import pyarrow.compute as pc  # type: ignore[import-untyped]
+        from pyiceberg.expressions import And
+
+        from census2_sdk import expressions, obs_table
+
+        cells: dict[str, Any] = {}
+        stats: list[dict[str, Any]] = []
+        for source, table in self._tables.items():
+            mine = rows[rows["source"] == source]
+            if not len(mine):
+                continue
+            records = cast("list[dict[str, Any]]", mine.to_dict("records"))
+            ids = sorted(str(d) for d in mine["dataset_id"])
+            row_filter = And(
+                expressions.with_members(expr, records),
+                expressions.is_in("dataset_id", ids),
+            )
+            names = [f.name for f in table.schema().fields]
+            obs_names = [n for n in names if n not in obs_table.ROW_COLUMNS]
+            wanted = obs_names if columns is None else list(columns)
+            key = ["dataset_id", "observation_joinid"]
+            selected = tuple(dict.fromkeys([*key, *wanted, *obs_table.ROW_COLUMNS]))
+            # Read the label columns dictionary-encoded, for pandas categoricals. Not
+            # the cell key, whose values are unique, and not a column of a prefix
+            # term: pyarrow has no starts_with kernel for a dictionary column.
+            prefixed = expressions.prefix_columns(row_filter)
+            strings = tuple(
+                f.name
+                for f in table.schema().fields
+                if f.name in selected
+                and str(f.field_type) == "string"
+                and f.name not in {"observation_joinid", *prefixed}
+            )
+            arrow, scan_stats = obs_table.scan(
+                table, row_filter, selected, dictionary=strings
+            )
+            stats.append({"source": source, **scan_stats.as_dict()})
+            if not arrow.num_rows:
+                continue
+            # Arrow sorts no dictionary column, so sort with numpy: by dataset, then
+            # by store row.
+            datasets = pc.cast(arrow.column("dataset_id"), "string").to_numpy(
+                zero_copy_only=False
+            )
+            order = np.lexsort((arrow.column("store_row").to_numpy(), datasets))
+            arrow, datasets = arrow.take(order), datasets[order]
+            bounds = np.flatnonzero(datasets[1:] != datasets[:-1]) + 1
+            starts = [0, *bounds.tolist()]
+            stops = [*bounds.tolist(), len(datasets)]
+            for start, stop in zip(starts, stops, strict=True):
+                cells[str(datasets[start])] = arrow.slice(start, stop - start)
+        return cells, stats
+
+    def _get_anndata_from_tables(
+        self, organism: str, obs_filter: "AnyFilter | None", max_workers: int
+    ) -> anndata.AnnData | None:
+        """`get_anndata` through the `obs` tables.
+
+        The catalog excludes the datasets that cannot match (`expressions.can_match`).
+        One scan of each table then selects the cells of the remaining datasets. The
+        SDK opens only the stores that hold a selected cell, in catalog order, and reads
+        the `X` values of the selected cells. The result `obs` comes from the scan. A
+        source without a table goes through its stores, as without tables, and takes
+        a mapping filter only.
+
+        The result equals the result through the stores, value for value. A categorical
+        column of the result holds the labels that the result uses, where the result
+        through the stores holds the labels of every store that it opened.
+        """
+        from census2_sdk import expressions
+
+        expr = expressions.from_filter(obs_filter)
+        rows = self._candidates(organism, expr)
+        _check_composition(rows, ORGANISMS[organism]["version"])
+        plain = rows[~rows["source"].isin(list(self._tables))]
+        normalized: Normalized = {}
+        if len(plain):
+            if obs_filter is not None and not isinstance(obs_filter, Mapping):
+                raise ValueError(
+                    "an expression filter needs an obs table for every source"
+                )
+            normalized = _catalog.normalize(obs_filter)
+        cells, stats = self._scan(rows, expr, None)
+
+        def part(row: dict[str, Any]) -> anndata.AnnData | None:
+            if row["source"] not in self._tables:
+                return _read_store(row, normalized)
+            selected = cells.get(str(row["dataset_id"]))
+            return None if selected is None else _read_cells(row, selected)
+
+        records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            found = list(pool.map(part, records))
+        opened = [(p, r) for p, r in zip(found, records, strict=True) if p is not None]
+        parts = [p for p, _ in opened]
+        uris = [str(r["store_uri"]) for _, r in opened]
+        _check_var(parts, uris)
+        if not sum(part.n_obs for part in parts):
+            return None
+        result = anndata.concat(parts, join="inner")
+        if not result.obs_names.is_unique:
+            raise SourceConflict("the cell key is not unique across the result")
+        result.var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        result.uns["census2"] = {
+            "sources": self.sources,
+            "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
+            "catalog_candidates": len(rows),
+            "stores_opened": len(parts),
+            "obs_table": stats,
+        }
+        return result
+
+    def get_obs(
+        self,
+        organism: str,
+        obs_filter: "AnyFilter | None" = None,
+        *,
+        columns: Sequence[str] | None = None,
+    ) -> pd.DataFrame:
+        """The `obs` of the selected cells of `organism`, from the `obs` tables alone.
+
+        The SDK opens no store. `columns` names the `obs` columns to return; None
+        returns all. The frame also holds the row columns of `obs_table.ROW_COLUMNS`.
+        Its index is `<dataset_id>_<observation_joinid>` when it holds
+        `observation_joinid`. Every source needs an `obs` table.
+        """
+        from census2_sdk import expressions
+
+        if set(self.sources) - set(self._tables):
+            raise ValueError("get_obs needs an obs table for every source")
+        expr = expressions.from_filter(obs_filter)
+        rows = self._candidates(organism, expr)
+        cells, stats = self._scan(rows, expr, columns)
+        import pyarrow as pa
+
+        order = [cells[str(d)] for d in rows["dataset_id"] if str(d) in cells]
+        # One Arrow table first, so that each categorical has one set of labels.
+        frame = (
+            _obs_frame(pa.concat_tables(order).unify_dictionaries(), keep_rows=True)
+            if order
+            else pd.DataFrame()
+        )
+        if "observation_joinid" in frame.columns:
+            frame.index = pd.Index(
+                frame["dataset_id"].astype(str)
+                + "_"
+                + frame["observation_joinid"].astype(str)
+            )
+        frame.attrs["census2"] = {"catalog_candidates": len(rows), "obs_table": stats}
+        return frame
+
+    def count_obs(
+        self,
+        organism: str,
+        obs_filter: "AnyFilter | None" = None,
+        *,
+        by: Sequence[str] = (),
+    ) -> pd.DataFrame:
+        """The number of selected cells of `organism`, from the `obs` tables alone.
+
+        The count takes any filter and any `obs` column in `by`, for example
+        `donor_id`, which the catalog does not count. The frame has the `by` columns
+        and `n_cells`, one row for each group, in no fixed order. Every source needs
+        an `obs` table.
+        """
+        import pyarrow as pa
+        from pyiceberg.expressions import And
+
+        from census2_sdk import expressions, obs_table
+
+        if set(self.sources) - set(self._tables):
+            raise ValueError("count_obs needs an obs table for every source")
+        expr = expressions.from_filter(obs_filter)
+        rows = self._candidates(organism, expr)
+        parts, stats = [], []
+        for source, table in self._tables.items():
+            mine = rows[rows["source"] == source]
+            if not len(mine):
+                continue
+            records = cast("list[dict[str, Any]]", mine.to_dict("records"))
+            row_filter = And(
+                expressions.with_members(expr, records),
+                expressions.is_in("dataset_id", (str(d) for d in mine["dataset_id"])),
+            )
+            arrow, scan_stats = obs_table.scan(
+                table, row_filter, tuple(dict.fromkeys(["dataset_id", *by]))
+            )
+            stats.append({"source": source, **scan_stats.as_dict()})
+            parts.append(arrow.group_by(list(by)).aggregate([([], "count_all")]))
+        if parts:
+            counts = (
+                pa.concat_tables(parts)
+                .group_by(list(by))
+                .aggregate([("count_all", "sum")])
+            )
+            frame = cast("pd.DataFrame", counts.to_pandas())
+            frame = frame.rename(columns={"count_all_sum": "n_cells"})
+        else:
+            frame = pd.DataFrame({**{c: [] for c in by}, "n_cells": []})
+        frame.attrs["census2"] = {"catalog_candidates": len(rows), "obs_table": stats}
+        return frame[[*by, "n_cells"]]
+
     def count_cells(
         self,
         organism: str,
@@ -150,7 +419,9 @@ class Census:
         the `cell_counts` column raises ValueError.
         """
         normalized = _catalog.normalize(obs_filter)
-        uncounted = sorted(set(normalized) - {"dataset_id", *_catalog.COUNTED})
+        uncounted = sorted(
+            set(normalized) - {"dataset_id", _catalog.PRIMARY, *_catalog.COUNTED}
+        )
         if uncounted:
             raise ValueError(f"the catalog counts no {uncounted}; use get_anndata")
         counts = self._cell_counts()
@@ -183,9 +454,15 @@ class Census:
         return self._counts
 
 
-def open_census(sources: Sequence[PathLike]) -> Census:
-    """Open catalogs."""
-    return Census(sources)
+def open_census(
+    sources: Sequence[PathLike], obs_tables: Sequence[PathLike | None] | None = None
+) -> Census:
+    """Open catalogs, and the `obs` table of each source that has one.
+
+    `obs_tables` has one entry for each source: a table location or metadata file, or
+    None for a source without a table. See `census2_sdk.obs_table`.
+    """
+    return Census(sources, obs_tables)
 
 
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
@@ -241,7 +518,9 @@ def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
         if column not in obs.columns:
             return np.zeros(len(obs), dtype=bool)  # the catalog kept an unproven store
         col = obs[column]
-        if isinstance(col.dtype, pd.CategoricalDtype):
+        if column == _catalog.PRIMARY:
+            hit = np.isin(col.to_numpy().astype(bool), [w == "True" for w in wanted])
+        elif isinstance(col.dtype, pd.CategoricalDtype):
             # Apply the rule once for each category, then index by the codes. A
             # null has code -1, which indexes the False at the end.
             by_category = [_hit(c, column, wanted) for c in col.cat.categories]
@@ -278,6 +557,99 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
 
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
     return anndata.AnnData(X=x, obs=obs, var=var)
+
+
+# Read the X values of the selected cells from the ranges in the obs table. False reads
+# the whole X/indptr of each store first, as a read without the table does. The
+# benchmark sets it to compare the two.
+X_FROM_RANGES = True
+
+
+def _read_cells(row: dict[str, Any], cells: Any) -> anndata.AnnData:
+    """The selected cells of one store, from their rows in the `obs` table.
+
+    `cells` is an Arrow table of the store's selected rows, in store row order. The
+    result `obs` comes from it, so the SDK does not read the store's `obs`. `X` holds
+    the values of the selected rows, from their ranges in `X/data` and `X/indices`.
+    """
+    from census2_sdk import obs_table
+
+    store_uri = str(row["store_uri"])
+    group = open_store(store_uri)
+    x = group["X"]
+    assert isinstance(x, zarr.Group), "X must be an encoded sparse matrix"
+    shape = tuple(int(n) for n in cast("list[int]", x.attrs["shape"]))
+    n_obs = row.get("n_obs")
+    if not unrecorded(n_obs) and shape[0] != int(cast("int", n_obs)):
+        raise ValueError(
+            f"{store_uri}: X has {shape[0]} rows; the catalog gives {n_obs}"
+        )
+    obs = _obs_frame(cells)
+    _check_cell_key(obs, store_uri)
+    var_group = group["var"]
+    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
+    index = read_elem(var_group[str(var_group.attrs["_index"])])
+    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
+    if X_FROM_RANGES:
+        starts = cells.column(obs_table.X_START).to_numpy()
+        ends = cells.column(obs_table.X_END).to_numpy()
+        matrix = _rows_by_range(x, starts, ends, shape[1])
+    else:
+        matrix = _rows(x, cells.column(obs_table.STORE_ROW).to_numpy())
+    obs.index = pd.Index(
+        str(row["dataset_id"]) + "_" + obs["observation_joinid"].astype(str)
+    )
+    return anndata.AnnData(X=matrix, obs=obs, var=var)
+
+
+def _obs_frame(cells: Any, *, keep_rows: bool = False) -> pd.DataFrame:
+    """The `obs` columns of an Arrow table of selected rows, as the store holds them.
+
+    A dictionary-encoded column becomes a categorical whose categories are the labels
+    that the rows use, sorted. The row columns are in the frame with `keep_rows` only.
+    """
+    from census2_sdk import obs_table
+
+    names = [
+        n for n in cells.column_names if keep_rows or n not in obs_table.ROW_COLUMNS
+    ]
+    frame = cast("pd.DataFrame", cells.select(names).to_pandas())
+    for name in names:
+        column = frame[name]
+        if isinstance(column.dtype, pd.CategoricalDtype):
+            column = column.cat.remove_unused_categories()
+            frame[name] = column.cat.reorder_categories(sorted(column.cat.categories))
+    return frame
+
+
+def _rows_by_range(
+    node: zarr.Group, starts: np.ndarray, ends: np.ndarray, n_vars: int
+) -> sp.csr_matrix:
+    """The rows of a CSR matrix whose values are at `[starts[i], ends[i])`.
+
+    The ranges come from the `obs` table, so the read does not touch `X/indptr`. One
+    selection of the value positions reads the touched chunks of `data` and `indices`
+    with zarr's concurrency.
+    """
+    starts = np.asarray(starts, dtype=np.int64)
+    ends = np.asarray(ends, dtype=np.int64)
+    data = node["data"]
+    indices = node["indices"]
+    assert isinstance(data, zarr.Array) and isinstance(indices, zarr.Array)
+    lengths = ends - starts
+    indptr = np.concatenate([[0], np.cumsum(lengths)]).astype(np.int64)
+    if not len(starts):
+        return sp.csr_matrix((0, n_vars), dtype=data.dtype)
+    if bool((starts[1:] == ends[:-1]).all()):
+        # One contiguous run: one slice, and no position array.
+        selection: Any = slice(int(starts[0]), int(ends[-1]))
+    else:
+        selection = np.repeat(starts - indptr[:-1], lengths) + np.arange(
+            int(indptr[-1]), dtype=np.int64
+        )
+    values = np.asarray(data[selection])
+    columns = np.asarray(indices[selection])
+    return sp.csr_matrix((values, columns, indptr), shape=(len(starts), n_vars))
 
 
 def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:

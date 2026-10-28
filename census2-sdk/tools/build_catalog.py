@@ -5,8 +5,10 @@ The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 
 publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for that
 builder. It reads a prefix that holds `<dataset_version_id>.zarr` stores. Each store's
 summary record, in the attributes of its root group, gives the dataset's identifiers and
-the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
-The builder reads no receipt.
+the gene reference version. The fragment record beside it gives the size and the digest
+of the store's `obs` fragment, which `build_obs_table.py` registers in the `obs` table.
+The rest of the row comes from the store's `obs` and `uns`. The builder reads no
+receipt.
 
 Each row also holds the cell counts of its store, in the `cell_counts` column
 (tracker 5.9). The column has one entry for each combination of the `COUNTED` values
@@ -89,6 +91,7 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
         store_uri = f"{prefix}/{name}"
         group = open_store(store_uri)
         record = summary_record(group, name)
+        fragment = census2_dataset_writer.read_fragment_record(group)
         row, cells = summarize(group)
         rows.append(
             {
@@ -96,6 +99,10 @@ def build(prefix: str, out: str | pathlib.Path | None = None) -> pd.DataFrame:
                 "dataset_version_id": record["dataset_version_id"],
                 "store_uri": store_uri,
                 "gene_reference_version": record["gene_reference_version"],
+                # The obs fragment next to the store, from its fragment record. A
+                # store without one holds nulls; the obs table refuses that row.
+                "obs_fragment_bytes": None if fragment is None else fragment["bytes"],
+                "obs_fragment_sha256": None if fragment is None else fragment["sha256"],
                 **row,
                 COUNTS: cells.to_dict("records"),
             }
