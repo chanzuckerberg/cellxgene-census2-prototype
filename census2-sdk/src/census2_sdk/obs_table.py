@@ -160,8 +160,8 @@ class ScanStats:
     # manifest list, and the manifests.
     metadata_bytes: int = 0
     manifests: int = 0
-    # The compressed size of the projected columns of the planned files, from the
-    # column sizes in the manifests. An estimate of the data that the scan reads: the
+    # The compressed size of the projected and the filter columns of the planned files,
+    # from the column sizes in the manifests. An estimate of the data that the scan reads: the
     # scan also reads each footer, and it skips the row groups that its statistics
     # exclude.
     data_bytes: int = 0
@@ -221,7 +221,13 @@ def scan(
         manifests = snapshot.manifests(table.io)
         stats.manifests = len(manifests)
         stats.metadata_bytes = sum(int(m.manifest_length) for m in manifests)
-    projected = {f.field_id for f in data_scan.projection().fields}
+    # The scan reads the columns of the filter as well as the selected columns.
+    from census2_sdk.expressions import columns as filter_columns
+
+    schema = table.schema()
+    projected = {f.field_id for f in data_scan.projection().fields} | {
+        schema.find_field(name).field_id for name in filter_columns(row_filter)
+    }
     stats.data_bytes = sum(
         int(size)
         for task in tasks
