@@ -377,11 +377,14 @@ def run(
             record.update(table_stats(uns["obs_table"]))
         elif adata is None and obs_table is not None:
             record["stores_opened"] = 0
+            record.update(table_stats(census.last_scan))
         record["cells"] = int(adata.n_obs) if isinstance(adata, anndata.AnnData) else 0
     elif shape == "count_donor":
-        obs_filter = query or {
-            "cell_type": cell_type or pick_cell_type(source_rows(rows))
-        }
+        obs_filter = (
+            query
+            if query is not None
+            else {"cell_type": cell_type or pick_cell_type(source_rows(rows))}
+        )
         record["query"] = obs_filter
         if obs_table is None:
             groups, opened, cells = count_from_stores(census, obs_filter, workers)

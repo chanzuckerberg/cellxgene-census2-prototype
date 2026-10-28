@@ -107,6 +107,9 @@ class Census:
                 f"a dataset_id occurs in more than one source: {listing}"
             )
         self._tables: dict[str, StaticTable] = {}
+        # The scan statistics of the last query through a table, also when it
+        # selected no cell and returned None.
+        self.last_scan: list[dict[str, Any]] = []
         if obs_tables is not None:
             self._open_tables([None if t is None else str(t) for t in obs_tables])
 
@@ -196,6 +199,7 @@ class Census:
         and the statistics of each scan. `columns` names the `obs` columns to return;
         None returns all. The cell key and the row columns are always in the result.
         """
+        import pyarrow as pa  # type: ignore[import-untyped]
         import pyarrow.compute as pc  # type: ignore[import-untyped]
         from pyiceberg.expressions import And
 
@@ -235,18 +239,27 @@ class Census:
             stats.append({"source": source, **scan_stats.as_dict()})
             if not arrow.num_rows:
                 continue
-            # Arrow sorts no dictionary column, so sort with numpy: by dataset, then
-            # by store row.
-            datasets = pc.cast(arrow.column("dataset_id"), "string").to_numpy(
-                zero_copy_only=False
+            # Group the rows by dataset, in store row order. Arrow sorts no
+            # dictionary column, so sort the integer codes with numpy, and only
+            # when the scan did not already return each file's rows together.
+            ids = arrow.column("dataset_id").combine_chunks()
+            if not pa.types.is_dictionary(ids.type):
+                ids = pc.dictionary_encode(ids)
+            codes = ids.indices.to_numpy(zero_copy_only=False)
+            rows_of = arrow.column("store_row").to_numpy()
+            change = np.flatnonzero(codes[1:] != codes[:-1]) + 1
+            grouped = len(change) + 1 == len(np.unique(codes)) and not bool(
+                np.any((np.diff(rows_of) <= 0) & (codes[1:] == codes[:-1]))
             )
-            order = np.lexsort((arrow.column("store_row").to_numpy(), datasets))
-            arrow, datasets = arrow.take(order), datasets[order]
-            bounds = np.flatnonzero(datasets[1:] != datasets[:-1]) + 1
-            starts = [0, *bounds.tolist()]
-            stops = [*bounds.tolist(), len(datasets)]
+            if not grouped:
+                order = np.lexsort((rows_of, codes))
+                arrow, codes = arrow.take(order), codes[order]
+                change = np.flatnonzero(codes[1:] != codes[:-1]) + 1
+            names = ids.dictionary.to_pylist()
+            starts = [0, *change.tolist()]
+            stops = [*change.tolist(), len(codes)]
             for start, stop in zip(starts, stops, strict=True):
-                cells[str(datasets[start])] = arrow.slice(start, stop - start)
+                cells[str(names[codes[start]])] = arrow.slice(start, stop - start)
         return cells, stats
 
     def _get_anndata_from_tables(
@@ -279,6 +292,7 @@ class Census:
                 )
             normalized = _catalog.normalize(obs_filter)
         cells, stats = self._scan(rows, expr, None)
+        self.last_scan = stats
 
         def part(row: dict[str, Any]) -> anndata.AnnData | None:
             if row["source"] not in self._tables:
@@ -333,18 +347,20 @@ class Census:
         import pyarrow as pa
 
         order = [cells[str(d)] for d in rows["dataset_id"] if str(d) in cells]
+        import pyarrow.compute as pc
+
         # One Arrow table first, so that each categorical has one set of labels.
-        frame = (
-            _obs_frame(pa.concat_tables(order).unify_dictionaries(), keep_rows=True)
-            if order
-            else pd.DataFrame()
-        )
-        if "observation_joinid" in frame.columns:
-            frame.index = pd.Index(
-                frame["dataset_id"].astype(str)
-                + "_"
-                + frame["observation_joinid"].astype(str)
+        frame = pd.DataFrame()
+        if order:
+            arrow = pa.concat_tables(order).unify_dictionaries()
+            frame = _obs_frame(arrow, keep_rows=True)
+            # The cell key, joined in Arrow rather than one Python string at a time.
+            key = pc.binary_join_element_wise(
+                pc.cast(arrow.column("dataset_id"), pa.string()),
+                arrow.column("observation_joinid"),
+                "_",
             )
+            frame.index = pd.Index(key.to_pandas())
         frame.attrs["census2"] = {"catalog_candidates": len(rows), "obs_table": stats}
         return frame
 
@@ -609,18 +625,42 @@ def _obs_frame(cells: Any, *, keep_rows: bool = False) -> pd.DataFrame:
     A dictionary-encoded column becomes a categorical whose categories are the labels
     that the rows use, sorted. The row columns are in the frame with `keep_rows` only.
     """
+    import pyarrow as pa
+
     from census2_sdk import obs_table
 
     names = [
         n for n in cells.column_names if keep_rows or n not in obs_table.ROW_COLUMNS
     ]
-    frame = cast("pd.DataFrame", cells.select(names).to_pandas())
+    columns: dict[str, Any] = {}
     for name in names:
-        column = frame[name]
-        if isinstance(column.dtype, pd.CategoricalDtype):
-            column = column.cat.remove_unused_categories()
-            frame[name] = column.cat.reorder_categories(sorted(column.cat.categories))
-    return frame
+        column = cells.column(name)
+        if pa.types.is_dictionary(column.type):
+            columns[name] = _categorical(column.combine_chunks())
+        else:
+            columns[name] = column.to_pandas()
+    return pd.DataFrame(columns)
+
+
+def _categorical(array: Any) -> pd.Categorical:
+    """A dictionary-encoded Arrow array as a categorical of the labels that it uses, sorted.
+
+    The work is on the integer codes, with one Python string for each label and not
+    for each cell. A null becomes the code -1.
+    """
+    labels = [str(v) for v in array.dictionary.to_pylist()]
+    indices = array.indices.fill_null(0).to_numpy(zero_copy_only=False)
+    used = np.flatnonzero(np.bincount(indices, minlength=len(labels)) > 0)
+    order = sorted(used.tolist(), key=labels.__getitem__)
+    remap = np.full(len(labels), -1, dtype=np.int32)
+    remap[order] = np.arange(len(order), dtype=np.int32)
+    codes = remap[indices]
+    if array.null_count:
+        codes[array.is_null().to_numpy(zero_copy_only=False)] = -1
+    categories = pd.Index([labels[i] for i in order])
+    return cast(
+        "pd.Categorical", pd.Categorical.from_codes(cast("Any", codes), categories)
+    )
 
 
 def _rows_by_range(
