@@ -85,6 +85,7 @@ def ingest(
 #   uns     the carried keys, such as schema_version and the organism
 #   obsm, varm, obsp, varp, layers
 #           the optional slots, which only `all_slots` carries
+# Known gaps, not oversights. Shrink this list; do not grow it to stop a failure.
 NOT_COMPARED = ("uns", "obsm", "varm", "obsp", "varp", "layers")
 
 
