@@ -178,6 +178,20 @@ def test_x_from_the_ranges_equals_x_from_indptr(
     assert_same(from_ranges, table.get_anndata("homo_sapiens", query))
 
 
+@pytest.mark.parametrize("obs_filter", MAPPINGS)
+def test_a_key_first_scan_gives_the_same_result(
+    stores: census2_sdk.Census,
+    table: census2_sdk.Census,
+    obs_filter: dict[str, Any] | None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(census2_sdk, "SCAN_KEY_FIRST", True)
+    assert_same(
+        stores.get_anndata("homo_sapiens", obs_filter),
+        table.get_anndata("homo_sapiens", obs_filter),
+    )
+
+
 def test_a_store_without_a_selected_cell_is_not_opened(
     table: census2_sdk.Census, monkeypatch: pytest.MonkeyPatch
 ) -> None:

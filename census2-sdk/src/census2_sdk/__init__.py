@@ -233,6 +233,18 @@ class Census:
                 and str(f.field_type) == "string"
                 and f.name not in {"observation_joinid", *prefixed}
             )
+            if SCAN_KEY_FIRST and expressions.columns(expr) - {"dataset_id"}:
+                # A first scan of the key alone finds the datasets with a match, so
+                # that the second scan reads every column of those fragments only.
+                keys, first = obs_table.scan(table, row_filter, ("dataset_id",))
+                stats.append({"source": source, "step": "key", **first.as_dict()})
+                hits = sorted(set(keys.column("dataset_id").to_pylist()))
+                if not hits:
+                    continue
+                row_filter = And(
+                    expressions.with_members(expr, records),
+                    expressions.is_in("dataset_id", hits),
+                )
             arrow, scan_stats = obs_table.scan(
                 table, row_filter, selected, dictionary=strings
             )
@@ -580,6 +592,11 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
 # the whole X/indptr of each store first, as a read without the table does. The
 # benchmark sets it to compare the two.
 X_FROM_RANGES = True
+
+# Scan the key columns first, then every column of the fragments that hold a match.
+# The second scan then reads no fragment of a dataset that the catalog kept and that
+# holds no match. The benchmark sets it.
+SCAN_KEY_FIRST = False
 
 
 def _read_cells(row: dict[str, Any], cells: Any) -> anndata.AnnData:

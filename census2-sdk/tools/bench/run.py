@@ -341,6 +341,7 @@ def run(
     }
     if obs_table is not None:
         record["x_from_ranges"] = census2_sdk.X_FROM_RANGES
+        record["key_first"] = census2_sdk.SCAN_KEY_FIRST
     if "copy" in rows.columns:
         accept_copies()
 
@@ -447,12 +448,15 @@ def main() -> int:
     p.add_argument("--label", default=None, help="a name for the query")
     p.add_argument("--obs-table", default=None)
     p.add_argument("--x-from-indptr", action="store_true")
+    p.add_argument("--key-first", action="store_true")
     p.add_argument("--scan-workers", type=int, default=None)
     args = p.parse_args()
     if args.scan_workers is not None:
         os.environ["PYICEBERG_MAX_WORKERS"] = str(args.scan_workers)
     if args.x_from_indptr:
         census2_sdk.__dict__["X_FROM_RANGES"] = False
+    if args.key_first:
+        census2_sdk.__dict__["SCAN_KEY_FIRST"] = True
     if args.obs_table is not None:
         # Import the table modules before the timed part.
         from census2_sdk import expressions, obs_table  # noqa: F401

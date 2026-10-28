@@ -81,6 +81,7 @@ def main() -> int:
     p.add_argument("--obs-table", default=None, help="with {size} for the size")
     p.add_argument("--vias", default="stores")
     p.add_argument("--x-from-indptr", action="store_true")
+    p.add_argument("--key-first", action="store_true")
     p.add_argument("--scan-workers", type=int, default=None)
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
@@ -106,6 +107,8 @@ def main() -> int:
                     extra += ["--obs-table", args.obs_table.format(size=size)]
                     if args.x_from_indptr:
                         extra.append("--x-from-indptr")
+                    if args.key_first:
+                        extra.append("--key-first")
                     if args.scan_workers is not None:
                         extra += ["--scan-workers", str(args.scan_workers)]
                 for workers in (int(w) for w in args.workers.split(",")):
