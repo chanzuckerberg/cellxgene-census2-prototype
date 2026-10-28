@@ -29,8 +29,7 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
-# dataset_id comes first. The writer adds it and the other derived columns, and
-# copies the rest (COPIED) from the source.
+# The writer adds dataset_id (first) and the other derived columns, and copies COPIED.
 OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
 COPIED = [n for n in OBS_NAMES if n not in census2_dataset_writer.DERIVED_OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]

@@ -102,7 +102,6 @@ def obs_column_problem(
     return None
 
 
-# The obs statistics that the check computes from the source counts.
 STATS = ("raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz", "n_measured_vars")
 
 
@@ -305,7 +304,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                         break
                 result["X.nnz"] = int(nnz)
                 result["X.source"] = counts
-                # Only after a complete pass: a failed block stops the loop early.
+                # A failed block stops the loop early, so compare after a full pass.
                 complete = sum(len(e) for e in expected) == len(b)
                 if complete and set(STATS) <= set(b.columns):
                     want_stats = np.vstack(expected)

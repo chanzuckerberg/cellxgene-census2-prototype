@@ -138,15 +138,12 @@ OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     ("n_measured_vars", ColType.INT64),
 )
 
-# The `obs` columns that the writer computes. Each other column of `OBS_COLUMNS`
-# is a copy of a source column.
+# The writer computes these columns. Each other column copies the source.
 DERIVED_OBS_COLUMNS = frozenset(
     {DATASET_ID_COLUMN, "tissue_general", "tissue_general_ontology_term_id"}
     | {"raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz", "n_measured_vars"}
 )
 
-# The `var` column that marks the dataset's assayed genes. `X` holds a zero for a
-# gene that the dataset did not measure, so `X` cannot tell that gene from a
-# measured zero. This column is the only part of `var` that differs between the
-# stores of one organism.
+# The dataset's assayed genes. `X` cannot show them, because an unmeasured gene is 0.
+# It is the only part of `var` that differs between stores of one organism.
 MEASURED_COLUMN = "measured"

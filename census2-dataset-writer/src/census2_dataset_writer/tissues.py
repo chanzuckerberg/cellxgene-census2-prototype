@@ -20,8 +20,7 @@ from cellxgene_ontology_guide import curated_ontology_term_lists
 from cellxgene_ontology_guide.entities import CuratedOntologyTermList
 from cellxgene_ontology_guide.ontology_parser import OntologyParser
 
-# The CxG schema whose ontology versions the mapping reads: the schema of
-# Census 1 LTS `2025-11-08` (its `CXG_SCHEMA_VERSION`).
+# Census 1 LTS `2025-11-08` uses this schema (`CXG_SCHEMA_VERSION`) and its ontologies.
 SCHEMA_VERSION = "7.0.0"
 
 

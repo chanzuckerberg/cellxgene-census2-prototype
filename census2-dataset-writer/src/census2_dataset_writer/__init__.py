@@ -639,24 +639,21 @@ def project_genes(
     return genes.project(adata, _gene_references(config), refdata)
 
 
-# The statistics that `_row_stats` computes, in its column order.
 _ROW_STATS = ("raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz")
 
 
 def _row_stats(block: Any) -> npt.NDArray[np.float64]:
     """The Census 1 statistics of each row of one block, in `_ROW_STATS` order."""
     x = sp.csr_matrix(block, copy=True)
-    # Census 1 merges duplicate entries, which also sorts each row, then removes
-    # explicit zeros.
+    # As in Census 1, merge duplicates (this sorts each row), then drop zeros.
     x.sum_duplicates()
     x.eliminate_zeros()
     nnz = np.diff(x.indptr)
     raw_sum = np.asarray(x.sum(axis=1, dtype=np.float64)).ravel()
     rows = np.repeat(np.arange(len(nnz)), nnz)
-    # Census 1 (its numba `_var_ndarray`) shifts each value by the first stored
-    # value of its row and squares in float32, then sums in float64 in storage
-    # order. bincount sums in that order too, so the variance is bit-identical.
-    # The CxG schema stores counts as float32. Other counts keep their precision.
+    # Census 1's `_var_ndarray` shifts by the row's first value, squares in float32,
+    # and sums in float64 in storage order. bincount keeps that order, so the variance
+    # is bit-identical. Counts outside the CxG float32 type keep their precision.
     data = x.data if x.data.dtype == np.float32 else x.data.astype(np.float64)
     shifted = data - data[x.indptr[rows]]
     ex = np.bincount(rows, weights=shifted, minlength=len(nnz))
@@ -690,13 +687,11 @@ def add_obs_stats(
     """
     taxon = str(adata.uns.get("organism_ontology_term_id"))
     kept = genes.organism_genes(cast("pd.DataFrame", adata.var), taxon)
-    # `AnnData.X` is typed as every matrix kind and None; `select_counts` leaves a
-    # dask array, or a sparse or dense matrix for an in-memory caller.
+    # `AnnData.X` is typed as any matrix or None. Here it is dask or a matrix in memory.
     counts: Any = adata.X
     x = counts[:, kept]
     if isinstance(x, da.Array):
-        # dask types `map_blocks` for a function that gives blocks of the input's
-        # shape. This one gives one row of statistics for each row.
+        # dask types `map_blocks` for same-shape blocks. This gives 4 values a cell.
         map_blocks: Any = x.map_blocks
         stats = np.asarray(
             map_blocks(

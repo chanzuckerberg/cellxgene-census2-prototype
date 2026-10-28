@@ -28,9 +28,7 @@ dependencies = [
     # read_elem_lazy returns a dask array of sparse blocks, which is how the
     # expression matrix stays out of memory.
     "dask>=2024.1",
-    # The tissue roll-up for `tissue_general`. The one pin: the curated tissue
-    # list and the ontologies come with the package version, so this is the
-    # version that Census 1 pins. See census2_dataset_writer.tissues.
+    # Census 1 pins this version. The tissue list and the ontologies ship with it.
     "cellxgene-ontology-guide==1.9.0",
 ]
 
