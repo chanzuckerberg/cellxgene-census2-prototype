@@ -2,7 +2,8 @@
 
 The readers are pyiceberg (`table.scan`, which the SDK uses), DuckDB's `iceberg`
 extension, Polars' `scan_iceberg`, and pyarrow's dataset over the list of fragments in
-the catalog, which needs no Iceberg metadata. Each run is a new process, as in
+the catalog, which needs no Iceberg metadata. DuckDB and Polars are not dependencies of
+the SDK, so install them to run those readers. Each run is a new process, as in
 `bench.run`, so the record holds the peak memory of one reader. The queries are:
 
 - `select`: the rows of a mapping filter (`--query`), with the cell key and the row
@@ -15,6 +16,7 @@ the catalog, which needs no Iceberg metadata. Each run is a new process, as in
 """
 
 import argparse
+import importlib
 import json
 import os
 import time
@@ -66,7 +68,7 @@ def run_pyiceberg(location: str, shape: str, expr: Any) -> Any:
 
 
 def run_duckdb(location: str, shape: str, expr: Any, threads: int) -> Any:
-    import duckdb
+    duckdb: Any = importlib.import_module("duckdb")  # optional: not a dependency
 
     metadata = obs_table.open_table(location).metadata_location.removeprefix("file://")
     con = duckdb.connect()
@@ -89,7 +91,7 @@ def run_duckdb(location: str, shape: str, expr: Any, threads: int) -> Any:
 
 
 def run_polars(location: str, shape: str, expr: Any) -> Any:
-    import polars as pl
+    pl: Any = importlib.import_module("polars")  # optional: not a dependency
 
     table = obs_table.open_table(location)
     frame = pl.scan_iceberg(table)
