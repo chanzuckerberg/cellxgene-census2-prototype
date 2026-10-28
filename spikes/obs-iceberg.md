@@ -73,7 +73,9 @@ selected cells, and reads no store `obs` and no `X/indptr`.
 SQLite file in a temporary directory, registers the current metadata file when the table exists
 (`register_table`), commits, and then writes `metadata/version-hint.text`. Readers open a
 `StaticTable` from a metadata file, or from the table location through the version hint, which
-is the Hadoop-catalog convention that pyiceberg, DuckDB, and Polars read. A release pins the
+is the Hadoop-catalog convention that pyiceberg reads. The spike gave DuckDB and Polars the
+metadata file itself; DuckDB's own hint reading expects `v<N>.metadata.json` names unless told
+otherwise, which this spike did not test. A release pins the
 metadata file itself, which is immutable. The cost: the version hint is a plain object write,
 so two builders that commit at the same time can lose a commit. The catalog builder's one-writer
 rule covers this, as it covers `catalog/current.parquet`; an S3 conditional write (`If-Match`)
@@ -234,8 +236,8 @@ holds the runs that did.
   positives come from the multi-tissue atlases, which are among the largest stores
   (`tools/results/obs_iceberg/false_positives.json`).
 - **Correctness on the real stores.** For (a) to (d), the table path and the store path give equal
-  `obs_names`, `obs` values, `X`, and `var` (`ec2-equal.jsonl`). (e) with `X` does not fit in
-  64 GiB on either path.
+  `obs_names`, `obs` values, `X`, and `var` (`ec2-equal.jsonl`). The same check of all cells with `X` needed more
+  than the 64 GiB of the instance and stopped.
 - **Writer and builder costs.** The fragment adds one read of `X/indptr` and one Parquet write to
   each ingest. The catalog of 103 stores took 133 s on EC2; the table, 1.6 s to commit 103
   fragments (`add_files` reads each footer) and 14 s for 2,060. A size check of each new fragment is
@@ -255,13 +257,13 @@ holds the runs that did.
 1. **The table makes the catalog's false positives free.** The catalog tests each term alone, so
    it keeps a dataset that has some lung cell and some macrophage but no lung macrophage. The
    table path opens none of those stores: (d1) 4.4 s to 0.5 s at 32 workers, and at 2,060
-   datasets 64.6 s to 2.2 s, with 80 stores not opened. Over all (tissue, cell type) pairs that
+   datasets 64.6 s to 2.1 s, with 80 stores not opened. Over all (tissue, cell type) pairs that
    the catalog passes, 55 percent of the passes hold no matching cell; over the pairs that some
    cell holds, 4.4 percent do. The false positives are mostly multi-tissue atlases, which are
    large stores, so each one costs a large `obs` read.
 2. **The table removes the per-store `obs` read and the `X/indptr` read.** The effect is largest
    at low concurrency and grows with the number of stores: (b) 44 s to 10 s at 1 worker, 11.0 s to
-   6.1 s at 32, and 189 s to 114 s at 2,060 datasets; requests fall by half. The fragment's
+   6.1 s at 32, and 189 s to 113 s at 2,060 datasets; requests fall by half. The fragment's
    `x_start` and `x_end` are worth their two columns: anndata writes `indptr` as one object for
    each few thousand rows, so a full `indptr` read is many requests.
 3. **`X` dominates a large result, and the table does not change `X`.** (c) returns 207,185 cells
@@ -355,8 +357,8 @@ of what the language adds. The tests do (`tests/test_obs_table.py`).
    logic, `NOT IN`, and the `is_primary_data` tri-state all exclude datasets. This is the only
    level that knows the value sets; it is exact for one term and conservative for a
    conjunction (section 4).
-2. *Iceberg manifests*: the scan adds `dataset_id IN (remaining)`, which the identity partition
-   prunes exactly. The column bounds of each file then prune further, but the bounds of a label
+2. *Iceberg manifests*: the column bounds of each file prune the files, and the SDK then keeps
+   the files of the remaining datasets by their partition value, exactly. The bounds of a label
    column are a lexicographic range, which excludes a file only when the wanted label sorts
    outside it. They earn more on numeric columns, such as the count statistics, and on sorted
    columns.
@@ -371,14 +373,14 @@ All four readers read the same table (laptop test on local files; EC2 measures i
 
 | Reader | How it reads the table | Notes |
 |---|---|---|
-| pyiceberg 0.12 | `StaticTable.from_metadata`, `table.scan(row_filter, selected_fields)` | The SDK's choice: the expression objects are the filter language, so the catalog push-down, the membership rewrite, and the scan share one tree. Adds pyiceberg (3.4 MB) and its pure-Python dependencies (pydantic, which anndata's dependencies already bring, `mmh3`, `pyroaring`, `strictyaml`, `tenacity`, `cachetools`, `rich`, `click`, `requests`); pyarrow is already an SDK dependency. Import adds 0.15 to 0.2 s. |
+| pyiceberg 0.12 | `StaticTable.from_metadata`, `table.scan(row_filter, selected_fields)` | The SDK's choice: the expression objects are the filter language, so the catalog push-down, the membership rewrite, and the scan share one tree. Adds pyiceberg (3.4 MB) and its dependencies (`pydantic` and `pydantic-core`, about 9 MB, `mmh3`, `pyroaring`, `strictyaml`, `tenacity`, `cachetools`, `rich`, `click`, `requests`, `fsspec`); pyarrow is already an SDK dependency. Import adds 0.15 to 0.2 s. |
 | DuckDB 2.0 `iceberg` | `iceberg_scan('<metadata.json>')` | SQL, with membership through `list_contains`; the extension downloads on first use (21 s once). An S3 secret through the `aws` extension's credential chain. |
 | Polars 2.1 | `pl.scan_iceberg(table)` | Lazy frames; plans through pyiceberg. Brings a 150 MB runtime. |
 | pyarrow dataset | `ds.dataset([fragment URIs])` from the catalog | No Iceberg at all: the catalog already lists the fragments and prunes datasets. Reads each footer at scan time. |
 
 **R.** The `duckdb` R package 1.5.2 (a binary from the rocker image's repository, installed in
 7 to 12 s) reads the table with `iceberg_scan` from local files and from S3, through the `iceberg`,
-`httpfs`, and `aws` extensions (`r-check` result in section 3). No other R Iceberg reader was
+`httpfs`, and `aws` extensions (section 3.4). No other R Iceberg reader was
 evaluated. `arrow` for R reads the fragments as Parquet without Iceberg, as pyarrow does. anndataR
 and Rarr remain the path for the stores themselves (design record, existing user support).
 
@@ -442,8 +444,9 @@ and Rarr remain the path for the stores themselves (design record, existing user
 ## 9. Open questions and future work
 
 - **Materialized consolidation** of fragments into fewer, larger files, or of member fragments
-  into a compacted store's fragment (section 8). The plan time grows with N (section 3), and the
-  scan opens one file for each dataset that it reads.
+  into a compacted store's fragment (section 8). The plan stays below 0.3 s up to 2,060 files
+  (section 3.2), but the scan opens one file for each dataset that it reads, and a scan of the
+  whole table opens every fragment.
 - **Manifest growth under continuous ingestion.** Each catalog update is one commit and one
   manifest. pyiceberg's fast append keeps every manifest, so a live table after a thousand
   updates has a thousand manifests in its manifest list. Manifest merging, or a periodic rewrite
@@ -485,12 +488,15 @@ for n in 500 1000 2060; do
   python build_obs_table.py catalogs/catalog-$n.parquet s3://my-bucket/spike/tables/obs-$n
 done
 
-# 4. The matrix (queries.json holds the named mapping filters of section 3).
+# 4. The matrix. results/obs_iceberg/queries.json holds the named mapping filters of section 3,
+#    and catalogs/ holds catalog-103.parquet beside the copies.
+cp ../../catalog-103.parquet catalogs/
 python -m bench.matrix --catalogs catalogs --sizes 103 \
     --shapes single,cell_type,query:compound,query:fp_none,query:fp_some,corpus_obs,count_donor:cell_type \
     --vias stores,table --obs-table 's3://my-bucket/spike/tables/obs-{size}' --workers 1,8,32 \
-    --repeats 3 --cell-type neutrophil --queries queries.json --where ec2 --out results/ec2-103.jsonl
+    --repeats 3 --cell-type neutrophil --queries results/obs_iceberg/queries.json --where ec2 \
+    --out ec2-103.jsonl
 python -m bench.false_positives catalogs/catalog-103.parquet s3://my-bucket/spike/tables/obs-103
 python -m bench.readers catalogs/catalog-103.parquet s3://my-bucket/spike/tables/obs-103 \
-    --reader duckdb --query-shape select --query "$(jq -c .compound queries.json)"
+    --reader duckdb --query-shape select --query "$(jq -c .compound results/obs_iceberg/queries.json)"
 ```
