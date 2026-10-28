@@ -75,3 +75,43 @@ where a frame method is called.
 
 `DataFrame.to_dict("records")` is typed `dict[Hashable, Any]`. Cast to `dict[str, Any]` at the call
 site.
+
+## The obs table (spike)
+
+`census2_sdk.obs_table`, `census2_sdk.expressions`, and `tools/build_obs_table.py` are the obs
+Iceberg spike. `spikes/obs-iceberg.md` at the repository root records the design, the measures,
+and the open questions. pyiceberg is the optional `iceberg` extra, and the modules import it
+lazily, so a census without a table does not need it.
+
+## Sharp edges: pyiceberg and pyarrow
+
+pyiceberg's terms (`In`, `EqualTo`, ...) take a column name and literals at run time, but their
+pydantic signatures name other fields, so mypy refuses `In("tissue", [...])`. `expressions.is_in`,
+`not_in`, and `not_null` state the run-time form once. `expr.term.name` needs an
+`attr-defined` ignore for the same reason.
+
+`DataScan.to_arrow()` plans the scan again. `obs_table.scan` plans once, times the plan, and gives
+the tasks to `pyiceberg.io.pyarrow.ArrowScan`, which is not a documented interface. The columns
+come back in the order of the table schema, not in the order of `selected_fields`.
+
+`ArrowScan(dictionary_columns=...)` returns string columns dictionary-encoded, which pandas turns
+into categoricals without one Python string for each cell. Two edges: pyarrow has no
+`starts_with` kernel for a dictionary column, so a column of a `LIKE 'prefix%'` term must stay
+plain (`expressions.prefix_columns`); and pyiceberg logs a warning for each file that it reads so,
+which `obs_table` filters. Arrow's `sort_by` refuses a dictionary column, so `_scan` sorts with
+numpy. `pd.concat` of categoricals with different categories gives plain strings, so `get_obs`
+concatenates the Arrow tables first and unifies their dictionaries.
+
+`StaticTable.from_metadata` needs the region in `s3.region`; it does not read `AWS_REGION`.
+`obs_table._properties` passes it. A table location without a metadata file name opens through
+`metadata/version-hint.text`, which pyiceberg reads as the Hadoop catalog convention does.
+
+`add_files` derives the identity partition value of a file from its column bounds, so it needs
+`dataset_id` to have one value in each fragment. It refuses a file that holds Parquet field IDs;
+pyarrow writes none. It sets the table's name mapping on the first call. Its default metrics mode
+is `truncate(16)`, so the bounds of a long label are its first 16 characters.
+
+A delete of `dataset_id IN (...)` on a table partitioned by `dataset_id` drops whole files and
+rewrites nothing. A predicate that does not follow the partition would make pyiceberg rewrite a
+fragment into the table location, a copy that the Census does not want. `build_obs_table.py`
+deletes by partition only.

@@ -129,7 +129,8 @@ def main() -> int:
                         seconds = record.get("query_seconds", record["status"])
                         print(
                             f"{size:>5} {name:<22} {via:<6} w={workers:<3} r={repeat} "
-                            f"{seconds}"
+                            f"{seconds}",
+                            flush=True,
                         )
     return 0
 

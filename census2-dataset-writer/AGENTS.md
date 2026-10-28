@@ -81,6 +81,19 @@ of `__init__.py`, and the package re-exports them, so a caller writes
 enforces that: a reader could then depend on it without the writer's dependencies. Keep it so. A
 definition that needs anndata, zarr, or numpy belongs elsewhere.
 
+## The obs fragment (spike)
+
+`write` writes the `obs` fragment after `write_zarr`, because the row ranges come from the
+`X/indptr` that anndata wrote; the dask graph of `X` does not give them without a second compute.
+The read-back is one read of `indptr`. anndata 0.13 chunks `indptr` with the dask row blocks and
+gives each chunk its own shard: a store of 566,546 cells has 180 `indptr` objects of 3,160 rows.
+A reader that needs a few rows of `X` must read all of them, which took 3 s from a laptop. The
+`x_start` and `x_end` columns of the fragment let a reader skip `indptr`.
+
+pandas 3 holds strings as Arrow large strings, so `pa.array` of a categorical's categories gives
+`large_string`. `fragment_table` casts to `string`, so that every fragment has one schema for
+the Iceberg table.
+
 ## Sharp edges: types
 
 `read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both return
