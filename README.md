@@ -18,6 +18,7 @@ design in full.
 | [`census2-dataset-writer`](census2-dataset-writer/README.md) | A Python package that converts one Discover dataset into one store. It decides admission, the slot set, and harmonization. |
 | [`bulk-ingest-nf`](bulk-ingest-nf/README.md) | A Nextflow pipeline that runs the writer over many datasets, locally under Docker or on AWS HealthOmics. |
 | [`census2-sdk`](census2-sdk/README.md) | A Python package that queries stores through a catalog and returns one AnnData. |
+| [`compact-nf`](compact-nf/README.md) | A Nextflow pipeline that writes compacted stores: a second copy of several small per-dataset stores in one store. A spike; see [`spikes/store-compaction.md`](spikes/store-compaction.md). |
 
 Each component README holds the setup and use instructions for that component.
 

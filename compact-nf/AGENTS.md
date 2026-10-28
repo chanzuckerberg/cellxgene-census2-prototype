@@ -26,9 +26,13 @@ reads the shard, merges, and writes it again; anndata's append of each dask bloc
 shard written once, whole, is written once.
 
 The source `obs` frames are held until the union frame is written, then dropped. Memory therefore
-follows the cell count of the group, about 2 GiB for each million cells with the margin of the
-`memory` directive. The planner bounds a group by bytes, not cells, so a group of many small
-datasets with few genes each can have more cells than its bytes suggest.
+follows the cell count of the group. On the 103-dataset pilot, groups of about 1 GiB and 190,000
+to 340,000 cells peaked at 0.8 to 1.4 GiB, and the group of 33 members peaked highest. Each member
+reads its own copy of the 78,894-row `var`. `compact` now keeps one copy after the check of the
+members, which is not yet measured. The
+`memory` directive requests 4 GiB or 2 GiB plus 2 GiB for each million cells, whichever is more.
+The planner bounds a group by bytes, not cells, so a group of many small datasets with few stored
+values for each cell can have more cells than its bytes suggest.
 
 A plan names stores by URI. A local plan names local paths, which a task container sees only
 through a mount; `tests/nextflow.config` adds one. On HealthOmics, the stores are on S3.

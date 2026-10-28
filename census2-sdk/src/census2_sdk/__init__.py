@@ -15,7 +15,8 @@ columns of design 2.2 and `dataset_id`. A filter grammar is open (design section
 
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
 has the columns that all selected stores hold. `uns["census2"]` has the sources, the
-number of catalog rows for the organism, and the number of stores opened. The cell
+number of catalog rows for the organism, the number of datasets read, and the number
+of stores opened. The cell
 key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
 `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 

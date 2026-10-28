@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr.storage
-from bench import catalogs, matrix, run
+from bench import catalogs, fanout, matrix, run
 from zarr.abc.store import RangeByteRequest
 from zarr.core.buffer import default_buffer_prototype
 
@@ -133,6 +133,38 @@ def test_serving_uris_open_a_compacted_store_once() -> None:
         "a.zarr",
         "b.zarr",
         "c.zarr",
+    ]
+
+
+def test_fanout_counts_the_stores_of_a_plan(stores: Path) -> None:
+    plan = [
+        {
+            "group": "g",
+            "members": [{"dataset_version_id": "v-0"}, {"dataset_version_id": "v-1"}],
+        }
+    ]
+    rows = pd.read_parquet(stores / "catalog.parquet")
+    rows["dataset_version_id"] = ["v-0", "v-1"]
+    rows.to_parquet(stores / "catalog-v.parquet")
+    queries: list[dict[str, Any]] = [
+        {"query": "all", "shape": "open"},
+        {"query": "one", "shape": "single", "dataset_id": "ds-1"},
+        {"query": "t", "shape": "filter", "filter": {"cell_type": "T cell"}},
+    ]
+    records = fanout.fanout(stores / "catalog-v.parquet", queries, {"one_group": plan})
+    got = {r["query"]: (r["datasets"], r["stores"]) for r in records}
+    assert got["all"] == (2, {"per_dataset": 2, "one_group": 1})
+    assert got["one"] == (1, {"per_dataset": 1, "one_group": 1})
+    assert got["t"] == (2, {"per_dataset": 2, "one_group": 1})
+    # The catalog holds no cell counts, so the matching datasets are unknown.
+    assert records[0]["datasets_with_cells"] is None
+
+
+def test_query_args_pass_the_query() -> None:
+    assert matrix.query_args({"dataset_id": "d"}) == ["--dataset-id", "d"]
+    assert matrix.query_args({"filter": {"tissue": "lung"}}) == [
+        "--filter",
+        '{"tissue": "lung"}',
     ]
 
 

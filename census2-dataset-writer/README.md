@@ -148,8 +148,13 @@ this function for each group of a plan.
 ```python
 from census2_dataset_writer import compaction
 
-record = compaction.compact(["stores/v1.zarr", "stores/v2.zarr"], "compacted/c-0123.zarr")
-assert compaction.verify("compacted/c-0123.zarr", ["stores/v1.zarr", "stores/v2.zarr"]) == []
+record = compaction.compact(
+    ["stores/v1.zarr", "stores/v2.zarr"], "compacted/c-0123.zarr"
+)
+assert (
+    compaction.verify("compacted/c-0123.zarr", ["stores/v1.zarr", "stores/v2.zarr"])
+    == []
+)
 ```
 
 A compacted store is an AnnData-Zarr store, and a plain anndata reader opens it. Its members follow

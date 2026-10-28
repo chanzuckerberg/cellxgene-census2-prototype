@@ -81,6 +81,11 @@ of `__init__.py`, and the package re-exports them, so a caller writes
 enforces that: a reader could then depend on it without the writer's dependencies. Keep it so. A
 definition that needs anndata, zarr, or numpy belongs elsewhere.
 
+The module also defines the compaction record of a compacted store and `obs_digest`. `compaction.py`
+writes a compacted store; its module docstring gives the layout and the memory contract, and
+`compact-nf/AGENTS.md` records what the pilot runs found. A compacted store holds no summary
+record, so `read_summary` returns None for one, and a reader that wants one dataset refuses it.
+
 ## Sharp edges: types
 
 `read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both return

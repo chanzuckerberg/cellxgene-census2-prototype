@@ -356,6 +356,10 @@ def compact(
     with ThreadPoolExecutor(max_workers=threads or 8) as pool:
         members = list(pool.map(_open, uris))
     _check_members(members)
+    # The check found every `var` equal, so keep one: a group of many members
+    # otherwise holds one copy of the reference for each.
+    for m in members[1:]:
+        m.var = members[0].var
 
     record: CompactionRecord = {
         "version": COMPACTION_VERSION,
