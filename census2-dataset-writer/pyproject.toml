@@ -28,6 +28,8 @@ dependencies = [
     # read_elem_lazy returns a dask array of sparse blocks, which is how the
     # expression matrix stays out of memory.
     "dask>=2024.1",
+    # The obs fragment next to each store is Parquet.
+    "pyarrow>=15",
 ]
 
 [project.optional-dependencies]
