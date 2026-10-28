@@ -19,7 +19,8 @@ dependencies = [
     "zarr>=3.1,<4",
     "numpy>=1.26",
     "scipy>=1.11",
-    "pandas>=2.1",
+    # 2.2 adds the Arrow list and struct accessors that catalog.load_counts uses.
+    "pandas>=2.2",
     # The catalog is Parquet. pandas reads and writes it through pyarrow.
     "pyarrow>=15",
 ]

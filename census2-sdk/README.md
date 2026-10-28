@@ -35,6 +35,13 @@ Each store's summary record, in the attributes of its root group, gives `dataset
 the record. The builder reads the other fields from the store's `obs` and `uns`. It refuses a store
 that has no summary record.
 
+Each row also holds the cell counts of its store, in the `cell_counts` column. The column has one
+entry for each combination of the counted values, with the number of cells in `n_cells`. The counted
+values are assay, cell type, disease, sex, and tissue (each as the label and the ontology term), and
+`is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
+For the 1,258 stores of the Census 1 LTS `2025-11-08` run, the column holds 117,740 entries, and the
+catalog is 925 KiB.
+
 ## Query
 
 ```python
@@ -58,6 +65,24 @@ The result holds:
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
 
 When no cell matches, `get_anndata` returns None.
+
+## Count
+
+```python
+n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
+n = census.count_cells("homo_sapiens", {"tissue": "blood"}, primary_only=True)
+```
+
+`count_cells` sums the cell counts in the catalog rows and opens no store. A cell matches by the
+rule of `get_anndata`, and the catalog excludes the same datasets. Thus, without `primary_only`, the
+count equals the `n_obs` of the result of `get_anndata` when there is one. A count joins no
+matrices, so it does not apply the checks before concatenation. The filter takes the counted columns
+and `dataset_id`, and a filter on another indexed column raises `ValueError`. With `primary_only`,
+the count includes only the cells whose `is_primary_data` is true.
+
+On the 1,258 stores, the call counts 374,463 human neutrophils, and Census 1 gives the same count.
+On a laptop, `open_census` and the first count take about 40 ms together, and a later count takes
+15 ms.
 
 The writer projects each store onto the gene reference of its organism. Thus every store of one
 organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads
