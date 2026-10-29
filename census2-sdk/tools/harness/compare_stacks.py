@@ -103,11 +103,8 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
         "the release builder adds the corpus aggregates in Iteration 3 (4.14)",
     ),
 )
-# Census 1 sums float32 counts in float32, so it rounds a row sum above 2**24. The writer
-# keeps the exact sum. Over the 1,258 stores, the largest relative difference is 1.7e-7.
-# The rule explains the Census 1 value only. The round-trip check of the ingest verifies
-# the SDK value against the source counts, because a gene-filtered result holds part of
-# each row (harness README).
+# Census 1 sums float32 counts in float32, so it rounds a row sum above 2**24 (largest
+# relative difference 1.7e-7). The ingest round-trip check verifies the SDK sum (README).
 FLOAT32_SUMS = {"obs.raw_sum", "obs.raw_mean_nnz"}
 FLOAT32_RTOL = 1e-6
 
@@ -120,12 +117,7 @@ def _differ(left: np.ndarray, right: np.ndarray) -> np.ndarray:
 
 
 def _float32_rounding(census1: Arrays, sdk: Arrays, column: str) -> bool:
-    """True if `column` differs only in cells where Census 1 rounds the row sum.
-
-    In each such cell, `raw_sum` differs too, the exact row sum is above 2**24, and the
-    relative difference is at most `FLOAT32_RTOL`. For `raw_mean_nnz`, both sides also
-    hold the same `nnz`, and each mean is its own side's `raw_sum / nnz`.
-    """
+    """True if `column` differs only where Census 1 rounds the row sum (harness README)."""
     needed = {"obs.raw_sum"} | ({"obs.nnz"} if column == "obs.raw_mean_nnz" else set())
     if not needed <= census1.keys() & sdk.keys():
         return False

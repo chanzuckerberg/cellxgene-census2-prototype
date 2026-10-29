@@ -241,9 +241,9 @@ S, M, N = "raw_sum", "raw_mean_nnz", "nnz"
             {S: 2.0**24 + 1, M: 2.0**23 - 0.5, N: 2},
             "fail",
         ),
-        # the first cell rounds, and a later cell differs below 2**24
+        # a later cell differs below 2**24
         ({S: [2.0**24, 5.0]}, {S: [2.0**24 + 1, 6.0]}, "fail"),
-        # the first mean follows a rounded sum, and a later mean differs at the same sum
+        # a later mean differs at an equal sum
         (
             {S: [2.0**24, 10.0], M: [2.0**23, 5.0], N: [2, 2]},
             {S: [2.0**24 + 1, 10.0], M: [2.0**23 + 0.5, 6.0], N: [2, 2]},
