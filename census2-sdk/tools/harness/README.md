@@ -151,10 +151,16 @@ list.
 The driver accepts a `raw_sum` or `raw_mean_nnz` finding only when three conditions hold
 for every cell that differs. The `raw_sum` of the cell differs too, its exact row sum is
 above 2^24, and its relative difference is at most 1e-6. For `raw_mean_nnz`, both sides
-also hold the same `nnz`, and each mean equals the `raw_sum / nnz` of its own side. The comparator names only the first cell that differs, so the driver
-checks all of them. Over the 1,258
-stores of Census 1 LTS `2025-11-08`, 385 cells differ, and the largest relative difference
-is 1.7e-7.
+also hold the same `nnz`, and each mean equals the `raw_sum / nnz` of its own side. The
+comparator names only the first cell that differs, so the driver checks all of them.
+Over the 1,258 stores of Census 1 LTS `2025-11-08`, 385 cells differ, and the largest
+relative difference is 1.7e-7.
+
+This rule explains the Census 1 value only, and it accepts the SDK value as the exact sum.
+The round-trip check of the reconciliation job verifies that value. For every cell, it
+computes `raw_sum`, `nnz`, `raw_mean_nnz`, and `raw_variance_nnz` again from the source
+counts, and it compares them exactly with the store. The harness cannot do this itself,
+because a query that selects genes returns part of each row.
 
 ## Scope limits
 

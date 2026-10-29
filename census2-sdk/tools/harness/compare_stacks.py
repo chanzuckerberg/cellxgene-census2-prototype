@@ -105,6 +105,9 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
 )
 # Census 1 sums float32 counts in float32, so it rounds a row sum above 2**24. The writer
 # keeps the exact sum. Over the 1,258 stores, the largest relative difference is 1.7e-7.
+# The rule explains the Census 1 value only. The round-trip check of the ingest verifies
+# the SDK value against the source counts, because a gene-filtered result holds part of
+# each row (harness README).
 FLOAT32_SUMS = {"obs.raw_sum", "obs.raw_mean_nnz"}
 FLOAT32_RTOL = 1e-6
 

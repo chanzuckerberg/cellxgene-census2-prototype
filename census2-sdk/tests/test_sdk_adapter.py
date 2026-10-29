@@ -241,18 +241,27 @@ S, M, N = "raw_sum", "raw_mean_nnz", "nnz"
             {S: 2.0**24 + 1, M: 2.0**23 - 0.5, N: 2},
             "fail",
         ),
+        # the first cell rounds, and a later cell differs below 2**24
+        ({S: [2.0**24, 5.0]}, {S: [2.0**24 + 1, 6.0]}, "fail"),
+        # the first mean follows a rounded sum, and a later mean differs at the same sum
+        (
+            {S: [2.0**24, 10.0], M: [2.0**23, 5.0], N: [2, 2]},
+            {S: [2.0**24 + 1, 10.0], M: [2.0**23 + 0.5, 6.0], N: [2, 2]},
+            "fail",
+        ),
     ],
 )
 def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
     tmp_path: pathlib.Path,
-    census1_obs: dict[str, float],
-    sdk_obs: dict[str, float],
+    census1_obs: dict[str, float | list[float]],
+    sdk_obs: dict[str, float | list[float]],
     status: str,
 ) -> None:
-    def cells(values: dict[str, float]) -> ad.AnnData:
+    def cells(values: dict[str, float | list[float]]) -> ad.AnnData:
+        """Two cells. A single value is the first cell's, and the second cell holds 5."""
         adata = _adata(["g1"])
         for column, value in values.items():
-            adata.obs[column] = [value, 5.0]
+            adata.obs[column] = value if isinstance(value, list) else [value, 5.0]
         return adata
 
     class Stores:
