@@ -106,10 +106,11 @@ also hold a dense matrix beside sparse counts, for example a dense normalized `X
 `2025-11-08`, 9 hold a dense `X` beside a sparse `raw.X`, and none holds dense counts.
 
 The DNA methylation datasets (snmC-seq) hold dense counts: `X` is dense, and there is no `raw` and
-no `layers`. Admission rejects them on their assay: `census2_dataset_writer.admit` requires one cell
-on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53 have no allowed
-assay, and 18 dense datasets are among the 53. The criterion is the assay and not the encoding, so
-admission accepts a dataset that holds dense counts on an allowed assay.
+no `layers`. The cell filters reject them on their assay. No methylation assay is on the assay
+allowlist, so `census2_dataset_writer.cell_mask` keeps no cell, and `build` rejects the dataset
+before it reads `X`. Of 2228 datasets, 53 have no allowed assay, and 18 dense datasets are among the
+53. The criterion is the assay and not the encoding, so the writer accepts a dataset that holds
+dense counts on an allowed assay.
 
 The memory request is still `size * 2.5` for every dataset. On the prototyping manifest, the
 largest peak was 4.0 GiB, on a 16.4 GiB h5ad, and no task used more than 40% of its reservation.

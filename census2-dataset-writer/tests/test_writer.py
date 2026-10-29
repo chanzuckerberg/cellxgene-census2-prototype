@@ -484,7 +484,7 @@ def test_a_rejected_dataset_has_no_summary_record() -> None:
         "dataset_id": "d",
         "dataset_version_id": "v",
         "admitted": False,
-        "reason": "no cells on the assay allowlist",
+        "reason": "no cells pass the cell filters: assay (EFO:0030027)",
         "slots": [],
         "dropped_cells": {},
         "dropped_obs_columns": [],
@@ -645,69 +645,6 @@ def test_an_organism_without_a_reference_is_rejected(tmp_path: Path) -> None:
     assert not dest.exists()
 
 
-# --- the assay allowlist --------------------------------------------------
-
-ON_LIST = "EFO:0009922"  # 10x 3' v3
-OFF_LIST = "EFO:0030027"  # snmC-Seq2, a DNA methylation assay
-
-
-def with_assay(adata: anndata.AnnData, *terms: str) -> anndata.AnnData:
-    """Give each cell an assay term, cycling through `terms`."""
-    n = adata.n_obs
-    adata.obs["assay_ontology_term_id"] = pd.Categorical(
-        [terms[i % len(terms)] for i in range(n)]
-    )
-    return adata
-
-
-def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
-    """The criterion that keeps dense methylation matrices out of the workflow."""
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    with_assay(dataset(), OFF_LIST).write_h5ad(source)
-
-    result = create(source, dest)
-
-    assert result["admitted"] is False
-    assert OFF_LIST in str(result["reason"])
-    assert not dest.exists()
-
-
-def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
-    """One cell admits the dataset, and the store keeps only the on-list cells,
-    as Census 1 does."""
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    with_assay(dataset(30), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
-
-    result = create(source, dest, refdata=tmp_path / "refdata")
-
-    assert result["admitted"] is True
-    assert result["dropped_cells"]["assay"] == 20
-    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
-    assert set(obs["assay_ontology_term_id"]) == {ON_LIST}
-
-
-def test_admit_ignores_a_missing_assay_column(refdata: Path) -> None:
-    """An AnnData without the column is not a Discover dataset, so the
-    criterion does not apply. The obs projection then refuses it."""
-    adata = dataset()
-    adata.obs = cast("pd.DataFrame", adata.obs).drop(columns="assay_ontology_term_id")
-    assert census2_dataset_writer.admit(adata, refdata=refdata) is None
-
-
-def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    with_assay(dataset(), OFF_LIST).write_h5ad(source)
-
-    config = census2_dataset_writer.load_config()
-    config["assay_allowlist"] = []
-
-    result = create(source, dest, config=config, refdata=tmp_path / "refdata")
-    assert result["admitted"] is True
-
-
 # --- the obs projection ---------------------------------------------------
 
 # Both names are taken from the corpus: a cell2location factor on a Visium
@@ -790,6 +727,70 @@ def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
     assert result["dropped_obs_columns"] == []
 
 
+# --- the cell filters ----------------------------------------------------
+
+ON_LIST = "EFO:0009922"  # 10x 3' v3
+OFF_LIST = "EFO:0030027"  # snmC-Seq2, a DNA methylation assay
+
+
+def with_assay(adata: anndata.AnnData, *terms: str) -> anndata.AnnData:
+    """Give each cell an assay term, cycling through `terms`."""
+    n = adata.n_obs
+    adata.obs["assay_ontology_term_id"] = pd.Categorical(
+        [terms[i % len(terms)] for i in range(n)]
+    )
+    return adata
+
+
+def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
+    """The assay filter keeps dense methylation matrices out of the workflow. The
+    reason names the filter and the assays, and holds no counts."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), OFF_LIST).write_h5ad(source)
+
+    result = create(source, dest)
+
+    assert result["admitted"] is False
+    assert result["reason"] == f"no cells pass the cell filters: assay ({OFF_LIST})"
+    assert result["dropped_cells"]["assay"] == 40
+    assert not dest.exists()
+
+
+def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
+    """One cell admits the dataset, and the store keeps only the on-list cells,
+    as Census 1 does."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(30), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
+
+    result = create(source, dest, refdata=tmp_path / "refdata")
+
+    assert result["admitted"] is True
+    assert result["dropped_cells"]["assay"] == 20
+    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
+    assert set(obs["assay_ontology_term_id"]) == {ON_LIST}
+
+
+def test_admit_decides_no_assay(refdata: Path) -> None:
+    """`cell_mask` alone decides assays, so `admit` admits an off-list dataset."""
+    adata = with_assay(dataset(), OFF_LIST)
+    assert census2_dataset_writer.admit(adata, refdata=refdata) is None
+
+
+def test_empty_allowlist_turns_the_assay_filter_off(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), OFF_LIST).write_h5ad(source)
+
+    config = census2_dataset_writer.load_config()
+    config["assay_allowlist"] = []
+
+    result = create(source, dest, config=config, refdata=tmp_path / "refdata")
+    assert result["admitted"] is True
+    assert result["dropped_cells"]["assay"] == 0
+
+
 SPATIAL = "EFO:0022857"  # Visium Spatial Gene Expression
 
 
@@ -861,7 +862,7 @@ def test_a_dataset_with_no_cell_left_is_rejected(tmp_path: Path) -> None:
     result = create(source, dest, refdata=tmp_path / "refdata")
 
     assert result["admitted"] is False
-    assert "no cells pass the cell filters" in str(result["reason"])
+    assert result["reason"] == "no cells pass the cell filters: tissue_type"
     assert result["dropped_cells"] == {"tissue_type": 12, "assay": 0, "primary_data": 0}
     assert not dest.exists()
 

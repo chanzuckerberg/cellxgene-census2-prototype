@@ -43,13 +43,13 @@ a `dataset_id` column is an error, because that name belongs to the store.
 1. Admission (`admit`) decides whether the dataset belongs in Census 2. A
    rejection is a normal result: `build` returns no AnnData and a reason,
    and the caller records the reason and succeeds. This decision is largely
-   open. The stub applies two criteria. The assay allowlist keeps the
-   workflow away from modalities a Census is unlikely to carry. The
-   organism must have a gene reference, so that harmonization can project
-   the genes. `cell_mask` then applies the Census 1 cell filters: tissue
-   type, assay, and primary data on a spatial assay. The store keeps only
-   the cells that pass. A dataset with no cell left is rejected, and
-   the result counts the cells that each filter drops.
+   open. The stub applies one criterion: the organism must have a gene
+   reference, so that harmonization can project the genes. `cell_mask` then
+   applies the Census 1 cell filters: tissue type, assay, and primary data
+   on a spatial assay. The store keeps only the cells that pass. A dataset
+   with no cell left is rejected with a reason that names the filters. The
+   result counts the cells that each filter drops. The assay filter also
+   keeps the workflow away from modalities a Census is unlikely to carry.
 2. The slot policy decides which AnnData slots the store carries. This
    decision is made: the set that the Census 1 builder reads (`obs`, `var`,
    `X`, `raw`, and the `uns` keys that the `uns_keys` configuration lists),
@@ -257,9 +257,8 @@ DEFAULTS: Config = {
     # chanzuckerberg/cellxgene-census repository, at
     # tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/anndata.py
     "uns_keys": ["schema_version", "organism_ontology_term_id"],
-    # The assay ontology terms that admission accepts. A dataset needs at least
-    # one cell on one of them, and `cell_mask` drops the cells on other assays.
-    # An empty list turns the criterion off. A sorted list rather than the
+    # The assay ontology terms whose cells a store keeps; see `cell_mask`. An
+    # empty list turns the assay filter off. A sorted list rather than the
     # frozenset, because a config file is JSON.
     # See census2_dataset_writer.assays for where the terms come from.
     "assay_allowlist": sorted(assays.DEFAULT_ALLOWLIST),
@@ -376,14 +375,11 @@ def admit(
 ) -> str | None:
     """Decide whether Census 2 admits this dataset.
 
-    THIS IS A MINIMAL STUB. It applies two criteria. The dataset must hold at
-    least one cell on the assay allowlist, and its organism must have an entry
-    in `gene_references`. It is not production-ready admission logic. The
-    assay criterion keeps the bulk ingestion workflow away from data shapes
-    that a Census is unlikely to carry, such as the dense matrices of a DNA
-    methylation dataset, so that the workflow is not contorted to hold them.
-    The organism criterion admits only the datasets that `project_genes` can
-    project. Real admission criteria are open.
+    THIS IS A MINIMAL STUB. It applies one criterion: the organism must have
+    an entry in `gene_references`, so that `project_genes` can project the
+    dataset. It is not production-ready admission logic. `admit` holds the
+    criteria on the whole dataset, and `cell_mask` decides which cells a store
+    keeps, assays included. Real admission criteria are open.
 
     Return `None` to admit the dataset. Return a short reason to reject it.
     A rejection is a normal result. The caller records the reason and exits
@@ -399,23 +395,11 @@ def admit(
     names a reference file. It does not give the path. Resolve each name
     against `refdata`.
 
-    The assay criterion decides for the whole dataset: one cell on the
-    allowlist admits it. `cell_mask` then drops the cells on other assays, as
-    Census 1 does. An `obs` without `assay_ontology_term_id` is admitted. Such
-    an object is not a Discover dataset, so a Discover criterion does not apply
-    to it.
-
-    A `uns` without `organism_ontology_term_id` is admitted for the same
-    reason. `project_genes` cannot project it, and raises an error.
+    A `uns` without `organism_ontology_term_id` is admitted. Such an object is
+    not a Discover dataset, so a Discover criterion does not apply to it.
+    `project_genes` cannot project it, and raises an error.
     """
     config = DEFAULTS if config is None else config
-    # A config value is Any by design, so name its shape where it is read.
-    allowlist = set(cast("list[str]", config.get("assay_allowlist") or []))
-    terms = adata.obs.get("assay_ontology_term_id")
-    if allowlist and terms is not None and not bool(terms.isin(allowlist).any()):
-        present = sorted({str(t) for t in terms.unique()})
-        return f"no cells on the assay allowlist: {', '.join(present[:3])}"
-
     references = _gene_references(config)
     organism = adata.uns.get("organism_ontology_term_id")
     if organism is not None and str(organism) not in references:
@@ -442,7 +426,7 @@ def cell_mask(
     `is_primary_data` is true. Census 1 writes RNA and spatial cells to
     different experiments and requires primary data in the spatial ones.
     Census 2 merges the two assay lists, so it applies that rule to each cell.
-    An empty `assay_allowlist` turns the assay filter off, as in `admit`.
+    An empty `assay_allowlist` turns the assay filter off.
 
     The counts follow `CELL_FILTERS`. A cell counts under the first filter that
     it fails, so the counts add up to the cells dropped.
@@ -478,6 +462,23 @@ def cell_mask(
         dropped[name] = int((keep & ~passes[name]).sum())
         keep &= passes[name]
     return keep, dropped
+
+
+def _no_cells_reason(obs: pd.DataFrame, dropped: dict[str, int]) -> str:
+    """The rejection reason of a dataset that loses every cell to `cell_mask`.
+
+    It names the filters that dropped cells and, for the assay filter, the
+    assays present. It holds no counts, because `dropped_cells` holds them and
+    a run report groups rejections by their exact text.
+    """
+    parts = []
+    for name in (n for n in CELL_FILTERS if dropped.get(n)):
+        if name == "assay":
+            present = sorted({str(t) for t in obs["assay_ontology_term_id"].unique()})
+            parts.append(f"assay ({', '.join(present[:3])})")
+        else:
+            parts.append(name)
+    return f"no cells pass the cell filters: {', '.join(parts) or 'no cells'}"
 
 
 def project_obs(
@@ -709,7 +710,7 @@ def build(
     if reason is None:
         keep, dropped_cells = cell_mask(obs, config)
         if not keep.any():
-            reason = f"no cells pass the cell filters: dropped {dropped_cells}"
+            reason = _no_cells_reason(obs, dropped_cells)
     if reason is not None:
         return None, {
             "dataset_id": dataset_id,
