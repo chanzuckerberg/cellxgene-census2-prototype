@@ -264,7 +264,12 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
     compares. `get_anndata` reads the var columns from one store.
     """
     group = open_store(row["store_uri"])
-    obs = cast("pd.DataFrame", read_elem(group["obs"]))
+    obs_group = group["obs"]
+    assert isinstance(obs_group, zarr.Group), "obs must be an encoded dataframe"
+    # The result replaces the index (the source cell names), so the SDK does not
+    # read it. Its string decode costs about a third of the obs read.
+    columns = cast("list[str]", obs_group.attrs["column-order"])
+    obs = pd.DataFrame({name: read_elem(obs_group[name]) for name in columns})
     _check_cell_key(obs, str(row["store_uri"]))
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))

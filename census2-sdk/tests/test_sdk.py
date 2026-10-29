@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
+from anndata.io import read_elem
 
 import census2_sdk
 from census2_sdk import catalog
@@ -425,6 +426,23 @@ def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
     generator = (t for t in ["lung", "kidney"])
     result = query(census, {"tissue": generator})
     same(result, expected(corpus, {"tissue": ["lung", "kidney"]}))
+
+
+def test_obs_index_is_not_read(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The result replaces the source cell names, so the SDK does not decode them."""
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
+    # Column by column: a read of the whole group would decode the index too.
+    assert "/obs/observation_joinid" in names
+    assert "/obs" not in names and "/obs/_index" not in names
 
 
 def test_duplicate_cell_key_refused(corpus: dict[str, Path], tmp_path: Path) -> None:
