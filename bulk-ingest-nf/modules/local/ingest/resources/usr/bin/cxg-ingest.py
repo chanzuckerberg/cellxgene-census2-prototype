@@ -110,10 +110,17 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
 
     `summary` is the summary record that the store must hold.
 
+    The store holds the source cells that the cell filters keep, in source
+    order. Its obs index must be the source index without the dropped cells,
+    and the number of cells dropped must be the total of `dropped_cells`. Each
+    comparison below reads the source at the kept cells. The check does not
+    repeat the filters, and so it does not show that the right cells were
+    dropped.
+
     The store's obs must hold exactly the columns of `OBS_COLUMNS`, in order,
-    each of its type, and the source's index. `dataset_id` must hold the summary
-    record's value, and each other column the source's values, compared as
-    strings, or as bool for a bool column.
+    each of its type. `dataset_id` must hold the summary record's value, and
+    each other column the source's values, compared as strings, or as bool for
+    a bool column.
 
     `written` is the result of `census2_dataset_writer.create`.
 
@@ -166,8 +173,16 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
         schema = census2_dataset_writer.OBS_COLUMNS
-        if not a.index.equals(b.index):
-            fail("obs", "index differs")
+        keep = a.index.isin(b.index)
+        if not a.index[keep].equals(b.index):
+            fail("obs", "index is not the source index without the dropped cells")
+        if int((~keep).sum()) != sum(written["dropped_cells"].values()):
+            fail(
+                "obs",
+                f"{int((~keep).sum())} cells dropped, "
+                f"expected {sum(written['dropped_cells'].values())}",
+            )
+        a = a[keep]
         if list(b.columns) != [name for name, _ in schema]:
             fail("obs", f"columns {list(b.columns)} are not the schema's")
         else:
@@ -202,6 +217,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         h5o = get(f, counts)
         source_x = sparse_dataset(h5o) if isinstance(h5o, h5py.Group) else h5o
         n_rows = int(source_x.shape[0])
+        n_kept = int(keep.sum())
         if (positions < 0).any():
             missing = list(ids[kept][positions < 0][:5])
             fail("X", f"{int((positions < 0).sum())} features not in var: {missing}")
@@ -209,15 +225,20 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
             fail("X", "not a sparse matrix")
         else:
             store_x = sparse_dataset(zroot["X"])
-            if tuple(store_x.shape) != (n_rows, len(var)):
-                fail("X", f"shape {store_x.shape} != {(n_rows, len(var))}")
+            if tuple(store_x.shape) != (n_kept, len(var)):
+                fail("X", f"shape {store_x.shape} != {(n_kept, len(var))}")
             else:
                 step = census2_dataset_writer.row_chunk(h5o, n_rows)
                 nnz = 0
+                # The store keeps source order, so a running offset finds each block.
+                start = 0
                 for i in range(0, n_rows, step):
                     rows = slice(i, min(i + step, n_rows))
-                    want = sp.csr_matrix(source_x[rows])[:, columns]
-                    got = sp.csr_matrix(store_x[rows])
+                    kept_rows = keep[rows]
+                    stop = start + int(kept_rows.sum())
+                    want = sp.csr_matrix(source_x[rows])[kept_rows][:, columns]
+                    got = sp.csr_matrix(store_x[start:stop])
+                    start = stop
                     nnz += got.count_nonzero()
                     if got.dtype != want.dtype:
                         fail("X", f"dtype {got.dtype} != source {want.dtype}")
@@ -225,7 +246,10 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                     if (got[:, positions] != want).nnz or (
                         got.count_nonzero() != want.count_nonzero()
                     ):
-                        fail("X", f"values differ in rows {rows.start}:{rows.stop}")
+                        fail(
+                            "X",
+                            f"values differ in source rows {rows.start}:{rows.stop}",
+                        )
                         break
                 result["X.nnz"] = int(nnz)
                 result["X.source"] = counts
@@ -384,8 +408,11 @@ def main() -> int:
         "schema_version": rec.get("schema_version"),
         "admitted": result["admitted"],
         "reason": result["reason"],
+        "dropped_cells": result["dropped_cells"],
         **config_provenance,
     }
+    if any(result["dropped_cells"].values()):
+        log(f"  cell filters dropped {result['dropped_cells']}")
 
     if result["admitted"]:
         for slot in result["slots"]:
