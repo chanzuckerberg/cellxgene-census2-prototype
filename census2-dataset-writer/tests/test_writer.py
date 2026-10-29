@@ -1238,6 +1238,18 @@ def test_a_repeated_cell_key_fails_with_the_values_named(tmp_path: Path) -> None
     assert not dest.exists()
 
 
+def test_a_write_refuses_a_null_cell_key(tmp_path: Path) -> None:
+    """One null is not a repeat, so the check looks for nulls first."""
+    dest = tmp_path / "store.zarr"
+    adata = dataset(6)
+    census2_dataset_writer.add_dataset_id(adata, "dataset-1")
+    adata.obs["observation_joinid"] = ["j0", "j1", None, "j3", "j4", "j5"]
+    record = dict(GOOD_RECORD, dataset_id="dataset-1")
+    with pytest.raises(ValueError, match="observation_joinid holds a null"):
+        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+    assert not dest.exists()
+
+
 def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:
     assert OBS_NAMES[0] == "dataset_id"
     assert len(set(OBS_NAMES)) == len(OBS_NAMES)

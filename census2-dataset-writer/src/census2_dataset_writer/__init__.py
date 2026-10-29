@@ -613,7 +613,9 @@ def add_tissue_general(
 
 
 def _require_unique(values: pd.Series, name: str) -> None:
-    """Raise `ValueError` that names the values of `obs` column `name` that repeat."""
+    """Raise `ValueError` for a null in `obs` column `name`, or name its repeated values."""
+    if bool(values.isna().any()):
+        raise ValueError(f"obs {name} holds a null")
     repeated = sorted({str(v) for v in values[values.duplicated()]})
     if repeated:
         raise ValueError(
@@ -950,10 +952,11 @@ def write(
     still need it for tolerable remote latency.
 
     `adata.obs` must hold the `dataset_id` column that `build` adds, with the
-    summary record's `dataset_id`, and an `observation_joinid` with no repeated
-    value. The pair is the cell key (design 1.6), so every write checks it, and
-    no configuration turns the check off. The summary record goes into the root group's
-    attributes after anndata finishes, so it is the last write.
+    summary record's `dataset_id`, and an `observation_joinid` with no null and
+    no repeated value. The pair is the cell key (design 1.6), so every write
+    checks it, and no configuration turns the check off. The summary record
+    goes into the root group's attributes after anndata finishes, so it is the
+    last write.
     The root group opens with its consolidated metadata, and the attribute
     update rewrites the root `zarr.json` with that metadata intact.
 
