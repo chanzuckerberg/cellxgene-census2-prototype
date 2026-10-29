@@ -440,7 +440,7 @@ def test_obs_index_is_not_read(
 
     monkeypatch.setattr(census2_sdk, "read_elem", spy)
     query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
-    # Column by column: a read of the whole group would decode the index too.
+    # A read of the whole group would decode the index too.
     assert "/obs/observation_joinid" in names
     assert "/obs" not in names and "/obs/_index" not in names
 
