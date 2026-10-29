@@ -16,7 +16,7 @@ from harness.canonical import (
     write_result,
 )
 from harness.comparator import Finding
-from harness.compare_stacks import owner, restrict_genes, run_one
+from harness.compare_stacks import expected, owner, restrict_genes, run_one
 from harness.corpus import BoundQuery
 from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
@@ -90,7 +90,7 @@ def test_owner_names_the_task_that_removes_a_finding() -> None:
     )
     assert (
         owner(Finding("column-set", "X.normalized", "present on left only"), set())[0]
-        == "4.5"
+        == "4.13"
     )
     tissue = Finding("strict-subset", "obs", "right is a strict subset")
     assert owner(tissue, {"tissue_general_ontology_term_id", "dataset_id"})[0] == "4.5"
@@ -202,3 +202,71 @@ def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
     census1 = canonicalize_anndata(_adata(["g1", "g2"]))
     record = _run_one(tmp_path, QUERY, Stores(), census1)
     assert record["status"] == status
+
+
+def test_an_expected_difference_holds_in_its_declared_direction() -> None:
+    def why(finding: Finding) -> str | None:
+        return expected(finding, {}, {})
+
+    assert why(Finding("column-set", "var.feature_version", "present on right only"))
+    assert not why(Finding("column-set", "var.feature_version", "present on left only"))
+    assert why(Finding("column-set", "var.nnz", "present on left only"))
+    assert not why(Finding("column-set", "var.nnz", "present on right only"))
+    assert not why(Finding("column-set", "X.normalized", "present on left only"))
+
+
+S, M, N = "raw_sum", "raw_mean_nnz", "nnz"
+
+
+@pytest.mark.parametrize(
+    ("census1_obs", "sdk_obs", "status"),
+    [
+        ({S: 16_777_216.0}, {S: 16_777_217.0}, "pass"),  # Census 1 rounds the sum
+        ({S: 1_000.0}, {S: 1_001.0}, "fail"),  # below 2**24, float32 sums are exact
+        ({S: 16_777_216.0}, {S: 16_800_000.0}, "fail"),  # too large for a rounding
+        (
+            {S: 2.0**24, M: 2.0**23, N: 2},
+            {S: 2.0**24 + 1, M: 2.0**23 + 0.5, N: 2},
+            "pass",
+        ),
+        ({S: 2.0**25, M: 2.0**24, N: 2}, {S: 2.0**25, M: 2.0**24 + 1, N: 2}, "fail"),
+        (
+            {S: 2.0**24, M: 2.0**23, N: 2},
+            {M: 2.0**23 + 0.5, N: 2},
+            "fail",
+        ),  # no raw_sum
+        # the SDK mean does not follow from the SDK sum
+        (
+            {S: 2.0**24, M: 2.0**23, N: 2},
+            {S: 2.0**24 + 1, M: 2.0**23 - 0.5, N: 2},
+            "fail",
+        ),
+    ],
+)
+def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
+    tmp_path: pathlib.Path,
+    census1_obs: dict[str, float],
+    sdk_obs: dict[str, float],
+    status: str,
+) -> None:
+    def cells(values: dict[str, float]) -> ad.AnnData:
+        adata = _adata(["g1"])
+        for column, value in values.items():
+            adata.obs[column] = [value, 5.0]
+        return adata
+
+    class Stores:
+        def get_anndata(self, organism: str, obs_filter: object) -> ad.AnnData:
+            return cells(sdk_obs)
+
+    census1 = canonicalize_anndata(cells(census1_obs))
+    record = _run_one(tmp_path, QUERY, Stores(), census1)
+    assert record["status"] == status
+
+
+def test_run_one_names_the_task_that_adds_an_unsupported_accessor(
+    tmp_path: pathlib.Path,
+) -> None:
+    query = replace(QUERY, accessor="get_obs")
+    record = _run_one(tmp_path, query, Empty(), {})
+    assert (record["status"], record["owner"]) == ("unsupported", "6.7")
