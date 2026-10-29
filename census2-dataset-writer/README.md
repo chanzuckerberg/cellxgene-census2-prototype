@@ -165,9 +165,9 @@ receipt.
 
 ```python
 census2_dataset_writer.provenance()
-# {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
+# {'recipe': 'v2', 'slot_policy': 'census', 'zarr_format': 3,
 #  'census2_dataset_writer_version': ..., 'anndata_version': ...,
-#  'zarr_version': ...}
+#  'zarr_version': ..., 'cellxgene_ontology_guide_version': ...}
 ```
 
 ## Develop

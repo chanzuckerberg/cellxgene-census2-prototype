@@ -226,8 +226,10 @@ BLOCK_BYTES = 64 * 1024**2
 # The recipe names the store format: the anndata version, the Zarr format, the X
 # encoding, the slot policy, and harmonization. Raise it when any of those
 # change, so that a receipt says which format its store holds. Nothing is keyed
-# on it: a store's location is its dataset version alone.
-RECIPE = "v1"
+# on it: a store's location is its dataset version alone. v2 adds the fixed `obs`
+# schema, the Census 1 cell filters, `tissue_general`, the count statistics, and
+# the `measured` column of `var`.
+RECIPE = "v2"
 
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
 # have to infer it.
