@@ -132,7 +132,14 @@ is 50 GiB. Two rules follow:
   `var`, `X`, and the other slots aligned.
 
 `add_obs_stats` maps over the blocks and computes one row of statistics for
-each cell, so `build` reads `X` once and the write reads it again.
+each cell, so `build` reads `X` once and the write reads it again. The
+statistics are `obs` columns, and `write_zarr` writes `obs` and computes `X`
+in one call, so the statistics must exist before the write starts. One
+shared pass needs the writer to write `X` itself, so that one dask compute
+feeds the store and the statistics. A load of the whole `X` can fail, as the
+rules above state. Revisit this choice when a third pass over `X` appears or
+the ingest cost matters. The per-gene nnz file of tracker 4.14 can share the
+pass of `add_obs_stats`.
 
 `README.md` in this directory covers installation, use, and development.
 """
