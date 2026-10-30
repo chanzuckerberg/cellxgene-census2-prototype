@@ -62,7 +62,7 @@ INDEXED = tuple(c for p in PAIRS for c in (p, f"{p}_ontology_term_id")) + (
 COUNTS = "cell_counts"
 COUNTED = tuple(
     c
-    for p in ("assay", "cell_type", "disease", "sex", "tissue")
+    for p in ("assay", "cell_type", "disease", "sex", "tissue", "tissue_general")
     for c in (p, f"{p}_ontology_term_id")
 )
 # Schema 2.4.0 made these two columns multi-valued. Equality is membership.

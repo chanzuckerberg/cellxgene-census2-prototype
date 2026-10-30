@@ -63,8 +63,9 @@ A store holds the dataset's cells, with the counts on the organism's pinned gene
 
 - `X` holds the counts: `raw.X` when the source has `raw`, else `X`. The store has no `raw`.
 - `var` is the reference (GENCODE v48 for human, 78,894 rows; GENCODE M37 for mouse), in reference
-  order. Every store of one organism has the same `var`, so a reader concatenates stores by
-  position. A gene that the dataset did not measure is a zero column.
+  order. Every store of one organism has the same genes in `var`, so a reader concatenates stores
+  by position. A gene that the dataset did not measure is a zero column. The `measured` column of
+  `var` marks the genes that the dataset measured, because a zero column cannot show that.
 - The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
   gene that is not in the reference fails the dataset. The writer does not map genes across
   reference versions.
@@ -93,20 +94,28 @@ reuse one store.
 
 ## obs schema
 
-A store's `obs` holds a fixed set of columns in a fixed order: `dataset_id`, then the 19 columns
-that the CxG schema requires in every dataset and that Census 1 copies. `store_format.OBS_COLUMNS`
-lists them, each with its `ColType`.
+A store's `obs` holds a fixed set of columns in a fixed order. These are `dataset_id`, the 19 CxG
+columns that Census 1 copies, the `tissue_general` pair, and five statistics of the counts.
+`store_format.OBS_COLUMNS` lists them, each with its `ColType`.
 
-- Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
-  strings, and every other column is a categorical whose categories are the observed values,
-  sorted, as strings.
+- Each column has a fixed type. `is_primary_data` is `bool`, and `observation_joinid` is plain
+  strings. `nnz` and `n_measured_vars` are `int64`, and `raw_sum`, `raw_mean_nnz`, and
+  `raw_variance_nnz` are `float64`. Every other column is a categorical whose categories are the
+  observed values, sorted, as strings.
 - No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
   not boolean, or has an `observation_joinid` that is not unique fails the build.
 - A store does not yet hold any other source column. The result names each one that it drops,
   in `dropped_obs_columns`.
-- Census 1 also holds `tissue_general`, `tissue_general_ontology_term_id`, and five statistics of
-  the counts, which a store does not hold yet. It also holds `soma_joinid`, a corpus-wide number
-  that a store for one dataset cannot assign.
+- `tissue_general` and `tissue_general_ontology_term_id` are the Census 1 roll-up of
+  `tissue_ontology_term_id` to a high-level tissue, through `cellxgene-ontology-guide` at the
+  version that Census 1 pins. The package holds its ontologies and reads no network. The receipt
+  records its version.
+- `raw_sum`, `nnz`, `raw_mean_nnz`, `raw_variance_nnz`, and `n_measured_vars` are the Census 1
+  statistics of the counts. The writer computes them as Census 1 does, before the gene projection,
+  so they are bit-identical to Census 1. `n_measured_vars` is the number of genes in `measured`.
+  The writer reads `X` once for the statistics and once more for the write.
+- Census 1 also holds `soma_joinid`, a corpus-wide number that a store for one dataset cannot
+  assign.
 
 ## Summary record
 
@@ -156,9 +165,9 @@ receipt.
 
 ```python
 census2_dataset_writer.provenance()
-# {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
+# {'recipe': 'v2', 'slot_policy': 'census', 'zarr_format': 3,
 #  'census2_dataset_writer_version': ..., 'anndata_version': ...,
-#  'zarr_version': ...}
+#  'zarr_version': ..., 'cellxgene_ontology_guide_version': ...}
 ```
 
 ## Develop

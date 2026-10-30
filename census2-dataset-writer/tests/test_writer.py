@@ -29,9 +29,9 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
-# dataset_id comes first. The writer adds it, and copies OBS_NAMES[1:] from the
-# source.
+# The writer adds dataset_id (first) and the other derived columns, and copies COPIED.
 OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
+COPIED = [n for n in OBS_NAMES if n not in census2_dataset_writer.DERIVED_OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
 # A Discover h5ad holds no identifiers, so every store needs these from its caller.
@@ -228,8 +228,9 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # source's values.
     assert list(obs.columns) == OBS_NAMES
     assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
-    for name in OBS_NAMES[1:]:
+    for name in COPIED:
         assert list(obs[name].astype(str)) == list(source.obs[name].astype(str))
+    assert set(obs["tissue_general"]) == {"lung"}
 
     # X is the counts on the reference genes, and sparse even from a dense source.
     x = stored_x(dest)
@@ -243,7 +244,10 @@ def test_the_store_holds_counts_on_the_reference(tmp_path: Path) -> None:
 
     var: Any = read_elem(store["var"])
     assert list(var.index) == REF_IDS
-    assert list(var.columns) == census2_dataset_writer.genes.COLUMNS
+    measured = census2_dataset_writer.MEASURED_COLUMN
+    assert list(var.columns) == [*census2_dataset_writer.genes.COLUMNS, measured]
+    # The assayed genes are the source genes, wherever they sit in the reference.
+    assert set(var.index[var[measured]]) == set(source.raw.var.index)
     assert result["gene_reference_version"] == "TEST v1"
     # raw.X holds the counts, and X the halved values: the store took raw.X.
     assert "raw" not in result["slots"]
@@ -674,16 +678,17 @@ def test_project_obs_drops_the_author_columns() -> None:
     """Names with a `/` go with every other author column."""
     adata = with_obs_columns(dataset(), "leiden", *SLASH_COLS)
     kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
-    assert kept == OBS_NAMES[1:]
+    assert kept == COPIED
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
-    """harmonize is the seam; project_obs, select_counts, and project_genes are
-    what it does."""
+    """harmonize is the seam; project_obs, add_tissue_general, select_counts,
+    and project_genes are what it does."""
     adata = with_obs_columns(dataset(), *SLASH_COLS)
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
     assert list(harmonized.obs.columns) == OBS_NAMES[1:]
+    assert set(harmonized.obs["tissue_general_ontology_term_id"]) == {"UBERON:0002048"}
     assert list(harmonized.var.index) == REF_IDS
     assert harmonized.raw is None
     x: Any = harmonized.X
@@ -867,6 +872,90 @@ def test_a_dataset_with_no_cell_left_is_rejected(tmp_path: Path) -> None:
     assert not dest.exists()
 
 
+# --- tissue_general --------------------------------------------------------
+
+
+def test_tissue_general_rolls_up_as_census_1_does() -> None:
+    assert census2_dataset_writer.tissues.tissue_general(
+        ["UBERON:0008952", "UBERON:0000966", "UBERON:0002048"]
+    ) == {
+        "UBERON:0008952": ("UBERON:0002048", "lung"),  # upper lobe of left lung
+        "UBERON:0000966": ("UBERON:0000970", "eye"),  # retina
+        "UBERON:0002048": ("UBERON:0002048", "lung"),
+    }
+
+
+def test_tissue_general_refuses_a_term_outside_the_ontology() -> None:
+    with pytest.raises(ValueError, match="UBERON:9999999"):
+        census2_dataset_writer.tissues.tissue_general(["UBERON:9999999"])
+
+
+def test_the_store_holds_tissue_general(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(20)
+    retina = np.arange(20) % 2 == 0
+    adata.obs["tissue_ontology_term_id"] = pd.Categorical(
+        np.where(retina, "UBERON:0000966", "UBERON:0002048")
+    )
+    adata.write_h5ad(source)
+
+    create(source, dest, refdata=tmp_path / "refdata")
+
+    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
+    pair = ["tissue_general", "tissue_general_ontology_term_id"]
+    assert list(obs.columns[-7:-5]) == pair
+    assert list(obs["tissue_general"]) == list(np.where(retina, "eye", "lung"))
+    assert list(obs["tissue_general"].cat.categories) == ["eye", "lung"]
+
+
+# --- the statistics of the counts --------------------------------------------
+
+
+def test_row_stats_follow_census_1() -> None:
+    """Explicit zeros do not count, and a row with fewer than two values has a
+    variance of 0, as in Census 1."""
+    rows = [[0, 0, 0, 0], [5, 0, 0, 0], [1, 2, 0, 6], [3, 3, 0, 1]]
+    x = sp.csr_matrix(np.array(rows, dtype=np.float32))
+    x[1, 1] = 0  # an explicit zero
+    assert x.nnz == 8
+
+    stats = census2_dataset_writer._row_stats(x)
+
+    raw_sum, nnz, mean, variance = stats.T
+    assert raw_sum.tolist() == [0, 5, 9, 7]
+    assert nnz.tolist() == [0, 1, 3, 3]
+    assert mean.tolist() == [0, 5, 3, 7 / 3]
+    np.testing.assert_allclose(
+        variance, [0, 0, np.var([1, 2, 6], ddof=1), np.var([3, 3, 1], ddof=1)]
+    )
+
+
+def test_row_stats_merge_duplicates_and_keep_precision() -> None:
+    """A duplicate entry adds to its gene, and counts that float32 cannot hold
+    keep their precision."""
+    duplicates = sp.csr_matrix(
+        (np.array([1, 2, 3], dtype=np.float32), np.array([0, 0, 1]), np.array([0, 3])),
+        shape=(1, 2),
+    )
+    _, nnz, mean, variance = census2_dataset_writer._row_stats(duplicates)[0]
+    assert (nnz, mean, variance) == (2, 3, 0)
+
+    wide = sp.csr_matrix(np.array([[16777216, 16777217]], dtype=np.float64))
+    assert census2_dataset_writer._row_stats(wide)[0, 3] == 0.5
+
+
+def test_the_store_holds_the_count_statistics(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path, raw=True)
+    source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
+    obs: Any = read_elem(zarr.open_consolidated(dest, mode="r")["obs"])
+    x = projected(source)
+
+    np.testing.assert_array_equal(obs["raw_sum"], x.sum(axis=1, dtype=np.float64))
+    np.testing.assert_array_equal(obs["nnz"], np.count_nonzero(x, axis=1))
+    assert set(obs["n_measured_vars"]) == {source.raw.n_vars}
+
+
 def test_default_allowlist_holds_rna_and_spatial() -> None:
     """The default is Census 1's two lists, merged."""
     allowlist = set(census2_dataset_writer.DEFAULTS["assay_allowlist"])
@@ -891,6 +980,21 @@ def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> No
 
     result = create(source, dest, threads=2, refdata=tmp_path / "refdata")
     assert result["admitted"] is True
+    assert dask.config.get("num_workers", None) == before
+
+
+def test_a_failed_call_restores_the_thread_setting(tmp_path: Path) -> None:
+    """The bound applies when its block starts, so a call that fails before the
+    block leaves the setting as it was."""
+    import dask
+
+    before = dask.config.get("num_workers", None)
+    with pytest.raises(FileNotFoundError):
+        create(tmp_path / "missing.h5ad", tmp_path / "store.zarr", threads=2)
+    with pytest.raises(census2_dataset_writer.SummaryRecordError):
+        census2_dataset_writer.write(
+            dataset(), tmp_path / "store.zarr", summary=cast(Any, {}), threads=2
+        )
     assert dask.config.get("num_workers", None) == before
 
 
@@ -930,6 +1034,7 @@ def test_provenance_reports_the_code_that_wrote_a_store() -> None:
     assert p["census2_dataset_writer_version"] == version("census2-dataset-writer")
     assert p["anndata_version"] == version("anndata")
     assert p["zarr_version"] == version("zarr")
+    assert p["cellxgene_ontology_guide_version"] == version("cellxgene-ontology-guide")
 
 
 def test_provenance_follows_the_slot_policy() -> None:
@@ -1062,6 +1167,10 @@ def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
             assert all(isinstance(c, str) for c in categories), name
         elif col_type is census2_dataset_writer.ColType.BOOL:
             assert column.dtype == bool, name
+        elif col_type is census2_dataset_writer.ColType.INT64:
+            assert column.dtype == np.int64, name
+        elif col_type is census2_dataset_writer.ColType.FLOAT64:
+            assert column.dtype == np.float64, name
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name
             assert all(isinstance(v, str) for v in column), name

@@ -20,8 +20,10 @@ key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
 `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
 The writer projects each store onto the reference. Thus every selected store has
-the same `var`. The SDK checks that every store has the same gene identifiers in the
-same order, and concatenates by position.
+the same genes in `var`. The SDK checks that every store has the same gene identifiers
+in the same order, and concatenates by position. A store's `var` also marks the
+dataset's assayed genes in a `measured` column, and the result leaves that column out,
+because the result spans datasets.
 
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
 that each catalog row holds (tracker 5.9). Its filter takes the columns of
@@ -47,7 +49,7 @@ from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
 from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
-from census2_sdk.gene_reference import ORGANISMS
+from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
 __all__ = [
     "Census",
@@ -120,8 +122,10 @@ class Census:
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
-        # version and one index, so the first store supplies the var columns.
-        result.var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        # version and one index, so the first store supplies the var columns,
+        # except the assayed genes of its own dataset.
+        var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),

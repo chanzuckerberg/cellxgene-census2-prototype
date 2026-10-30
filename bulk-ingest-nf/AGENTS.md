@@ -61,11 +61,16 @@ version have the same size. `tools/census1-sample.py` asserts this for each reco
 script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
 a source build, which fails.
 
-`census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`:
-`dataset_id` and the 19 CxG columns that Census 1 copies, each with a fixed type. Every other source
-column goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets
-that drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
-order, each of its type, with the source's values and the summary record's `dataset_id`.
+`census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`. The
+schema holds `dataset_id`, the 19 CxG columns that Census 1 copies, the `tissue_general` pair, and
+five statistics of the counts. Each column has a fixed type. `add_tissue_general` and
+`add_obs_stats` compute the derived columns. Every other source column goes. The receipt names them
+in `dropped_obs_columns`, and the run report counts the datasets that drop any, which is most of
+them. The round-trip check requires exactly the schema's columns, in order, each of its type. The
+values must be the source's values, the roll-up of the source's tissue terms, and the summary
+record's `dataset_id`. The check computes the Census 1 statistics again from the kept source counts,
+with its own code, and requires equal values. The `measured` column of `var` must mark exactly the
+kept source features.
 
 `census2_dataset_writer.cell_mask` applies the Census 1 cell filters (tissue type, assay, primary
 data on a spatial assay), and the store keeps only the cells that pass. The receipt counts the cells

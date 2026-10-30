@@ -119,6 +119,33 @@ def obs_column_problem(
     return None
 
 
+STATS = ("raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz", "n_measured_vars")
+
+
+def row_stats(x: sp.csr_matrix) -> np.ndarray:
+    """raw_sum, nnz, mean, and sample variance of the nonzero values of each row.
+
+    These are the Census 1 definitions (its `get_obs_stats`), written here apart
+    from the writer: duplicates merged and explicit zeros removed, and a variance
+    of values shifted by the first value of the row, squared in float32 for float32
+    counts and summed in float64. The writer must match them exactly.
+    """
+    x = x.copy()
+    x.sum_duplicates()
+    x.eliminate_zeros()
+    nnz = np.diff(x.indptr)
+    total = np.asarray(x.sum(axis=1, dtype=np.float64)).ravel()
+    rows = np.repeat(np.arange(len(nnz)), nnz)
+    data = x.data if x.data.dtype == np.float32 else x.data.astype(np.float64)
+    shift = data - data[x.indptr[rows]]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean = np.where(nnz > 0, total / nnz, 0.0)
+        s1 = np.bincount(rows, weights=shift, minlength=len(nnz))
+        s2 = np.bincount(rows, weights=shift * shift, minlength=len(nnz))
+        var = np.where(nnz > 1, (s2 - s1**2 / nnz) / (nnz - 1), 0.0)
+    return np.column_stack([total, nnz, mean, var])
+
+
 def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
@@ -139,9 +166,12 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     dropped.
 
     The store's obs must hold exactly the columns of `OBS_COLUMNS`, in order,
-    each of its type. `dataset_id` must hold the summary record's value, and
-    each other column the source's values, compared as strings, or as bool for
-    a bool column.
+    each of its type. `dataset_id` must hold the summary record's value, the
+    `tissue_general` pair the roll-up of the source's `tissue_ontology_term_id`
+    (from `census2_dataset_writer.tissues`), and each other column the source's
+    values. The comparison is as strings, or as bool for a bool column. The
+    statistics of the counts must equal those of the kept source counts, and
+    `n_measured_vars` the number of kept source features.
 
     `written` is the result of `census2_dataset_writer.create`.
 
@@ -207,10 +237,24 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         if list(b.columns) != [name for name, _ in schema]:
             fail("obs", f"columns {list(b.columns)} are not the schema's")
         else:
+            tissue = a["tissue_ontology_term_id"].astype(str)
+            general = census2_dataset_writer.tissues.tissue_general(tissue.unique())
             for name, col_type in schema:
                 # The writer adds dataset_id, with the summary record's value.
                 if name == census2_dataset_writer.DATASET_ID_COLUMN:
                     want = pd.Series(summary["dataset_id"], index=b.index)
+                elif name == "tissue_general":
+                    want = tissue.map({t: pair[1] for t, pair in general.items()})
+                elif name == "tissue_general_ontology_term_id":
+                    want = tissue.map({t: pair[0] for t, pair in general.items()})
+                elif name in STATS:
+                    # Compared with the source counts, block by block, below.
+                    if b[name].dtype != col_type.value:
+                        fail(
+                            f"obs.{name}",
+                            f"dtype {b[name].dtype}, not {col_type.value}",
+                        )
+                    continue
                 else:
                     want = a[name]
                 problem = obs_column_problem(b[name], want, col_type)
@@ -221,7 +265,8 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         result["compared"].append("var")
         if not var.index.is_unique:
             fail("var", "feature_ids are not unique")
-        if list(var.columns) != census2_dataset_writer.genes.COLUMNS:
+        measured = census2_dataset_writer.MEASURED_COLUMN
+        if list(var.columns) != [*census2_dataset_writer.genes.COLUMNS, measured]:
             fail("var", f"columns {list(var.columns)} are not the reference columns")
         # anndata writes an absent raw as a null-encoded element, not a missing key.
         if has(zroot, "raw") and zroot["raw"].attrs.get("encoding-type") == "raw":
@@ -242,6 +287,10 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         if (positions < 0).any():
             missing = list(ids[kept][positions < 0][:5])
             fail("X", f"{int((positions < 0).sum())} features not in var: {missing}")
+        elif measured in var.columns and set(np.flatnonzero(var[measured])) != set(
+            positions
+        ):
+            fail(f"var.{measured}", "does not mark exactly the kept source features")
         elif not isinstance(zroot["X"], zarr.Group):
             fail("X", "not a sparse matrix")
         else:
@@ -251,6 +300,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
             else:
                 step = census2_dataset_writer.row_chunk(h5o, n_rows)
                 nnz = 0
+                expected = []
                 # The store keeps source order, so a running offset finds each block.
                 start = 0
                 for i in range(0, n_rows, step):
@@ -259,6 +309,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                     stop = start + int(kept_rows.sum())
                     want = sp.csr_matrix(source_x[rows])[kept_rows][:, columns]
                     got = sp.csr_matrix(store_x[start:stop])
+                    expected.append(row_stats(want))
                     start = stop
                     nnz += got.count_nonzero()
                     if got.dtype != want.dtype:
@@ -274,6 +325,16 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                         break
                 result["X.nnz"] = int(nnz)
                 result["X.source"] = counts
+                # A failed block stops the loop early, so compare after a full pass.
+                complete = sum(len(e) for e in expected) == len(b)
+                if complete and set(STATS) <= set(b.columns):
+                    want_stats = np.vstack(expected)
+                    for j, name in enumerate(STATS[:4]):
+                        if not np.array_equal(b[name], want_stats[:, j]):
+                            fail(f"obs.{name}", "differs from the source counts")
+                    if (b["n_measured_vars"] != len(columns)).any():
+                        fail("obs.n_measured_vars", f"is not {len(columns)}")
+                    result["compared"].append("obs statistics")
         result["compared"].append("X")
 
     required = {"summary"} | {slot_group(s) for s in written["slots"]}

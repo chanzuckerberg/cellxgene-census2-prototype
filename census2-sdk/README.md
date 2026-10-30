@@ -37,10 +37,10 @@ that has no summary record.
 
 Each row also holds the cell counts of its store, in the `cell_counts` column. The column has one
 entry for each combination of the counted values, with the number of cells in `n_cells`. The counted
-values are assay, cell type, disease, sex, and tissue (each as the label and the ontology term), and
-`is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
-For the 1,258 stores of the Census 1 LTS `2025-11-08` run, the column holds 117,740 entries, and the
-catalog is 925 KiB.
+values are assay, cell type, disease, sex, tissue, and `tissue_general` (each as the label and the
+ontology term), and `is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
+For the 1,258 stores of the Iteration 2 gate run (Census 1 LTS `2025-11-08`), the column holds
+117,712 entries, and the catalog is 1,014 KiB.
 
 ## Query
 
@@ -85,8 +85,9 @@ On a laptop, `open_census` and the first count take about 40 ms together, and a 
 15 ms.
 
 The writer projects each store onto the gene reference of its organism. Thus every store of one
-organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads
-no reference.
+organism has the same genes in `var`, in the same order. The SDK takes `var` from the stores and
+downloads no reference. A store's `var` also marks the dataset's assayed genes in `measured`, and
+the result leaves that column out.
 
 ## Checks before concatenation
 
@@ -96,7 +97,7 @@ values when a check fails:
 - one organism, given by the query
 - every row records a `gene_reference_version`, and it equals the version the SDK pins for the
   organism
-- every opened store has the same `var`; the SDK checks this when it reads the stores
+- every opened store has the same genes in `var`; the SDK checks this when it reads the stores
 - no spatial store together with a non-spatial store
 - a `dataset_id` in one source only, checked when the sources open
 

@@ -37,7 +37,7 @@ nextflow_pipeline {
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
                 assert rec.published_by == "workflow"
-                assert rec.recipe == "v1"
+                assert rec.recipe == "v2"
                 // The default slot policy is the Census set, not every slot.
                 assert rec.slot_policy == "census"
                 assert rec.slots_written.contains("X")

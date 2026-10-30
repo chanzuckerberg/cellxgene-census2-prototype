@@ -89,10 +89,10 @@ know that the checker cannot: for a matrix, `read_elem_lazy` returns a dask arra
 contract depends on that.
 
 h5py ships no type information, so `H5Matrix` and `Source` are `Any` with a comment naming what a
-caller must pass, and h5py is the only entry in the `ignore_missing_imports` override. Keep it the
-only entry: adding a package there discards types we can have. Everything else is typed: dask,
-obstore, anndata, and zarr ship `py.typed`, and `pandas-stubs` and `scipy-stubs` are dev
-dependencies.
+caller must pass. h5py and cellxgene-ontology-guide, which also ships no types, are the only entries
+in the `ignore_missing_imports` override. Add only a package that has no types: a typed package
+there discards types we can have. Everything else is typed: dask, obstore, anndata, and zarr ship
+`py.typed`, and `pandas-stubs` and `scipy-stubs` are dev dependencies.
 
 dask types `Array.map_blocks` for a function of the blocks alone. `project_matrix` passes extra
 arguments, so it calls the method through `Any` and casts the result to `da.Array`.

@@ -82,7 +82,10 @@ def make_store(
         },
         index=[f"cell{i}" for i in range(n_obs)],
     )
-    adata = anndata.AnnData(X=x, obs=obs, var=reference_var(var_ids))
+    var = reference_var(var_ids)
+    # The writer marks the dataset's assayed genes in var.
+    var["measured"] = np.isin(var_ids, measured)
+    adata = anndata.AnnData(X=x, obs=obs, var=var)
     adata.uns = {
         "schema_version": "7.1.0",
         "organism_ontology_term_id": "NCBITaxon:9606",
@@ -248,7 +251,7 @@ def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
     assert result.uns["census2"]["sources"] == [str(corpus["catalog"])]
     assert result.obs.index.is_unique
     assert X(result).dtype == np.float32
-    # var is the stores' var, with its reference columns.
+    # var is the stores' var, with its reference columns and without `measured`.
     assert list(result.var.columns) == list(reference_var(REFERENCE_IDS).columns)
 
 
@@ -534,6 +537,15 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
     # For an organism with no store, a query with a filter gives zero and None.
     assert census.count_cells("mus_musculus", {"tissue": "lung"}) == 0
     assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
+
+
+def test_count_cells_takes_tissue_general(tmp_path: Path) -> None:
+    adata = make_store("ds-t", 6, REFERENCE_IDS[:3], ["lung", "retina"], ["normal"], 7)
+    adata.obs["tissue_general"] = pd.Categorical(["lung"] * 4 + ["eye"] * 2)
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-t")])
+    assert census.count_cells("homo_sapiens", {"tissue_general": "eye"}) == 2
+    result = census.get_anndata("homo_sapiens", {"tissue_general": "eye"})
+    assert result is not None and result.n_obs == 2
 
 
 def test_count_cells_reads_the_catalog_that_open_census_read(

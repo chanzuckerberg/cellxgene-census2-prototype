@@ -57,13 +57,17 @@ a `dataset_id` column is an error, because that name belongs to the store.
    counts from `raw` in `X`, and removes the slots that index the source
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
-   query can combine stores. It runs three steps in order. `project_obs`
-   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census
-   1 copies, each with a fixed type; it drops every other source column. `select_counts` puts the counts in `X`: `raw.X`
-   when the dataset has `raw`, else `X`. The store has no `raw`.
+   query can combine stores. It runs five steps in order. `project_obs`
+   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census 1 copies,
+   each with a fixed type; it drops every other source column.
+   `add_tissue_general` adds the Census 1 tissue roll-up (see
+   `census2_dataset_writer.tissues`). `select_counts` puts the counts in `X`:
+   `raw.X` when the dataset has `raw`, else `X`. The store has no `raw`.
+   `add_obs_stats` adds the Census 1 statistics of the counts to `obs`.
    `project_genes` projects the counts onto the pinned gene reference of the
-   dataset's organism. Thus every store of one organism has the same `var`,
-   in the same order. See `census2_dataset_writer.genes`.
+   dataset's organism. Thus every store of one organism has the same genes in
+   `var`, in the same order. `var` also marks the dataset's assayed genes in
+   `MEASURED_COLUMN`. See `census2_dataset_writer.genes`.
 
 Admission runs before the optional slots are read, so a rejected dataset
 does not read them. The `uns` policy is the exception: it applies at the read,
@@ -127,6 +131,16 @@ is 50 GiB. Two rules follow:
   Row-wise work maps over blocks, and a subset of the AnnData keeps `obs`,
   `var`, `X`, and the other slots aligned.
 
+`add_obs_stats` maps over the blocks and computes one row of statistics for
+each cell, so `build` reads `X` once and the write reads it again. The
+statistics are `obs` columns, and `write_zarr` writes `obs` and computes `X`
+in one call, so the statistics must exist before the write starts. One
+shared pass needs the writer to write `X` itself, so that one dask compute
+feeds the store and the statistics. A load of the whole `X` can fail, as the
+rules above state. Revisit this choice when a third pass over `X` appears or
+the ingest cost matters. The per-gene nnz file of tracker 4.14 can share the
+pass of `add_obs_stats`.
+
 `README.md` in this directory covers installation, use, and development.
 """
 
@@ -140,19 +154,23 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, assert_nev
 
 import anndata
 import dask
+import dask.array as da
 import h5py
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 import zarr
 from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
 from zarr.abc.store import Store
 
-from . import assays, genes
+from . import assays, genes, tissues
 from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
+from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
+from .store_format import MEASURED_COLUMN as MEASURED_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
@@ -163,7 +181,6 @@ from .store_format import SummaryRecordError as SummaryRecordError
 from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
-    import dask.array as da
     import numpy.typing as npt
 
 # What the public functions accept. The prose above describes these unions; the
@@ -216,8 +233,10 @@ BLOCK_BYTES = 64 * 1024**2
 # The recipe names the store format: the anndata version, the Zarr format, the X
 # encoding, the slot policy, and harmonization. Raise it when any of those
 # change, so that a receipt says which format its store holds. Nothing is keyed
-# on it: a store's location is its dataset version alone.
-RECIPE = "v1"
+# on it: a store's location is its dataset version alone. v2 adds the fixed `obs`
+# schema, the Census 1 cell filters, `tissue_general`, the count statistics, and
+# the `measured` column of `var`.
+RECIPE = "v2"
 
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
 # have to infer it.
@@ -306,6 +325,8 @@ class StoreProvenance(TypedDict):
     census2_dataset_writer_version: str
     anndata_version: str
     zarr_version: str
+    # The package version decides the `tissue_general` mapping.
+    cellxgene_ontology_guide_version: str
 
 
 class Receipt(StoreProvenance, total=False):
@@ -365,6 +386,9 @@ def provenance(config: Config | None = None) -> StoreProvenance:
         ),
         "anndata_version": importlib.metadata.version("anndata"),
         "zarr_version": importlib.metadata.version("zarr"),
+        "cellxgene_ontology_guide_version": importlib.metadata.version(
+            "cellxgene-ontology-guide"
+        ),
     }
 
 
@@ -491,18 +515,19 @@ def project_obs(
     Census 1 projects `obs` onto a closed schema, with fixed types: the columns
     that the CxG schema requires in every dataset, plus columns that it adds.
     This step copies the CxG columns, every column of `OBS_COLUMNS` except
-    `dataset_id`, in schema order, and gives each one its type: a categorical with the sorted
-    observed values as string categories, NumPy `bool` for `is_primary_data`,
-    and plain strings for `observation_joinid`. The source index stays. Every
-    other source column goes: the result reports them in `dropped_obs_columns`.
+    `DERIVED_OBS_COLUMNS`, in schema order, and gives each one its type: a
+    categorical with the sorted observed values as string categories, NumPy
+    `bool` for `is_primary_data`, and plain strings for `observation_joinid`.
+    The source index stays. Every other source column goes: the result reports
+    them in `dropped_obs_columns`.
 
     It raises `ValueError` when the source lacks a schema column, when a column
     holds a null, when `is_primary_data` is not boolean, or when
     `observation_joinid` is not unique. The CxG schema requires each of these,
     so the writer does not choose a repair.
 
-    It does not yet add Census 1's `tissue_general` pair or the statistics of
-    the counts. `build` adds `dataset_id` after harmonization.
+    `add_tissue_general` adds the `tissue_general` pair. `build` adds
+    `dataset_id` after harmonization.
 
     This step consumes `adata`, as `harmonize` states.
     """
@@ -511,7 +536,9 @@ def project_obs(
     # narrow to the pandas frame here rather than widen the signature.
     obs = cast("pd.DataFrame", adata.obs)
     columns = [
-        (name, col_type) for name, col_type in OBS_COLUMNS if name != DATASET_ID_COLUMN
+        (name, col_type)
+        for name, col_type in OBS_COLUMNS
+        if name not in DERIVED_OBS_COLUMNS
     ]
     missing = [name for name, _ in columns if name not in obs.columns]
     if missing:
@@ -555,7 +582,35 @@ def _project_obs_column(column: pd.Series, name: str, col_type: ColType) -> pd.S
         if not values.is_unique:
             raise ValueError(f"obs {name} is not unique")
         return values
+    if col_type is ColType.INT64 or col_type is ColType.FLOAT64:
+        return column.astype(col_type.value)
     assert_never(col_type)
+
+
+def add_tissue_general(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Add the `tissue_general` pair to `obs`, after `tissue_type`.
+
+    Each cell's `tissue_ontology_term_id` maps to a high-level tissue term and
+    its label, as in Census 1; see `census2_dataset_writer.tissues`. Run
+    `project_obs` first. Raises `ValueError` for a tissue term that the ontology
+    does not hold. This step consumes `adata`, as `harmonize` states.
+    """
+    obs = cast("pd.DataFrame", adata.obs)
+    terms = obs["tissue_ontology_term_id"].astype(str)
+    mapping = tissues.tissue_general(terms.unique())
+    labels = {term: label for term, (_, label) in mapping.items()}
+    general_ids = {term: general for term, (general, _) in mapping.items()}
+    obs["tissue_general"] = _project_obs_column(
+        terms.map(labels), "tissue_general", ColType.CATEGORY
+    )
+    obs["tissue_general_ontology_term_id"] = _project_obs_column(
+        terms.map(general_ids), "tissue_general_ontology_term_id", ColType.CATEGORY
+    )
+    return adata
 
 
 def select_counts(
@@ -598,12 +653,84 @@ def project_genes(
     return genes.project(adata, _gene_references(config), refdata)
 
 
+_ROW_STATS = ("raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz")
+
+
+def _row_stats(block: Any) -> npt.NDArray[np.float64]:
+    """The Census 1 statistics of each row of one block, in `_ROW_STATS` order."""
+    x = sp.csr_matrix(block, copy=True)
+    # As in Census 1, merge duplicates (this sorts each row), then drop zeros.
+    x.sum_duplicates()
+    x.eliminate_zeros()
+    nnz = np.diff(x.indptr)
+    raw_sum = np.asarray(x.sum(axis=1, dtype=np.float64)).ravel()
+    rows = np.repeat(np.arange(len(nnz)), nnz)
+    # Census 1's `_var_ndarray` shifts by the row's first value, squares in float32,
+    # and sums in float64 in storage order. bincount keeps that order, so the variance
+    # is bit-identical. Counts outside the CxG float32 type keep their precision.
+    data = x.data if x.data.dtype == np.float32 else x.data.astype(np.float64)
+    shifted = data - data[x.indptr[rows]]
+    ex = np.bincount(rows, weights=shifted, minlength=len(nnz))
+    ex2 = np.bincount(rows, weights=shifted * shifted, minlength=len(nnz))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        mean = raw_sum / nnz
+        variance = (ex2 - ex**2 / nnz) / (nnz - 1)
+    mean[nnz == 0] = 0.0
+    variance[nnz < 2] = 0.0
+    return np.column_stack([raw_sum, nnz, mean, variance])
+
+
+def add_obs_stats(
+    adata: anndata.AnnData,
+    config: Config | None = None,
+    refdata: PathLike | None = None,
+) -> anndata.AnnData:
+    """Add the five Census 1 statistics of the counts to `obs`, after `tissue_general`.
+
+    `raw_sum`, `nnz`, `raw_mean_nnz`, and `raw_variance_nnz` describe the stored
+    values of each cell, as Census 1 computes them (its `get_obs_stats`, after it
+    removes explicit zeros). `n_measured_vars` is the number of genes of the
+    organism in the source, the same for every cell; `project_genes` marks the
+    same genes in `MEASURED_COLUMN`.
+
+    Run `select_counts` first, and `project_genes` after. The step reads the
+    organism's genes in source order, the matrix that Census 1 reads, so that
+    the variance sums in the same order. It reads `X` once, one row block at a
+    time, and the write reads it again. This step consumes `adata`, as
+    `harmonize` states.
+    """
+    taxon = str(adata.uns.get("organism_ontology_term_id"))
+    kept = genes.organism_genes(cast("pd.DataFrame", adata.var), taxon)
+    # `AnnData.X` is typed as any matrix or None. Here it is dask or a matrix in memory.
+    counts: Any = adata.X
+    x = counts[:, kept]
+    if isinstance(x, da.Array):
+        # dask types `map_blocks` for same-shape blocks. This gives 4 values a cell.
+        map_blocks: Any = x.map_blocks
+        stats = np.asarray(
+            map_blocks(
+                _row_stats,
+                chunks=(x.chunks[0], (len(_ROW_STATS),)),
+                dtype=np.float64,
+                meta=np.empty((0, len(_ROW_STATS)), dtype=np.float64),
+            ).compute()
+        )
+    else:
+        stats = _row_stats(x)
+    obs = cast("pd.DataFrame", adata.obs)
+    for i, name in enumerate(_ROW_STATS):
+        obs[name] = stats[:, i].astype(np.int64 if name == "nnz" else np.float64)
+    obs["n_measured_vars"] = np.full(len(obs), int(kept.sum()), dtype=np.int64)
+    return adata
+
+
 def harmonize(
     adata: anndata.AnnData,
     config: Config | None = None,
     refdata: PathLike | None = None,
 ) -> anndata.AnnData:
-    """Apply harmonization: `project_obs`, `select_counts`, then `project_genes`.
+    """Apply harmonization: `project_obs`, `add_tissue_general`, `select_counts`,
+    `add_obs_stats`, then `project_genes`.
 
     Harmonization changes values and annotations so that a query can combine
     stores from different datasets. The other steps are not specified yet.
@@ -616,7 +743,9 @@ def harmonize(
     copy.
     """
     adata = project_obs(adata, config, refdata)
+    adata = add_tissue_general(adata, config, refdata)
     adata = select_counts(adata, config, refdata)
+    adata = add_obs_stats(adata, config, refdata)
     return project_genes(adata, config, refdata)
 
 
@@ -785,6 +914,17 @@ def as_store(dest: StoreLike) -> StoreLike:
     return dest
 
 
+def _thread_limit(threads: int | None) -> contextlib.AbstractContextManager[Any]:
+    """Bound the dask threads to `threads`, or leave the default when None.
+
+    `dask.config.set` changes the setting when it is called, not when its block
+    starts, so call this in the `with` statement that it bounds.
+    """
+    if threads:
+        return dask.config.set(num_workers=threads)
+    return contextlib.nullcontext()
+
+
 def write(
     adata: anndata.AnnData,
     dest: StoreLike,
@@ -813,9 +953,6 @@ def write(
     no quota, so the default over-counts: a HealthOmics task allocated 2 vCPU
     was measured using 4.67.
     """
-    limit = (
-        dask.config.set(num_workers=threads) if threads else contextlib.nullcontext()
-    )
     # Refuse a malformed record before anything is written, so that a caller with
     # no type checker cannot leave a store with one.
     validate_summary(summary)
@@ -829,7 +966,7 @@ def write(
             f"{summary['dataset_id']}; `build` adds that column"
         )
     store = as_store(dest)
-    with limit:
+    with _thread_limit(threads):
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
     root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
@@ -915,17 +1052,18 @@ def create(
     `source` is a path to an h5ad or an open `h5py.File`. `dest` is a path, a
     remote URL, or a zarr Store. `dataset_id` and `dataset_version_id` go into
     the store's summary record. The source stays open across the write, because
-    the expression matrix is read lazily. `threads` bounds the write; see
-    `write`.
+    the expression matrix is read lazily. `threads` bounds the write, and the
+    read of `X` in `add_obs_stats`; see `write`.
     """
     with _opened(source) as f:
-        adata, result = build(
-            f,
-            dataset_id=dataset_id,
-            dataset_version_id=dataset_version_id,
-            config=config,
-            refdata=refdata,
-        )
+        with _thread_limit(threads):
+            adata, result = build(
+                f,
+                dataset_id=dataset_id,
+                dataset_version_id=dataset_version_id,
+                config=config,
+                refdata=refdata,
+            )
         if adata is None:
             return result
         summary = summary_record(result)
