@@ -78,6 +78,23 @@ def ingest(
     )
 
 
+# The slot groups that the check does not compare yet. A slot group that the
+# writer wrote must be compared, or be named here, or the check fails. The
+# receipt lists the groups that a store holds and the check skipped, in
+# `not_compared`.
+#   uns     the carried keys, such as schema_version and the organism
+#   obsm, varm, obsp, varp, layers
+#           the optional slots, which only `all_slots` carries
+# Known gaps, not oversights. Shrink this list; do not grow it to stop a failure.
+NOT_COMPARED = ("uns", "obsm", "varm", "obsp", "varp", "layers")
+
+
+def slot_group(slot: str) -> str:
+    """The group of a slot that the writer reports: "uns[2 keys]" is "uns",
+    and "obsm/X_umap" is "obsm"."""
+    return slot.split("/", 1)[0].split("[", 1)[0]
+
+
 def obs_column_problem(
     got: pd.Series, want: pd.Series, col_type: census2_dataset_writer.ColType
 ) -> str | None:
@@ -107,6 +124,10 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
 
     `compared` lists what the comparison covered, so a check that silently
     covered nothing is visible in the receipt instead of reading as a pass.
+    The check also audits its coverage. Each slot group that the writer wrote
+    (`written["slots"]`), and the summary record, must be in `compared` or in
+    `NOT_COMPARED`. Otherwise the check fails. `not_compared` lists the groups
+    that the store holds and the check skipped by name.
 
     `summary` is the summary record that the store must hold.
 
@@ -255,6 +276,11 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                 result["X.source"] = counts
         result["compared"].append("X")
 
+    required = {"summary"} | {slot_group(s) for s in written["slots"]}
+    uncovered = sorted(required - set(result["compared"]) - set(NOT_COMPARED))
+    if uncovered:
+        fail("coverage", f"the store holds {uncovered}, and the check compared none")
+    result["not_compared"] = sorted(required & set(NOT_COMPARED))
     return result
 
 

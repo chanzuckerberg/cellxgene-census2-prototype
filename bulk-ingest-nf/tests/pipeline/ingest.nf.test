@@ -30,12 +30,9 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
-                // A pass means nothing unless the check compared the matrices,
-                // the obs schema and values, and the summary record.
-                assert rec.check.compared.contains("obs")
-                assert rec.check.compared.contains("X")
-                assert rec.check.compared.contains("var")
-                assert rec.check.compared.contains("summary")
+                // The check fails on a slot that the store holds and the check
+                // did not compare, unless the slot is in not_compared.
+                assert rec.check.not_compared == ["uns"]
                 // Both datasets have raw, so X holds the counts from raw/X.
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
@@ -70,6 +67,8 @@ nextflow_pipeline {
                 assert rec.slot_policy == "all"
                 assert rec.config_effective.all_slots == true
                 assert rec.check.passed
+                // The optional slots are carried and not compared yet.
+                assert rec.check.not_compared == ["obsm", "uns"]
                 rec.slots_written.size()
             }
             // Every pinned dataset carries more than the Census set.
