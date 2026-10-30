@@ -1217,6 +1217,39 @@ def test_project_obs_refuses_a_malformed_source(change: str, message: str) -> No
         census2_dataset_writer.project_obs(adata)
 
 
+def test_a_repeated_cell_key_fails_with_the_values_named(tmp_path: Path) -> None:
+    """Design 1.6: the build and a direct write both refuse a repeated
+    observation_joinid, and the error names the values."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(12)
+    adata.obs["observation_joinid"] = ["j0", "j1", "j1", "j3", "j3", "j3"] + [
+        f"k{i}" for i in range(6)
+    ]
+    adata.write_h5ad(source)
+    with pytest.raises(ValueError, match="2 values repeat, such as j1, j3"):
+        create(source, dest, refdata=tmp_path / "refdata")
+    assert not dest.exists()
+
+    record = dict(GOOD_RECORD, dataset_id="dataset-1")
+    census2_dataset_writer.add_dataset_id(adata, "dataset-1")
+    with pytest.raises(ValueError, match="such as j1, j3"):
+        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+    assert not dest.exists()
+
+
+def test_a_write_refuses_a_null_cell_key(tmp_path: Path) -> None:
+    """One null is not a repeat, so the check looks for nulls first."""
+    dest = tmp_path / "store.zarr"
+    adata = dataset(6)
+    census2_dataset_writer.add_dataset_id(adata, "dataset-1")
+    adata.obs["observation_joinid"] = ["j0", "j1", None, "j3", "j4", "j5"]
+    record = dict(GOOD_RECORD, dataset_id="dataset-1")
+    with pytest.raises(ValueError, match="observation_joinid holds a null"):
+        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+    assert not dest.exists()
+
+
 def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:
     assert OBS_NAMES[0] == "dataset_id"
     assert len(set(OBS_NAMES)) == len(OBS_NAMES)

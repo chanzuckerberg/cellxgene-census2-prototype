@@ -104,6 +104,8 @@ columns that Census 1 copies, the `tissue_general` pair, and five statistics of 
   observed values, sorted, as strings.
 - No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
   not boolean, or has an `observation_joinid` that is not unique fails the build.
+- `dataset_id` and `observation_joinid` are the cell key (design 1.6). `write` checks the key on
+  every write, and the error names the repeated values. No configuration turns the check off.
 - A store does not yet hold any other source column. The result names each one that it drops,
   in `dropped_obs_columns`.
 - `tissue_general` and `tissue_general_ontology_term_id` are the Census 1 roll-up of
