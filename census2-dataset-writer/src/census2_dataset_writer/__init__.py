@@ -595,9 +595,14 @@ def add_tissue_general(
     obs = cast("pd.DataFrame", adata.obs)
     terms = obs["tissue_ontology_term_id"].astype(str)
     mapping = tissues.tissue_general(terms.unique())
-    for name, part in (("tissue_general", 1), ("tissue_general_ontology_term_id", 0)):
-        values = terms.map({term: pair[part] for term, pair in mapping.items()})
-        obs[name] = _project_obs_column(values, name, ColType.CATEGORY)
+    labels = {term: label for term, (_, label) in mapping.items()}
+    general_ids = {term: general for term, (general, _) in mapping.items()}
+    obs["tissue_general"] = _project_obs_column(
+        terms.map(labels), "tissue_general", ColType.CATEGORY
+    )
+    obs["tissue_general_ontology_term_id"] = _project_obs_column(
+        terms.map(general_ids), "tissue_general_ontology_term_id", ColType.CATEGORY
+    )
     return adata
 
 
