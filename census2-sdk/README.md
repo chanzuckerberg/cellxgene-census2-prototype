@@ -37,10 +37,10 @@ that has no summary record.
 
 Each row also holds the cell counts of its store, in the `cell_counts` column. The column has one
 entry for each combination of the counted values, with the number of cells in `n_cells`. The counted
-values are assay, cell type, disease, sex, and tissue (each as the label and the ontology term), and
-`is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
-For the 1,258 stores of the Census 1 LTS `2025-11-08` run, the column holds 117,740 entries, and the
-catalog is 925 KiB.
+values are assay, cell type, disease, sex, tissue, and `tissue_general` (each as the label and the
+ontology term), and `is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
+For the 1,258 stores of the Iteration 2 gate run (Census 1 LTS `2025-11-08`), the column holds
+117,712 entries, and the catalog is 1,014 KiB.
 
 ## Query
 

@@ -539,6 +539,15 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
     assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
 
 
+def test_count_cells_takes_tissue_general(tmp_path: Path) -> None:
+    adata = make_store("ds-t", 6, REFERENCE_IDS[:3], ["lung", "retina"], ["normal"], 7)
+    adata.obs["tissue_general"] = pd.Categorical(["lung"] * 4 + ["eye"] * 2)
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-t")])
+    assert census.count_cells("homo_sapiens", {"tissue_general": "eye"}) == 2
+    result = census.get_anndata("homo_sapiens", {"tissue_general": "eye"})
+    assert result is not None and result.n_obs == 2
+
+
 def test_count_cells_reads_the_catalog_that_open_census_read(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:
