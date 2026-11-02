@@ -290,12 +290,17 @@ def _read_store(
     # To read obs faster, the SDK does not read the index (the source cell names).
     # The result replaces the index with the cell key, so the SDK has no use for it.
     columns = cast("list[str]", obs_group.attrs["column-order"])
-    obs = pd.DataFrame({name: read_elem(obs_group[name]) for name in columns})
-    _check_cell_key(obs, str(row["store_uri"]))
+    key = "observation_joinid"
+    obs = pd.DataFrame(
+        {name: read_elem(obs_group[name]) for name in columns if name != key}
+    )
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
+    if key in columns:
+        obs.insert(columns.index(key), key, _kept(obs_group[key], keep))
+    _check_cell_key(obs, str(row["store_uri"]))
     var_group = group["var"]
     assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
     index = read_elem(var_group[str(var_group.attrs["_index"])])
@@ -327,8 +332,31 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
         )
 
 
+def _kept(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> Any:
+    """The kept cells of one `obs` column.
+
+    For a nullable string column, the SDK makes strings for these cells only. The
+    dtype is the one that `anndata` reads for the same column.
+    """
+    if node.attrs.get("encoding-type") != "nullable-string-array":
+        return pd.array(cast("Any", read_elem(node)))[keep]
+    assert isinstance(node, zarr.Group)
+    na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
+    dtype = pd.StringDtype(na_value=na_value)
+    if not keep.size:
+        return pd.array([], dtype=dtype)
+    values, mask = node["values"], node["mask"]
+    assert isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)
+    kept: Any = pd.array(np.asarray(values.oindex[keep]), dtype=dtype)
+    kept[np.asarray(mask.oindex[keep])] = pd.NA
+    return kept
+
+
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
-    """Design 1.6: `observation_joinid` is present, non-null, and unique in a store."""
+    """Design 1.6: the kept cells' `observation_joinid` is present, non-null, and unique.
+
+    The writer checks every cell of the store (tracker 4.6).
+    """
     if "observation_joinid" not in obs.columns:
         raise ValueError(f"{store_uri}: obs has no observation_joinid column")
     joinid = obs["observation_joinid"]
