@@ -72,8 +72,7 @@ def normalized(
         corrected = full_gene[rows]
         data = np.where(corrected, data / feature_length[counts.indices], data)
         data = data.astype(np.float32)
-    # ponytail: reference gene order; a rare full-gene row differs from Census 1
-    # until the writer's source-order row-sum column exists (tracker 4.13).
+    # ponytail: reference order; rare full-gene rows differ (module docstring).
     row_sum = np.bincount(rows, weights=data, minlength=counts.shape[0])
     values = (data / row_sum[rows]).astype(np.float32)
     _round_half_to_even(values, KEEP_BITS)
