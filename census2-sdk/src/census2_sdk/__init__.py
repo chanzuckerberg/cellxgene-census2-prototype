@@ -19,6 +19,9 @@ number of catalog rows for the organism, and the number of stores opened. The ce
 key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
 `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
+The stores hold only the counts. `X_layers=["normalized"]` adds the Census 1
+normalized values in `layers["normalized"]`, calculated on read (tracker 4.13).
+
 The writer projects each store onto the reference. Thus every selected store has
 the same genes in `var`. The SDK checks that every store has the same gene identifiers
 in the same order, and concatenates by position. A store's `var` also marks the
@@ -48,6 +51,7 @@ import zarr
 from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
+from census2_sdk import normalize as _normalize
 from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
@@ -93,6 +97,7 @@ class Census:
         organism: str,
         obs_filter: Filter | None = None,
         *,
+        X_layers: Sequence[str] = (),  # the Census 1 argument name
         max_workers: int = 1,
     ) -> anndata.AnnData | None:
         """Return the selected cells of `organism` as one AnnData.
@@ -100,10 +105,17 @@ class Census:
         Return None when no cell matches, whether or not the catalog excluded
         every store.
 
+        `X_layers` names the layers to add next to the counts. The one layer is
+        `normalized`, which the SDK calculates from the counts with the Census 1
+        algorithm (`census2_sdk.normalize`).
+
         `max_workers` is the largest number of stores that the SDK reads at the
         same time, and it must be a positive integer. The result is the same for
         every allowed value: the stores keep their catalog order.
         """
+        unknown = sorted(set(X_layers) - {"normalized"})
+        if unknown:
+            raise ValueError(f"no X layer {unknown}; the one layer is 'normalized'")
         normalized = _catalog.normalize(obs_filter)
         rows = _catalog.exclude(self.catalog, organism, normalized)
         _check_composition(rows, ORGANISMS[organism]["version"])
@@ -111,7 +123,9 @@ class Census:
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         # ponytail: serial by default; raise the default from the 6.4 results.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            parts = list(pool.map(lambda row: _read_store(row, normalized), records))
+            parts = list(
+                pool.map(lambda row: _read_store(row, normalized, X_layers), records)
+            )
         uris = list(rows["store_uri"].astype(str))
         _check_var(parts, uris)
         if not sum(part.n_obs for part in parts):
@@ -261,11 +275,14 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
     return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
-def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
+def _read_store(
+    row: dict[str, Any], obs_filter: Normalized, x_layers: Sequence[str] = ()
+) -> anndata.AnnData:
     """The selected cells of one store. `X` holds the counts on the reference genes.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
-    compares. `get_anndata` reads the var columns from one store.
+    compares. `get_anndata` reads the var columns from one store. `x_layers` names
+    the layers to calculate from the counts.
     """
     group = open_store(row["store_uri"])
     obs = cast("pd.DataFrame", read_elem(group["obs"]))
@@ -279,9 +296,17 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
     index = read_elem(var_group[str(var_group.attrs["_index"])])
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _rows(group["X"], keep)
+    layers = {}
+    if "normalized" in x_layers:
+        assay = obs["assay_ontology_term_id"].astype(str)
+        full_gene = assay.isin(_normalize.FULL_GENE_ASSAYS).to_numpy()
+        length = None
+        if full_gene.any():
+            length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
+        layers["normalized"] = _normalize.normalized(x, full_gene, length)
 
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
-    return anndata.AnnData(X=x, obs=obs, var=var)
+    return anndata.AnnData(X=x, obs=obs, var=var, layers=layers)
 
 
 def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:

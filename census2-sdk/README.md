@@ -58,6 +58,8 @@ column holds one of its values. The columns are the 18 indexed columns and `data
 The result holds:
 
 - `X`, the counts
+- `layers["normalized"]`, with `X_layers=["normalized"]`: the Census 1 normalized values, which the
+  SDK calculates from the counts on read
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`

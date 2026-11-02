@@ -134,13 +134,17 @@ QUERY = BoundQuery(
 
 
 class Empty:
-    def get_anndata(self, organism: str, obs_filter: object) -> None:
+    def get_anndata(
+        self, organism: str, obs_filter: object, X_layers: object = ()
+    ) -> None:
         return None
 
 
 def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
     class Broken:
-        def get_anndata(self, organism: str, obs_filter: object) -> None:
+        def get_anndata(
+            self, organism: str, obs_filter: object, X_layers: object = ()
+        ) -> None:
             raise SourceConflict("the cell key is not unique across the result")
 
     with pytest.raises(SourceConflict):
@@ -196,7 +200,9 @@ def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
     tmp_path: pathlib.Path, sdk_genes: list[str], status: str
 ) -> None:
     class Stores:
-        def get_anndata(self, organism: str, obs_filter: object) -> ad.AnnData:
+        def get_anndata(
+            self, organism: str, obs_filter: object, X_layers: object = ()
+        ) -> ad.AnnData:
             return _adata(sdk_genes)
 
     census1 = canonicalize_anndata(_adata(["g1", "g2"]))

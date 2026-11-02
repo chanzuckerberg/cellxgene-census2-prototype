@@ -127,7 +127,8 @@ def answer(
     except ValueError as error:
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.
-    adata = census.get_anndata(organism, obs_filter)
+    x_layers = [name for name in query.layers if name != "raw"]
+    adata = census.get_anndata(organism, obs_filter, X_layers=x_layers)
     if adata is None:
         raise NoCells("the SDK selected no cell")
 
@@ -137,7 +138,5 @@ def answer(
         keep = pd.Series(adata.var["feature_id"]).isin(genes).to_numpy()
         adata = adata[:, keep].copy()
         notes.append("genes selected after the read; the SDK has no var filter")
-    if len(query.layers) > 1:
-        notes.append(f"the SDK returns the raw layer only; asked for {query.layers}")
     adata.uns["x_layer_name"] = "raw"
     return canonicalize_anndata(adata), notes
