@@ -1,4 +1,4 @@
-"""The Census 1 normalized values, calculated from the counts on read (tracker 4.13).
+"""The Census 1 normalized values, calculated from the counts on read.
 
 Census 1 stores `X["normalized"]`. A Census 2 store holds only the counts, and
 `get_anndata(..., layers=["normalized"])` calculates the values with the
@@ -17,8 +17,8 @@ each value is a normal float32. A value below 2**-126 needs a row sum more than
 The SDK reads whole rows, so it sums each row itself, in reference gene order.
 Census 1 sums in the dataset's gene order. Integer counts give the same sum in
 any order, but in a rare full-gene row the order changes the last float32 bit.
-A read of part of a row needs the row-sum column that the writer adds in source
-order (tracker 4.13).
+A read of part of a row needs a row-sum column in the store, summed in source gene
+order. The writer does not write that column yet.
 """
 
 import numpy as np

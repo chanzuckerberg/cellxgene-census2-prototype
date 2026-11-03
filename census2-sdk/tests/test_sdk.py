@@ -679,7 +679,7 @@ def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
         census.get_anndata("homo_sapiens")
 
 
-# --- the normalized layer (tracker 4.13) ----------------------------------------
+# --- the normalized layer -----------------------------------------------------
 
 
 def census1_normalized(

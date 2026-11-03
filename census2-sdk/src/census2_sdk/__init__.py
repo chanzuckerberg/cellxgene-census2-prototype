@@ -20,7 +20,7 @@ key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
 `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
 The stores hold only the counts. `layers=["normalized"]` adds the Census 1
-normalized values in `layers["normalized"]`, calculated on read (tracker 4.13).
+normalized values in `layers["normalized"]`, calculated on read.
 
 The writer projects each store onto the reference. Thus every selected store has
 the same genes in `var`. The SDK checks that every store has the same gene identifiers
