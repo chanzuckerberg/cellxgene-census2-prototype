@@ -271,7 +271,9 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
         return adata
 
     class Stores:
-        def get_anndata(self, organism: str, obs_filter: object) -> ad.AnnData:
+        def get_anndata(
+            self, organism: str, obs_filter: object, X_layers: object = ()
+        ) -> ad.AnnData:
             return cells(sdk_obs)
 
     census1 = canonicalize_anndata(cells(census1_obs))
