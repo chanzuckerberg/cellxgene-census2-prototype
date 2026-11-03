@@ -95,12 +95,11 @@ results. To regenerate the human results only, add `--only census_data/homo_sapi
 ## Run the SDK against Census 1
 
 `compare_stacks.py` reads the catalog of the stores under test and the oracle snapshot.
-The recorded run, `results/sdk_vs_census1.json`, is the Iteration 2 gate (tracker 4.9).
-It reads the 1,258 human and mouse stores of Census 1 LTS `2025-11-08`, and it holds the
-SHA-256 of its catalog. `bulk-ingest-nf/tools/census1-sample.py --limit 0` writes the
-manifest of these datasets. `build_catalog.py`
-builds each catalog row from the summary record of a store, so it refuses a store without
-one. `obstore` reads S3 credentials from the environment. To regenerate the record, from
+The recorded run, `results/sdk_vs_census1.json`, reads the 1,258 human and mouse stores of
+Census 1 LTS `2025-11-08`, and it holds the SHA-256 of its catalog.
+`bulk-ingest-nf/tools/census1-sample.py --limit 0` writes the manifest of these datasets.
+`build_catalog.py` builds each catalog row from the summary record of a store, so it refuses
+a store without one. `obstore` reads S3 credentials from the environment. To regenerate the record, from
 `census2-sdk/tools/`:
 
 ```sh
@@ -140,9 +139,9 @@ list.
 
 | Finding | Direction | Reason | Until |
 | --- | --- | --- | --- |
-| The 17,397 human genes of the pinned reference that the Census 1 build lacks | SDK only | The SDK's `var` is the whole pinned reference (tracker 4.2) | Permanent |
+| The 17,397 human genes of the pinned reference that the Census 1 build lacks | SDK only | The SDK's `var` is the whole pinned reference | Permanent |
 | `var.feature_version` | SDK only | The SDK keeps this column of the pinned reference | Permanent |
-| `var.nnz`, `var.n_measured_obs` | Census 1 only | Corpus aggregates. The release builder sums them from per-gene files (tracker 4.14). | Iteration 3 |
+| `var.nnz`, `var.n_measured_obs` | Census 1 only | Corpus aggregates. The release builder sums them from per-gene files, and it does not do so yet. | Temporary |
 | `obs.raw_sum`, `obs.raw_mean_nnz` values | Both | The Census 1 build summed float32 counts in float32, so it rounds a row sum above 2^24. The writer keeps the exact sum. | Permanent |
 
 The driver accepts a `raw_sum` or `raw_mean_nnz` finding only when three conditions hold

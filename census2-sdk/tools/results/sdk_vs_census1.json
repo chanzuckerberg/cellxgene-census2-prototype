@@ -81,7 +81,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -89,7 +89,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -147,7 +147,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -155,7 +155,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -199,7 +199,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -207,7 +207,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -251,7 +251,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -259,7 +259,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -297,7 +297,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -305,7 +305,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -343,7 +343,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -351,7 +351,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -395,7 +395,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -403,7 +403,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -463,7 +463,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -471,7 +471,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -486,7 +486,7 @@
      "where": "X.normalized",
      "detail": "present on left only",
      "owner": "4.13",
-     "reason": "the normalized layer, which 4.13 decides"
+     "reason": "the normalized layer"
     }
    ],
    "status": "fail"
@@ -645,7 +645,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",
@@ -653,7 +653,7 @@
      "detail": "present on left only",
      "owner": "4.14",
      "reason": "corpus aggregates that the release builder sums from the per-dataset files",
-     "expected": "the release builder adds the corpus aggregates in Iteration 3 (4.14)"
+     "expected": "the release builder does not add the corpus aggregates yet"
     },
     {
      "kind": "column-set",

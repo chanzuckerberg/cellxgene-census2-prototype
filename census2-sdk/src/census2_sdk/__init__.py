@@ -109,7 +109,7 @@ class Census:
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        # ponytail: serial by default; raise the default from the 6.4 results.
+        # ponytail: serial by default; raise the default after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(pool.map(lambda row: _read_store(row, normalized), records))
         uris = list(rows["store_uri"].astype(str))

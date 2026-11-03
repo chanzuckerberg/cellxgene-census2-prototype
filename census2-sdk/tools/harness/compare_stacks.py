@@ -15,8 +15,8 @@ its build. The comparator compares no X value while the gene sets differ, so the
 restricts both sides to the shared genes. A Census 1 gene that the SDK does not hold
 fails the query.
 
-A finding in the declared list of expected differences (`EXPECTED` and `FLOAT32_SUMS`,
-task 4.9) stays on record and does not fail the query. Census 1 is the left side.
+A finding in the declared list of expected differences (`EXPECTED` and `FLOAT32_SUMS`)
+stays on record and does not fail the query. Census 1 is the left side.
 """
 
 import argparse
@@ -56,7 +56,7 @@ OWNERS: tuple[tuple[str, str, str], ...] = (
         "per-cell statistics that the writer computes",
     ),
     (r"^obs\.tissue_general", "4.5", "tissue_general, which the writer derives"),
-    (r"^X\.normalized$", "4.13", "the normalized layer, which 4.13 decides"),
+    (r"^X\.normalized$", "4.13", "the normalized layer"),
     (
         r"^var\.(nnz|n_measured_obs)$",
         "4.14",
@@ -100,7 +100,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
         "column-set",
         r"^var\.(nnz|n_measured_obs)$",
         r"^present on left only$",
-        "the release builder adds the corpus aggregates in Iteration 3 (4.14)",
+        "the release builder does not add the corpus aggregates yet",
     ),
 )
 # Census 1 asks scipy for a float64 sum, but scipy < 1.18 adds float32 counts in float32.
