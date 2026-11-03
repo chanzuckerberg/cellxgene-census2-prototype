@@ -135,7 +135,7 @@ QUERY = BoundQuery(
 
 class Empty:
     def get_anndata(
-        self, organism: str, obs_filter: object, X_layers: object = ()
+        self, organism: str, obs_filter: object, layers: object = ()
     ) -> None:
         return None
 
@@ -143,7 +143,7 @@ class Empty:
 def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
     class Broken:
         def get_anndata(
-            self, organism: str, obs_filter: object, X_layers: object = ()
+            self, organism: str, obs_filter: object, layers: object = ()
         ) -> None:
             raise SourceConflict("the cell key is not unique across the result")
 
@@ -201,7 +201,7 @@ def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
 ) -> None:
     class Stores:
         def get_anndata(
-            self, organism: str, obs_filter: object, X_layers: object = ()
+            self, organism: str, obs_filter: object, layers: object = ()
         ) -> ad.AnnData:
             return _adata(sdk_genes)
 
@@ -272,7 +272,7 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
 
     class Stores:
         def get_anndata(
-            self, organism: str, obs_filter: object, X_layers: object = ()
+            self, organism: str, obs_filter: object, layers: object = ()
         ) -> ad.AnnData:
             return cells(sdk_obs)
 

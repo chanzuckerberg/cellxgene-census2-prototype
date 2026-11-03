@@ -271,10 +271,10 @@ def test_concurrent_reads_match_one_at_a_time(
     finished: list[str] = []
 
     def overlapping(
-        row: dict[str, Any], normalized: Any, x_layers: Any = ()
+        row: dict[str, Any], normalized: Any, layers: Any = ()
     ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, normalized, x_layers)
+        part = read_store(row, normalized, layers)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -741,7 +741,7 @@ def test_get_anndata_adds_the_normalized_layer(
 ) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     result = census.get_anndata(
-        "homo_sapiens", {"tissue": "lung"}, X_layers=["normalized"]
+        "homo_sapiens", {"tissue": "lung"}, layers=["normalized"]
     )
     assert result is not None
     none = np.zeros(result.n_obs, dtype=bool)
@@ -758,7 +758,7 @@ def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
     adata.obs["assay_ontology_term_id"] = pd.Categorical(["EFO:0008931"] * adata.n_obs)
     adata.var["feature_length"] = np.arange(1, len(REFERENCE_IDS) + 1) * 100
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-s")])
-    result = census.get_anndata("homo_sapiens", X_layers=["normalized"])
+    result = census.get_anndata("homo_sapiens", layers=["normalized"])
     assert result is not None
     length = np.asarray(adata.var["feature_length"])
     full_gene = np.ones(result.n_obs, dtype=bool)
@@ -769,5 +769,5 @@ def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
 
 def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
-    with pytest.raises(ValueError, match="no X layer \\['scaled'\\]"):
-        census.get_anndata("homo_sapiens", X_layers=["scaled"])
+    with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
+        census.get_anndata("homo_sapiens", layers=["scaled"])

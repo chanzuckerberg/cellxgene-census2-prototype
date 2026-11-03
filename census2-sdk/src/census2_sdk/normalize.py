@@ -1,7 +1,7 @@
 """The Census 1 normalized values, calculated from the counts on read (tracker 4.13).
 
 Census 1 stores `X["normalized"]`. A Census 2 store holds only the counts, and
-`get_anndata(..., X_layers=["normalized"])` calculates the values with the
+`get_anndata(..., layers=["normalized"])` calculates the values with the
 Census 1 algorithm (`experiment_builder.py` of `cellxgene_census_builder`):
 
 1. The nonzero counts as float32. Census 1 drops stored zeros first. A cell of a

@@ -127,8 +127,8 @@ def answer(
     except ValueError as error:
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.
-    x_layers = [name for name in query.layers if name != "raw"]
-    adata = census.get_anndata(organism, obs_filter, X_layers=x_layers)
+    layers = [name for name in query.layers if name != "raw"]
+    adata = census.get_anndata(organism, obs_filter, layers=layers)
     if adata is None:
         raise NoCells("the SDK selected no cell")
 
