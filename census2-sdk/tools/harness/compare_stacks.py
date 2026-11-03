@@ -103,8 +103,9 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
         "the release builder adds the corpus aggregates in Iteration 3 (4.14)",
     ),
 )
-# Census 1 sums float32 counts in float32, so it rounds a row sum above 2**24 (largest
-# relative difference 1.7e-7). The ingest round-trip check verifies the SDK sum (README).
+# Census 1 asks scipy for a float64 sum, but scipy < 1.18 adds float32 counts in float32.
+# Census 1 thus rounds a row sum above 2**24 (largest relative difference 1.7e-7). The
+# ingest round-trip check verifies the SDK sum (README).
 FLOAT32_SUMS = {"obs.raw_sum", "obs.raw_mean_nnz"}
 FLOAT32_RTOL = 1e-6
 

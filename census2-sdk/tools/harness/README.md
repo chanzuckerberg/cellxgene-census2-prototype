@@ -146,7 +146,7 @@ list.
 | The 17,397 human genes of the pinned reference that the Census 1 build lacks | SDK only | The SDK's `var` is the whole pinned reference (tracker 4.2) | Permanent |
 | `var.feature_version` | SDK only | The SDK keeps this column of the pinned reference | Permanent |
 | `var.nnz`, `var.n_measured_obs` | Census 1 only | Corpus aggregates. The release builder sums them from per-gene files (tracker 4.14). | Iteration 3 |
-| `obs.raw_sum`, `obs.raw_mean_nnz` values | Both | Census 1 sums float32 counts in float32, so it rounds a row sum above 2^24. The writer keeps the exact sum. | Permanent |
+| `obs.raw_sum`, `obs.raw_mean_nnz` values | Both | The Census 1 build summed float32 counts in float32, so it rounds a row sum above 2^24. The writer keeps the exact sum. | Permanent |
 
 The driver accepts a `raw_sum` or `raw_mean_nnz` finding only when three conditions hold
 for every cell that differs. The `raw_sum` of the cell differs too, its exact row sum is
@@ -155,6 +155,11 @@ also hold the same `nnz`, and each mean equals the `raw_sum / nnz` of its own si
 comparator names only the first cell that differs, so the driver checks all of them.
 Over the 1,258 stores of Census 1 LTS `2025-11-08`, 385 cells differ, and the largest
 relative difference is 1.7e-7.
+
+The rounding comes from the scipy version of the Census 1 build. The Census 1 builder calls
+`raw_X.sum(axis=1, dtype=np.float64)`, but scipy before 1.18 applies `dtype` after the sum
+([scipy#24496](https://github.com/scipy/scipy/pull/24496)). A float32 `raw_X` thus adds in
+float32. With scipy 1.18 or later, the same call returns the exact sum.
 
 This rule explains the Census 1 value only, and it accepts the SDK value as the exact sum.
 The round-trip check of the reconciliation job verifies that value. For every cell, it
