@@ -40,8 +40,8 @@ def _require_obstore() -> None:
 
 
 Filter = Mapping[str, str | Iterable[str]]
-# A filter after `normalize`: one set of accepted values for each column.
-Normalized = dict[str, frozenset[str]]
+# A filter after `canonicalize`: one set of accepted values for each column.
+CanonicalFilter = dict[str, frozenset[str]]
 
 # Design 2.2: the 18 indexed columns.
 PAIRS = (
@@ -94,17 +94,17 @@ def members(value: str, column: str) -> list[str]:
     return [value]
 
 
-def normalize(obs_filter: Filter | None) -> Normalized:
+def canonicalize(obs_filter: Filter | None) -> CanonicalFilter:
     """One set of accepted values for each column. Refuse a column that is not indexed."""
-    normalized: Normalized = {}
+    canonical: CanonicalFilter = {}
     for column, value in (obs_filter or {}).items():
         if column != "dataset_id" and column not in INDEXED:
             raise ValueError(
                 f"{column!r} is not a catalog column; use one of {INDEXED}"
             )
         wanted = {value} if isinstance(value, str) else {str(v) for v in value}
-        normalized[column] = frozenset(wanted)
-    return normalized
+        canonical[column] = frozenset(wanted)
+    return canonical
 
 
 Source = str | os.PathLike[str] | io.BytesIO
@@ -173,7 +173,7 @@ def unrecorded(value: Any) -> bool:
     return value is None or (np.ndim(value) == 0 and bool(pd.isna(value)))
 
 
-def excludes(row: Mapping[str, Any], obs_filter: Normalized) -> bool:
+def excludes(row: Mapping[str, Any], obs_filter: CanonicalFilter) -> bool:
     """True when the row proves that no cell of the dataset matches `obs_filter`.
 
     The proof is the design 2.2 rule. The row records the value set of each
@@ -204,10 +204,10 @@ def exclude(
 ) -> pd.DataFrame:
     """The catalog rows that can hold a matching cell."""
     scoped = catalog[catalog["organism"] == organism]
-    normalized = normalize(obs_filter)
-    if not normalized:
+    canonical = canonicalize(obs_filter)
+    if not canonical:
         return scoped
     records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
-    keep = [not excludes(row, normalized) for row in records]
+    keep = [not excludes(row, canonical) for row in records]
     # pandas reads an empty Python list as a column selection.
     return scoped[np.array(keep, dtype=bool)]

@@ -271,10 +271,10 @@ def test_concurrent_reads_match_one_at_a_time(
     finished: list[str] = []
 
     def overlapping(
-        row: dict[str, Any], normalized: Any, layers: Any = ()
+        row: dict[str, Any], canonical: Any, layers: Any = ()
     ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, normalized, layers)
+        part = read_store(row, canonical, layers)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -401,7 +401,7 @@ def test_catalog_without_a_column_keeps_the_dataset(
 
     # The catalog keeps the store; its cells hold no lung, so the result is None.
     alone = census2_sdk.open_census([tmp_path / "no-tissue.parquet"])
-    lung = catalog.normalize({"tissue": "lung"})
+    lung = catalog.canonicalize({"tissue": "lung"})
     assert len(catalog.exclude(alone.catalog, "homo_sapiens", lung)) == 1
     assert alone.get_anndata("homo_sapiens", {"tissue": "lung"}) is None
 

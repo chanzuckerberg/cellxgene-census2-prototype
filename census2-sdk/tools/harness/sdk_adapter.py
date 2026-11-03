@@ -123,7 +123,7 @@ def answer(
         clamped &= set(obs_filter["dataset_id"])
     obs_filter["dataset_id"] = sorted(clamped)
     try:  # the SDK refuses a column that the catalog does not index
-        census2_sdk.catalog.normalize(obs_filter)
+        census2_sdk.catalog.canonicalize(obs_filter)
     except ValueError as error:
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.

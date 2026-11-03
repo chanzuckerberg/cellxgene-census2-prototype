@@ -52,7 +52,7 @@ from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
-from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
+from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
 __all__ = [
@@ -116,15 +116,15 @@ class Census:
         unknown = sorted(set(layers) - {"normalized"})
         if unknown:
             raise ValueError(f"no layer {unknown}; the one layer is 'normalized'")
-        normalized = _catalog.normalize(obs_filter)
-        rows = _catalog.exclude(self.catalog, organism, normalized)
+        canonical = _catalog.canonicalize(obs_filter)
+        rows = _catalog.exclude(self.catalog, organism, canonical)
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         # ponytail: serial by default; raise the default from the 6.4 results.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
-                pool.map(lambda row: _read_store(row, normalized, layers), records)
+                pool.map(lambda row: _read_store(row, canonical, layers), records)
             )
         uris = list(rows["store_uri"].astype(str))
         _check_var(parts, uris)
@@ -167,19 +167,19 @@ class Census:
         includes only the cells whose `is_primary_data` is true. A catalog without
         the `cell_counts` column raises ValueError.
         """
-        normalized = _catalog.normalize(obs_filter)
-        uncounted = sorted(set(normalized) - {"dataset_id", *_catalog.COUNTED})
+        canonical = _catalog.canonicalize(obs_filter)
+        uncounted = sorted(set(canonical) - {"dataset_id", *_catalog.COUNTED})
         if uncounted:
             raise ValueError(f"the catalog counts no {uncounted}; use get_anndata")
         counts = self._cell_counts()
-        candidates = _catalog.exclude(self.catalog, organism, normalized)
+        candidates = _catalog.exclude(self.catalog, organism, canonical)
         rows = counts[
             counts["dataset_version_id"].isin(candidates["dataset_version_id"])
         ]
         if primary_only:
             rows = rows[rows["is_primary_data"].astype(bool)]
         keep = np.ones(len(rows), dtype=bool)
-        for column, wanted in normalized.items():
+        for column, wanted in canonical.items():
             if column == "dataset_id":
                 continue  # the catalog answered it
             # Test each distinct value once; a null's code -1 indexes the last False.
@@ -250,7 +250,7 @@ def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
     return [None if unrecorded(v) else v for v in rows[column]]
 
 
-def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
+def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
     """The cells of one store that match `obs_filter`, by the same rule as the catalog."""
     mask = np.ones(len(obs), dtype=bool)
     for column, wanted in obs_filter.items():
@@ -276,7 +276,7 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
 
 
 def _read_store(
-    row: dict[str, Any], obs_filter: Normalized, layers: Sequence[str] = ()
+    row: dict[str, Any], obs_filter: CanonicalFilter, layers: Sequence[str] = ()
 ) -> anndata.AnnData:
     """The selected cells of one store. `X` holds the counts on the reference genes.
 
