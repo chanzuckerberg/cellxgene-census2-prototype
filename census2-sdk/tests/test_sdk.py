@@ -461,7 +461,7 @@ def test_obs_index_is_not_read(
 def test_cell_key_checked_on_kept_cells(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, encoding: str, dtype: str
 ) -> None:
-    """A bad key in a dropped cell passes. The writer checks every cell (tracker 4.6)."""
+    """A bad key in a dropped cell passes. The writer checks every cell."""
     adata = make_store("ds-d", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 3)
     adata.obs["tissue"] = pd.Categorical(["kidney"] * 2 + ["lung"] * 2 + ["heart"] * 2)
     catalog = one_store_catalog(tmp_path, adata, "ds-d")

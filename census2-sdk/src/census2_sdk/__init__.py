@@ -355,7 +355,7 @@ def _kept(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> Any:
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
     """Design 1.6: the kept cells' `observation_joinid` is present, non-null, and unique.
 
-    The writer checks every cell of the store (tracker 4.6).
+    The writer checks every cell of the store.
     """
     if "observation_joinid" not in obs.columns:
         raise ValueError(f"{store_uri}: obs has no observation_joinid column")
