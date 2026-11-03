@@ -510,6 +510,8 @@ def test_malformed_store_refused(tmp_path: Path) -> None:
         census2_sdk._read_column_rows(key, np.array([0]))
     with pytest.raises(ValueError, match="needs feature_length"):
         census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
+
+
 @pytest.mark.parametrize("max_runs", [census2_sdk.MAX_RUNS, 3])
 def test_rows_read_runs_as_ranges(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, max_runs: int
@@ -535,8 +537,6 @@ def test_rows_read_runs_as_ranges(
         )
     # Only the last selection has more than 3 runs (4).
     assert len(calls) == (1 if max_runs == 3 else 0)
-
-
 
 
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:

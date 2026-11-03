@@ -384,16 +384,16 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
 
 
 # ponytail: fixed limits; tune them when stores change their row order or chunk size.
-MAX_RUNS = 256  # above this, a store's kept rows go through anndata's row read
+MAX_RUNS = 256
 RUN_THREADS = 16  # range reads in flight for one store
 
 
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
     """The selected rows of a CSR matrix, read without loading the rest.
 
-    Adjacent kept rows form a run, and each run is one range of `data` and of `indices`.
-    The SDK reads the ranges of all runs at the same time. With more than `MAX_RUNS`
-    runs, it uses anndata's row read, which indexes every stored value of a kept row.
+    Each run of adjacent kept rows is one range of `data` and of `indices`, read at the
+    same time. Above `MAX_RUNS` runs, the SDK uses anndata's row read, which makes fewer
+    requests.
     """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
