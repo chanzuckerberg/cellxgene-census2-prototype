@@ -383,11 +383,44 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
             )
 
 
+# ponytail: fixed limits; tune them when stores change their row order or chunk size.
+MAX_RUNS = 256  # above this, a store's kept rows go through anndata's row read
+RUN_THREADS = 16  # range reads in flight for one store
+
+
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
-    """The selected rows of a CSR matrix, read without loading the rest."""
+    """The selected rows of a CSR matrix, read without loading the rest.
+
+    Adjacent kept rows form a run, and each run is one range of `data` and of `indices`.
+    The SDK reads the ranges of all runs at the same time. With more than `MAX_RUNS`
+    runs, it uses anndata's row read, which indexes every stored value of a kept row.
+    """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
-    dataset = sparse_dataset(node)
+    arrays = [node[name] for name in ("data", "indices", "indptr")]
+    if not all(isinstance(a, zarr.Array) for a in arrays):
+        raise TypeError(f"{node.store_path} must be an encoded CSR matrix")
+    data, indices, indptr_node = cast("list[zarr.Array[Any]]", arrays)
+    n_vars = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
-        return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)
-    return sp.csr_matrix(cast("sp.csr_matrix", dataset[keep]))
+        return sp.csr_matrix((0, n_vars), dtype=data.dtype)
+    cut = np.flatnonzero(np.diff(keep) != 1) + 1
+    first, last = keep[np.r_[0, cut]], keep[np.r_[cut - 1, len(keep) - 1]] + 1
+    if len(first) > MAX_RUNS:
+        return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
+    indptr = np.asarray(indptr_node[:], dtype=np.int64)
+    values = (data, indices)
+    ranges = [
+        (a, int(indptr[s]), int(indptr[e])) for s, e in zip(first, last) for a in (0, 1)
+    ]
+    with ThreadPoolExecutor(min(RUN_THREADS, len(ranges))) as pool:
+        parts = list(pool.map(lambda r: np.asarray(values[r[0]][r[1] : r[2]]), ranges))
+    counts = np.concatenate([np.diff(indptr[s : e + 1]) for s, e in zip(first, last)])
+    return sp.csr_matrix(
+        (
+            np.concatenate(parts[0::2]),
+            np.concatenate(parts[1::2]),
+            np.r_[0, np.cumsum(counts)],
+        ),
+        shape=(len(keep), n_vars),
+    )
