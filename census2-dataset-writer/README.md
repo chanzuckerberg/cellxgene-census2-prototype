@@ -113,9 +113,12 @@ columns that Census 1 copies, the `tissue_general` pair, and five statistics of 
   version that Census 1 pins. The package holds its ontologies and reads no network. The receipt
   records its version.
 - `raw_sum`, `nnz`, `raw_mean_nnz`, `raw_variance_nnz`, and `n_measured_vars` are the Census 1
-  statistics of the counts. The writer computes them as Census 1 does, before the gene projection,
-  so they are bit-identical to Census 1. `n_measured_vars` is the number of genes in `measured`.
-  The writer reads `X` once for the statistics and once more for the write.
+  statistics of the counts. The writer computes them as Census 1 does, before the gene projection.
+  `n_measured_vars` is the number of genes in `measured`. The writer reads `X` once for the
+  statistics and once more for the write. The values are bit-identical to Census 1 LTS
+  `2025-11-08`, except `raw_sum` and `raw_mean_nnz` in 385 cells whose row sum is above 2^24.
+  The writer keeps the exact sum of those cells, and Census 1 holds a float32 rounding of it
+  ([expected differences](../census2-sdk/tools/harness/README.md#expected-differences)).
 - Census 1 also holds `soma_joinid`, a corpus-wide number that a store for one dataset cannot
   assign.
 

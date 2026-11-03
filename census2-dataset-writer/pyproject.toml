@@ -21,7 +21,8 @@ dependencies = [
     "numcodecs>=0.15",
     "h5py>=3.11",
     "numpy>=1.26",
-    "scipy>=1.11",
+    # 1.18 applies sum(dtype=float64) before the sum (scipy#24496), so raw_sum is exact.
+    "scipy>=1.18",
     # obs and var are pandas DataFrames, so they appear in this package's own
     # annotations. anndata requires pandas regardless; this states the reliance.
     "pandas>=2.1",

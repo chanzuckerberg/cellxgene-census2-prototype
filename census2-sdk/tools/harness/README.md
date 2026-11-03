@@ -60,10 +60,10 @@ corpus version bump.
 
 ## The human sample of corpus v1.1
 
-The SDK run (task 6.2) compares Census 1 with 103 stores. `bulk-ingest-nf/manifests/`
-lists their datasets: 100 human datasets sampled from release 2025-11-08, and the three
-datasets of this sample. The three datasets let the silent-failure entries select cells
-on both stacks:
+The human clamp sample comes from the 103 stores of the first SDK run (task 6.2).
+`bulk-ingest-nf/manifests/` lists their datasets: 100 human datasets sampled from release
+2025-11-08, and the three datasets of this sample. The three datasets let the
+silent-failure entries select cells on both stacks:
 
 | Dataset | Cells | Reason |
 | --- | --- | --- |
@@ -98,8 +98,10 @@ results. To regenerate the human results only, add `--only census_data/homo_sapi
 ## Run the SDK against Census 1
 
 `compare_stacks.py` reads the catalog of the stores under test and the oracle snapshot.
-The recorded run, `results/sdk_vs_census1.json`, reads the 103 stores of
-`bulk-ingest-nf/manifests/`, and it holds the SHA-256 of its catalog. `build_catalog.py`
+The recorded run, `results/sdk_vs_census1.json`, is the Iteration 2 gate (tracker 4.9).
+It reads the 1,258 human and mouse stores of Census 1 LTS `2025-11-08`, and it holds the
+SHA-256 of its catalog. `bulk-ingest-nf/tools/census1-sample.py --limit 0` writes the
+manifest of these datasets. `build_catalog.py`
 builds each catalog row from the summary record of a store, so it refuses a store without
 one. `obstore` reads S3 credentials from the environment. To regenerate the record, from
 `census2-sdk/tools/`:
@@ -115,10 +117,10 @@ The driver prints one line for each query:
 
 | Status | Meaning |
 | --- | --- |
-| `pass` | No finding, other than the genes that only the SDK holds |
-| `fail` | At least one finding. The first five follow the line. |
+| `pass` | No finding, other than the expected differences below |
+| `fail` | At least one other finding. The first five follow the line. |
 | `vacuous` | Neither side holds a cell. The findings stay on record. |
-| `unsupported` | The SDK cannot express the query. The line names the reason. |
+| `unsupported` | The SDK cannot express the query. The line names the reason and the task that adds what the query needs. An unsupported query does not fail the run. |
 | `skip` | The catalog holds no store of the experiment's clamp sample |
 
 The adapter translates equality and membership clauses into the SDK's filter mapping and
@@ -128,10 +130,42 @@ that the catalog does not index, and the `get_obs`, `get_var`, and presence acce
 unsupported.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
-while the gene sets differ. The driver thus restricts both sides to the shared genes. The
-genes that only the SDK holds are an expected finding, and a Census 1 gene that the SDK
-does not hold fails the query. Each finding names the task that owns it (the `OWNERS`
-table in `compare_stacks.py`).
+while the gene sets differ. The driver thus restricts both sides to the shared genes. A
+Census 1 gene that the SDK does not hold fails the query. Each finding names the task that
+owns it (the `OWNERS` table in `compare_stacks.py`).
+
+### Expected differences
+
+A finding in this list stays on record with its reason, and it does not fail the query.
+Each entry holds in one direction only. For example, a `feature_version` column that only
+Census 1 holds is a failure. `EXPECTED` and `FLOAT32_SUMS` in `compare_stacks.py` are the
+list.
+
+| Finding | Direction | Reason | Until |
+| --- | --- | --- | --- |
+| The 17,397 human genes of the pinned reference that the Census 1 build lacks | SDK only | The SDK's `var` is the whole pinned reference (tracker 4.2) | Permanent |
+| `var.feature_version` | SDK only | The SDK keeps this column of the pinned reference | Permanent |
+| `var.nnz`, `var.n_measured_obs` | Census 1 only | Corpus aggregates. The release builder sums them from per-gene files (tracker 4.14). | Iteration 3 |
+| `obs.raw_sum`, `obs.raw_mean_nnz` values | Both | The Census 1 build summed float32 counts in float32, so it rounds a row sum above 2^24. The writer keeps the exact sum. | Permanent |
+
+The driver accepts a `raw_sum` or `raw_mean_nnz` finding only when three conditions hold
+for every cell that differs. The `raw_sum` of the cell differs too, its exact row sum is
+above 2^24, and its relative difference is at most 1e-6. For `raw_mean_nnz`, both sides
+also hold the same `nnz`, and each mean equals the `raw_sum / nnz` of its own side. The
+comparator names only the first cell that differs, so the driver checks all of them.
+Over the 1,258 stores of Census 1 LTS `2025-11-08`, 385 cells differ, and the largest
+relative difference is 1.7e-7.
+
+The rounding comes from the scipy version of the Census 1 build. The Census 1 builder calls
+`raw_X.sum(axis=1, dtype=np.float64)`, but scipy before 1.18 applies `dtype` after the sum
+([scipy#24496](https://github.com/scipy/scipy/pull/24496)). A float32 `raw_X` thus adds in
+float32. With scipy 1.18 or later, the same call returns the exact sum.
+
+This rule explains the Census 1 value only, and it accepts the SDK value as the exact sum.
+The round-trip check of the reconciliation job verifies that value. For every cell, it
+computes `raw_sum`, `nnz`, `raw_mean_nnz`, and `raw_variance_nnz` again from the source
+counts, and it compares them exactly with the store. The harness cannot do this itself,
+because a query that selects genes returns part of each row.
 
 ## Scope limits
 
