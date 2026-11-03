@@ -14,9 +14,8 @@ The rules:
 2. Values are compared only where identities align. A mismatch names the first cell
    that differs: its identity, its column, and both values.
 3. Floats compare exactly, including the raw counts in X. The one exception is the
-   layers in `FLOAT_TOLERANT` (`normalized`), which compare within `rtol=1e-6`,
-   because the operation order of derived floating-point arithmetic can differ
-   between stacks.
+   layers in `FLOAT_TOLERANT` (`normalized`), which compare within `rtol=2**-15`,
+   because Census 1 rounds that layer to 15 mantissa bits and the SDK does not.
 4. A column present on one side only is a finding.
 5. Two integer columns compare exactly. A float column, or an int/float pair,
    compares NaN-aware (NaN equals NaN) in float64, and the dtype disagreement is
@@ -37,7 +36,7 @@ import numpy as np
 
 from harness.canonical import Arrays, decode_strings
 
-FLOAT_TOLERANT = {"normalized": 1e-6}  # layer name -> rtol; everything else is exact
+FLOAT_TOLERANT = {"normalized": 2**-15}  # layer name -> rtol; everything else is exact
 
 
 @dataclass(frozen=True)

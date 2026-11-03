@@ -683,9 +683,15 @@ def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
 
 
 def census1_normalized(
-    counts: sp.csr_matrix, full_gene: np.ndarray, length: np.ndarray
+    counts: sp.csr_matrix,
+    full_gene: np.ndarray,
+    length: np.ndarray,
+    rounded: bool = True,
 ) -> sp.csr_matrix:
-    """The oracle: the steps of Census 1 `experiment_builder.py`, without numba."""
+    """The oracle: the steps of Census 1 `experiment_builder.py`, without numba.
+
+    `rounded=False` stops before the 15-bit rounding, which the SDK leaves out.
+    """
     counts = counts.copy()
     counts.eliminate_zeros()
     coo = counts.tocoo()
@@ -696,6 +702,8 @@ def census1_normalized(
         row_sum[i[k]] += norm[k]
     for k in range(len(i)):
         norm[k] = norm[k] / row_sum[i[k]]
+    if not rounded:
+        return sp.csr_matrix((norm, (i, j)), shape=counts.shape)
     maskbits = 23 - 15  # _roundHalfToEven(keepbits=15)
     mask = np.array((((1 << 32) - 1) >> maskbits) << maskbits, dtype=np.uint32)
     b = norm.view(np.int32)
@@ -705,7 +713,7 @@ def census1_normalized(
     return sp.csr_matrix((norm, (i, j)), shape=counts.shape)
 
 
-def test_normalized_equals_census1_bit_for_bit() -> None:
+def test_normalized_is_census1_without_its_rounding() -> None:
     rng = np.random.default_rng(0)
     counts = sp.random(
         40, 60, density=0.3, format="csr", random_state=1, dtype="float32"
@@ -716,11 +724,15 @@ def test_normalized_equals_census1_bit_for_bit() -> None:
     full_gene = rng.random(40) < 0.4
     length = rng.integers(200, 20_000, 60)
     got = census2_sdk.normalize.normalized(counts, full_gene, length)
-    want = census1_normalized(counts, full_gene, length)
-    assert np.array_equal(got.indptr, want.indptr)
-    assert np.array_equal(got.indices, want.indices)
+    exact = census1_normalized(counts, full_gene, length, rounded=False)
+    census1 = census1_normalized(counts, full_gene, length)
+    for want in (exact, census1):
+        assert np.array_equal(got.indptr, want.indptr)
+        assert np.array_equal(got.indices, want.indices)
     assert got.data.dtype == np.float32
-    assert np.array_equal(got.data.view(np.uint32), want.data.view(np.uint32))
+    assert np.array_equal(got.data.view(np.uint32), exact.data.view(np.uint32))
+    assert not np.array_equal(got.data, census1.data)  # the SDK does not round
+    assert np.allclose(got.data, census1.data, rtol=2**-15, atol=0)
     assert got.nnz == counts.count_nonzero() and not np.isnan(got.data).any()
 
 
@@ -749,7 +761,8 @@ def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
     result = census.get_anndata("homo_sapiens", X_layers=["normalized"])
     assert result is not None
     length = np.asarray(adata.var["feature_length"])
-    want = census1_normalized(X(result), np.ones(result.n_obs, dtype=bool), length)
+    full_gene = np.ones(result.n_obs, dtype=bool)
+    want = census1_normalized(X(result), full_gene, length, rounded=False)
     got = sp.csr_matrix(result.layers["normalized"])
     assert np.array_equal(got.toarray(), want.toarray())
 

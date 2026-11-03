@@ -107,7 +107,7 @@ class Census:
 
         `X_layers` names the layers to add next to the counts. The one layer is
         `normalized`, which the SDK calculates from the counts with the Census 1
-        algorithm (`census2_sdk.normalize`).
+        algorithm, without its rounding (`census2_sdk.normalize`).
 
         `max_workers` is the largest number of stores that the SDK reads at the
         same time, and it must be a positive integer. The result is the same for
