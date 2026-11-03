@@ -138,8 +138,8 @@ in one call, so the statistics must exist before the write starts. One
 shared pass needs the writer to write `X` itself, so that one dask compute
 feeds the store and the statistics. A load of the whole `X` can fail, as the
 rules above state. Revisit this choice when a third pass over `X` appears or
-the ingest cost matters. The per-gene nnz file of tracker 4.14 can share the
-pass of `add_obs_stats`.
+the ingest cost matters. A per-gene nnz file can share the pass of
+`add_obs_stats`.
 
 `README.md` in this directory covers installation, use, and development.
 """

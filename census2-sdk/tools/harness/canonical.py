@@ -1,4 +1,4 @@
-"""The canonical result form (task 2.3): a deterministic serialization of a query result.
+"""The canonical result form: a deterministic serialization of a query result.
 
 All normalization happens here, in the serialization, and none in the comparator. The
 rules:

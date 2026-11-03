@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Build the prototype catalog from the Iteration 1 stores: one Parquet row for each store.
+"""Build the prototype catalog from the stores: one Parquet row for each store.
 
 The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 2 team
-publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for that
+publishes one (design 2.3, 3.3). This script is the prototype stand-in for that
 builder. It reads a prefix that holds `<dataset_version_id>.zarr` stores. Each store's
 summary record, in the attributes of its root group, gives the dataset's identifiers and
 the gene reference version. The rest of the row comes from the store's `obs` and `uns`.
 The builder reads no receipt.
 
-Each row also holds the cell counts of its store, in the `cell_counts` column
-(tracker 5.9). The column has one entry for each combination of the `COUNTED` values
-and `is_primary_data`, with the number of cells in `n_cells`. The builder counts the
-cells in the same pass that reads the values for the catalog row.
+Each row also holds the cell counts of its store, in the `cell_counts` column. The
+column has one entry for each combination of the `COUNTED` values and
+`is_primary_data`, with the number of cells in `n_cells`. The builder counts the cells
+in the same pass that reads the values for the catalog row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 

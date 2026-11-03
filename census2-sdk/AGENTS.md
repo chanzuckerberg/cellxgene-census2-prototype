@@ -6,7 +6,7 @@ one AnnData out. `README.md` covers installing and using it. The module docstrin
 
 This file records the sharp edges of the code, and the scaffolding that the writer replaces.
 
-## Iteration 1 scaffolding
+## Prototype scaffolding
 
 The `ponytail:` comments in the code mark the list columns.
 
@@ -25,7 +25,7 @@ install it. The tests and mypy do need it, and CI installs it.
 ## The cell counts
 
 `tools/build_catalog.py` writes the cell counts of each store into its catalog row, in the
-`cell_counts` column (tracker 5.9), and `Census.count_cells` sums them. The catalog stays one file,
+`cell_counts` column, and `Census.count_cells` sums them. The catalog stays one file,
 and the counts and `n_obs` of a store come from the same build. `catalog.COUNTED` names the counted
 columns, and the builder and the SDK both read that tuple. A null is a group of its own, so the
 entries of a store add up to its `n_obs`. A null matches no filter, as in `get_anndata`. A store

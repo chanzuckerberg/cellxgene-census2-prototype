@@ -68,5 +68,6 @@ This policy applies to all project documentation: markdown files, docstrings, an
 - Keep the whole sentence/section/document readable and coherent when you edit it. The smallest correct edit is not always the best edit to make.
 - State the current truth as if you knew it from the start. Avoid verbosely documenting the journey there; git retains that history.
 - AVOID sentence structures and rhetorical flourishes that intend to elicit human emotional reactions.
+- Do not cite or summarize internal documents (the plan, the tracker and its task numbers, the evidence, Notion pages). This rule also applies to the wiki. The repository and the wiki will be public. State the fact or the reason, and cite the design record when a source is necessary.
 
 Humility note: the scverse core team will review this project under a funded collaboration, and the project will eventually open for public consumption. What we write about the capabilities and the performance of scverse dependencies, TileDB-SOMA, and other related projects must be honest. It must also be sensitive to human social dynamics.

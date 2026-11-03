@@ -42,7 +42,7 @@ packages = ["src/census2_sdk"]
 src = ["src"]
 
 [tool.pytest.ini_options]
-# The tests import tools/build_catalog.py, the Iteration 1 catalog builder, and the
+# The tests import tools/build_catalog.py, the prototype catalog builder, and the
 # tools/harness package.
 pythonpath = ["tools"]
 

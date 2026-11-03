@@ -1,4 +1,4 @@
-"""The 6.2 adapter's filter translation and the driver's gene restriction and owners."""
+"""The SDK adapter's filter translation and the driver's gene restriction and owners."""
 
 import pathlib
 from dataclasses import replace
