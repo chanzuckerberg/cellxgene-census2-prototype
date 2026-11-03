@@ -479,7 +479,7 @@ def test_recorded_reference_must_match_the_pin(
     assert query(census, {"tissue": "lung"}).n_obs > 0
 
 
-# --- the cell counts and count_cells (tracker 5.9) -----------------------------
+# --- the cell counts and count_cells ------------------------------------------
 
 COUNT_FILTERS: list[dict[str, Any]] = [
     {},

@@ -28,15 +28,10 @@ The design documents are on the [project wiki](https://github.com/chanzuckerberg
 | Document | Wiki page |
 |---|---|
 | The design record, version 3 | [Design record](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki/Design-record) |
-| The harmonization disposition table, task 4.1 | [Disposition table](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki/Disposition-table) |
+| The harmonization disposition table | [Disposition table](https://github.com/chanzuckerberg/cellxgene-census2-prototype/wiki/Disposition-table) |
 
-The evidence, the plan, and the tracker are internal Biohub documents. The evidence holds the
-measurements and their methods. The plan holds the 16 phases of the work, and the tracker holds
-their tasks.
-
-A README, a docstring, or a pull request cites these documents in a fixed form. A design citation
-such as design 2.2 names a section of the design record. A plan citation such as plan Phase 6 names
-a phase of the plan. A tracker citation such as tracker 6.1 names a task.
+A README or a docstring cites a section of the design record in a fixed form: design 2.2 names
+section 2.2.
 
 ## Develop
 

@@ -1,4 +1,4 @@
-"""Run one benchmark query in this process and print one JSON line (task 6.4).
+"""Run one benchmark query in this process and print one JSON line.
 
 Each run is a new process, so no connection or metadata cache carries over from
 an earlier run. The shapes are:

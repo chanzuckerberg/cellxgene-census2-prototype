@@ -1,4 +1,4 @@
-"""The comparator (task 2.3): decide whether two canonical results are the same answer.
+"""The comparator: decide whether two canonical results are the same answer.
 
 Both sides are in the canonical form of `canonical.py`: rows ordered by identity,
 categoricals decoded, X in the sorted coordinate space. The comparator normalizes
@@ -22,7 +22,7 @@ The rules:
    compares NaN-aware (NaN equals NaN) in float64, and the dtype disagreement is
    tolerated when the values compare equal. The Census 1 SDK's dtype for a nullable
    integer column (the spatial `array_row`, `array_col`, `in_tissue`) depends on
-   whether the selected rows include a null (evidence 18.1). A kind disagreement
+   whether the selected rows include a null. A kind disagreement
    (string vs numeric) is a finding.
 6. An axis that neither side holds, such as `obs` in a presence result, is not
    compared. An axis that either side holds must carry its identity columns on both

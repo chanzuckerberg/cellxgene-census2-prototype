@@ -1,4 +1,4 @@
-"""Run the query corpus through the Census 2 SDK and compare with Census 1 (task 6.2).
+"""Run the query corpus through the Census 2 SDK and compare with Census 1.
 
 For each bound query, the driver loads the recorded Census 1 result, answers the query
 through `sdk_adapter`, and runs the comparator. It prints one status line for

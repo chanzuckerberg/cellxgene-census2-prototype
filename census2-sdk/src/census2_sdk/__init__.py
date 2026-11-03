@@ -26,7 +26,7 @@ dataset's assayed genes in a `measured` column, and the result leaves that colum
 because the result spans datasets.
 
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
-that each catalog row holds (tracker 5.9). Its filter takes the columns of
+that each catalog row holds. Its filter takes the columns of
 `catalog.COUNTED` and `dataset_id`.
 
     n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})

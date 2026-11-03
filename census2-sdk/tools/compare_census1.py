@@ -3,9 +3,9 @@
 
 Census 1 is the oracle: release 2025-11-08 through `cellxgene-census` 1.18.0. The
 validation harness uses the same release and SDK version, but it also pins
-`tiledbsoma` 1.15.3 and `anndata` 0.13.2, and this command does not. The Iteration 1
-stores come from re-curated dataset versions, so a cell-set difference is a finding to
-record and not a failure. Values are compared on the cells and genes that both sides
+`tiledbsoma` 1.15.3 and `anndata` 0.13.2, and this command does not. A store written from a
+re-curated dataset version can hold other cells, so a cell-set difference is a finding
+to record and not a failure. Values are compared on the cells and genes that both sides
 hold. The exit code is 0 when the values on the intersection are equal.
 
     uv run --python 3.12 --with cellxgene-census==1.18.0 --with './census2-sdk[s3]' \\

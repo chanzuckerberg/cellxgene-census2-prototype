@@ -2,23 +2,21 @@
 
 Census 1 is the oracle. The harness records its answer to a fixed set of queries, asks a
 stack under test the same queries, and reports every difference. The Census 2 SDK is
-the stack under test (tracker task 6.2). This directory holds the harness pieces that
-the SDK's run needs. The rest of the Phase 2 code stays in the `cellxgene-census`
-repository, branch `spike/validation-harness`, `tools/validation_harness/`.
+the stack under test. This directory holds the harness pieces that the SDK's run needs.
 
-| File | Task | Role |
-| --- | --- | --- |
-| `corpus.py`, `query_values.json` | 2.1 | 16 entries, 74 bound queries over the seven experiments, with pinned filter values |
-| `oracle_runner.py`, `requirements-oracle.lock`, `snapshot_manifest.json` | 2.2 | Records the Census 1 answers in the canonical form |
-| `canonical.py` | 2.3 | The canonical result form: rows by identity, decoded categoricals, sorted CSR, `.npy` parts, a digest |
-| `comparator.py` | 2.3 | The diff between two canonical results. Its corruption suite is `tests/test_harness.py` |
-| `sdk_adapter.py` | 6.2 | Answers a bound query through the Census 2 SDK, or names why the SDK cannot |
-| `compare_stacks.py` | 6.2 | Runs the corpus through the SDK, compares with the recorded Census 1 answers, and names the task that owns each finding |
+| File | Role |
+| --- | --- |
+| `corpus.py`, `query_values.json` | 16 entries, 74 bound queries over the seven experiments, with pinned filter values |
+| `oracle_runner.py`, `requirements-oracle.lock`, `snapshot_manifest.json` | Records the Census 1 answers in the canonical form |
+| `canonical.py` | The canonical result form: rows by identity, decoded categoricals, sorted CSR, `.npy` parts, a digest |
+| `comparator.py` | The diff between two canonical results. Its corruption suite is `tests/test_harness.py` |
+| `sdk_adapter.py` | Answers a bound query through the Census 2 SDK, or names why the SDK cannot |
+| `compare_stacks.py` | Runs the corpus through the SDK, compares with the recorded Census 1 answers, and names the task that owns each finding |
 
-Not ported: the fixture reader over converted TileDB data (`zarr_adapter.py`,
+Not in this repository: the fixture reader over converted TileDB data (`zarr_adapter.py`,
 `make_fixtures.py`, and the fixture driver of the same name as `compare_stacks.py`), the
-benchmark rig (2.5), and the catalog prototype. The writer's stores and the SDK replace the
-first group. The rig returns in Iteration 3.
+benchmark rig, and the catalog prototype. The writer's stores and the SDK replace the
+first group.
 
 ## The pins
 
@@ -33,8 +31,7 @@ first group. The rig returns in Iteration 3.
 | Snapshot bound | 3 datasets per experiment: the 3 smallest, or the human pick below | `snapshot_manifest.json` |
 
 Every serialized result records the release, its URI, the package versions, and the
-corpus version in its `manifest.json`. A result thus names the oracle that produced it
-(evidence 11.1).
+corpus version in its `manifest.json`. A result thus names the oracle that produced it.
 
 ## Produce the oracle snapshot
 
@@ -60,7 +57,7 @@ corpus version bump.
 
 ## The human sample of corpus v1.1
 
-The human clamp sample comes from the 103 stores of the first SDK run (task 6.2).
+The human clamp sample comes from the 103 stores of the first SDK run.
 `bulk-ingest-nf/manifests/` lists their datasets: 100 human datasets sampled from release
 2025-11-08, and the three datasets of this sample. The three datasets let the
 silent-failure entries select cells on both stacks:
@@ -69,7 +66,7 @@ silent-failure entries select cells on both stacks:
 | --- | --- | --- |
 | `5b25a46f-f1cf-4caa-9e10-6ab81dfe9174` | 12,822 | The only one of the 103 with a multi-valued disease. All its cells are primary data. |
 | `6e00ccf7-0749-46ef-a999-dba785630d52` | 5,499 | Primary data with brain or lung cells |
-| `62315937-e268-4fa5-a032-8f7d776f3a3f` | 4,778 | The control: the SDK and Census 1 agreed on every value of this dataset (task 6.1) |
+| `62315937-e268-4fa5-a032-8f7d776f3a3f` | 4,778 | The control: the SDK and Census 1 agreed on every value of this dataset |
 
 To rebuild the manifest with this pick:
 
@@ -174,9 +171,10 @@ because a query that selects genes returns part of each row.
   spatial `obs`, `var`, or presence read goes to the SOMA object directly. Each
   `manifest.json` records which path ran.
 - An obs-filtered query is clamped to the manifest's datasets. A full-corpus X read is
-  the benchmark rig's subject (task 2.5).
+  the benchmark rig's subject.
 - The deferred corpus entries (identity coordinates, spatial scenes) have no oracle
-  serialization. They wait on decision 7 and Phase 3.
+  serialization. They wait on decision 7 of the design record and on the spatial
+  representation (design 6.3).
 - The filters are TileDB-SOMA `value_filter` strings. The Census 2 SDK takes a mapping
   of indexed column to values. Its adapter answers the entries it can express and
   reports the rest as unsupported.

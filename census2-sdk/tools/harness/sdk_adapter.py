@@ -1,4 +1,4 @@
-"""The Census 2 SDK as the stack under test of the validation harness (task 6.2).
+"""The Census 2 SDK as the stack under test of the validation harness.
 
 `answer` takes one bound corpus query and the clamp of its recorded Census 1 result. It
 translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping, runs

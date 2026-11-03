@@ -1,15 +1,15 @@
 """The SDK's side of the catalog: load it, and exclude the datasets that cannot match.
 
 The catalog is a Parquet table with one row for each store (design section 2). The
-Census 2 team publishes it; `tools/build_catalog.py` is the Iteration 1 stand-in for
+Census 2 team publishes it; `tools/build_catalog.py` is the prototype stand-in for
 that builder. `exclude` applies the one correctness rule of design 2.2. A query
 excludes a dataset only when the catalog proves that no cell of the dataset can match.
 An absent column or an unknown value keeps the dataset.
 
-Each catalog row holds the cell counts of its store in the `cell_counts` column
-(tracker 5.9). The column has one entry for each combination of the `COUNTED` values
-and `is_primary_data`, with the number of cells in `n_cells`. `load` reads the catalog
-without this column, and `load_counts` reads only the entries.
+Each catalog row holds the cell counts of its store in the `cell_counts` column. The
+column has one entry for each combination of the `COUNTED` values and `is_primary_data`,
+with the number of cells in `n_cells`. `load` reads the catalog without this column, and
+`load_counts` reads only the entries.
 """
 
 import io
@@ -58,7 +58,7 @@ INDEXED = tuple(c for p in PAIRS for c in (p, f"{p}_ontology_term_id")) + (
     "suspension_type",
     "tissue_type",
 )
-# The catalog column of cell counts and the columns that it counts (tracker 5.9).
+# The catalog column of cell counts and the columns that it counts.
 COUNTS = "cell_counts"
 COUNTED = tuple(
     c
