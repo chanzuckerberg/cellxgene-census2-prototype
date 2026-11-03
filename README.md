@@ -59,4 +59,4 @@ Do not open a public issue for a security issue. Send an email to
 
 ## License
 
-The contents of this repository are available under the [MIT license](LICENSE).
+The contents of this repository and of its wiki are available under the [MIT license](LICENSE).
