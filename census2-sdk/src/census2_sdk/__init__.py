@@ -285,7 +285,12 @@ def _read_store(
     the layers to calculate from the counts.
     """
     group = open_store(row["store_uri"])
-    obs = cast("pd.DataFrame", read_elem(group["obs"]))
+    obs_group = group["obs"]
+    assert isinstance(obs_group, zarr.Group), "obs must be an encoded dataframe"
+    # To read obs faster, the SDK does not read the index (the source cell names).
+    # The result replaces the index with the cell key, so the SDK has no use for it.
+    columns = cast("list[str]", obs_group.attrs["column-order"])
+    obs = pd.DataFrame({name: read_elem(obs_group[name]) for name in columns})
     _check_cell_key(obs, str(row["store_uri"]))
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
