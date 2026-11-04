@@ -454,12 +454,15 @@ def test_obs_index_is_not_read(
     ("encoding", "dtype"),
     [
         ("nullable-string-array", "string"),
-        ("nullable-string-array", "str"),
+        ("nullable-string-array", pd.StringDtype(na_value=np.nan)),
         ("categorical", "category"),
     ],
 )
 def test_cell_key_checked_on_kept_cells(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, encoding: str, dtype: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    dtype: str | pd.StringDtype,
 ) -> None:
     """A bad key in a dropped cell passes. The writer checks every cell."""
     adata = make_store("ds-d", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 3)
