@@ -1,6 +1,7 @@
 """The 6.2 adapter's filter translation and the driver's gene restriction and owners."""
 
 import pathlib
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any, cast
 
@@ -208,6 +209,34 @@ def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
     census1 = canonicalize_anndata(_adata(["g1", "g2"]))
     record = _run_one(tmp_path, QUERY, Stores(), census1)
     assert record["status"] == status
+
+
+@pytest.mark.parametrize(
+    ("layers", "asked"), [(("raw",), []), (("raw", "normalized"), ["normalized"])]
+)
+def test_answer_asks_the_sdk_for_the_query_layers(
+    layers: tuple[str, ...], asked: list[str]
+) -> None:
+    """The adapter asks for every layer but `raw`, and the layer reaches the arrays."""
+    seen: list[list[str]] = []
+
+    class Stores:
+        def get_anndata(
+            self, organism: str, obs_filter: object, layers: Sequence[str] = ()
+        ) -> ad.AnnData:
+            seen.append(list(layers))
+            adata = _adata(["g1", "g2"])
+            for name in layers:
+                adata.layers[name] = sparse.csr_matrix(np.full((2, 2), 0.5, np.float32))
+            return adata
+
+    query = replace(QUERY, layers=layers)
+    arrays, _ = answer(query, cast("census2_sdk.Census", Stores()), ["d1"], PINS)
+    assert seen == [asked]
+    if asked:
+        assert np.array_equal(arrays["X.normalized.data"], np.full(4, 0.5))
+    else:
+        assert "X.normalized.data" not in arrays
 
 
 def test_an_expected_difference_holds_in_its_declared_direction() -> None:
