@@ -270,9 +270,11 @@ def test_concurrent_reads_match_one_at_a_time(
     done = {dataset_id: threading.Event() for dataset_id in order}
     finished: list[str] = []
 
-    def overlapping(row: dict[str, Any], normalized: Any) -> anndata.AnnData:
+    def overlapping(
+        row: dict[str, Any], canonical: Any, layers: Any = ()
+    ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, normalized)
+        part = read_store(row, canonical, layers)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -399,7 +401,7 @@ def test_catalog_without_a_column_keeps_the_dataset(
 
     # The catalog keeps the store; its cells hold no lung, so the result is None.
     alone = census2_sdk.open_census([tmp_path / "no-tissue.parquet"])
-    lung = catalog.normalize({"tissue": "lung"})
+    lung = catalog.canonicalize({"tissue": "lung"})
     assert len(catalog.exclude(alone.catalog, "homo_sapiens", lung)) == 1
     assert alone.get_anndata("homo_sapiens", {"tissue": "lung"}) is None
 
@@ -675,3 +677,97 @@ def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-m")])
     with pytest.raises(ValueError, match="holds \\['ds-other'\\].*names ds-m"):
         census.get_anndata("homo_sapiens")
+
+
+# --- the normalized layer -----------------------------------------------------
+
+
+def census1_normalized(
+    counts: sp.csr_matrix,
+    full_gene: np.ndarray,
+    length: np.ndarray,
+    rounded: bool = True,
+) -> sp.csr_matrix:
+    """The oracle: the steps of Census 1 `experiment_builder.py`, without numba.
+
+    `rounded=False` stops before the 15-bit rounding, which the SDK leaves out.
+    """
+    counts = counts.copy()
+    counts.eliminate_zeros()
+    coo = counts.tocoo()
+    i, j, d = coo.row, coo.col, coo.data.astype(np.float32)
+    norm = np.where(full_gene[i], d / length[j], d).astype(np.float32)
+    row_sum = np.zeros(counts.shape[0], dtype=np.float64)
+    for k in range(len(i)):
+        row_sum[i[k]] += norm[k]
+    for k in range(len(i)):
+        norm[k] = norm[k] / row_sum[i[k]]
+    if not rounded:
+        return sp.csr_matrix((norm, (i, j)), shape=counts.shape)
+    maskbits = 23 - 15  # _roundHalfToEven(keepbits=15)
+    mask = np.array((((1 << 32) - 1) >> maskbits) << maskbits, dtype=np.uint32)
+    b = norm.view(np.int32)
+    b += ((b >> maskbits) & 1) + ((1 << (maskbits - 1)) - 1)
+    b &= mask.view(np.int32)
+    norm[norm == 0] = np.finfo(np.float32).smallest_subnormal
+    return sp.csr_matrix((norm, (i, j)), shape=counts.shape)
+
+
+def test_normalized_is_census1_without_its_rounding() -> None:
+    rng = np.random.default_rng(0)
+    counts = sp.random(
+        40, 60, density=0.3, format="csr", random_state=1, dtype="float32"
+    )
+    counts.data = np.floor(counts.data * 200) + 1
+    counts.data[5] = 0  # a stored zero drops out, as in Census 1
+    counts.data[counts.indptr[2] : counts.indptr[3]] = 0  # a row of stored zeros
+    full_gene = rng.random(40) < 0.4
+    length = rng.integers(200, 20_000, 60)
+    got = census2_sdk.normalize.normalized(counts, full_gene, length)
+    exact = census1_normalized(counts, full_gene, length, rounded=False)
+    census1 = census1_normalized(counts, full_gene, length)
+    for want in (exact, census1):
+        assert np.array_equal(got.indptr, want.indptr)
+        assert np.array_equal(got.indices, want.indices)
+    assert got.data.dtype == np.float32
+    assert np.array_equal(got.data.view(np.uint32), exact.data.view(np.uint32))
+    assert not np.array_equal(got.data, census1.data)  # the SDK does not round
+    assert np.allclose(got.data, census1.data, rtol=2**-15, atol=0)
+    assert got.nnz == counts.count_nonzero() and not np.isnan(got.data).any()
+
+
+def test_get_anndata_adds_the_normalized_layer(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    result = census.get_anndata(
+        "homo_sapiens", {"tissue": "lung"}, layers=["normalized"]
+    )
+    assert result is not None
+    none = np.zeros(result.n_obs, dtype=bool)
+    want = census2_sdk.normalize.normalized(X(result), none, None)
+    assert np.array_equal(
+        sp.csr_matrix(result.layers["normalized"]).toarray(), want.toarray()
+    )
+    assert np.allclose(np.asarray(want.sum(axis=1)).ravel(), 1, rtol=1e-3)
+    assert "normalized" not in query(census, {"tissue": "lung"}).layers
+
+
+def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
+    adata = make_store("ds-s", 6, REFERENCE_IDS, ["lung"], ["normal"], 15)
+    adata.obs["assay_ontology_term_id"] = pd.Categorical(["EFO:0008931"] * adata.n_obs)
+    adata.var["feature_length"] = np.arange(1, len(REFERENCE_IDS) + 1) * 100
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-s")])
+    result = census.get_anndata("homo_sapiens", layers=["normalized"])
+    assert result is not None
+    length = np.asarray(adata.var["feature_length"])
+    full_gene = np.ones(result.n_obs, dtype=bool)
+    want = census1_normalized(X(result), full_gene, length, rounded=False)
+    got = sp.csr_matrix(result.layers["normalized"])
+    assert np.array_equal(got.toarray(), want.toarray())
+
+
+def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
+        census.get_anndata("homo_sapiens", layers=["scaled"])

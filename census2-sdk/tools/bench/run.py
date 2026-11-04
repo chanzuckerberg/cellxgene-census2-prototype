@@ -271,7 +271,9 @@ def run(
             _catalog.open_store = original
         t2 = time.monotonic()
         record["stores_opened"] = len(
-            _catalog.exclude(census.catalog, ORGANISM, _catalog.normalize(obs_filter))
+            _catalog.exclude(
+                census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
+            )
         )
         record["cells"] = int(adata.n_obs) if isinstance(adata, anndata.AnnData) else 0
     else:
