@@ -266,7 +266,8 @@ def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
     group = open_store(row["store_uri"])
     obs_group = group["obs"]
     assert isinstance(obs_group, zarr.Group), "obs must be an encoded dataframe"
-    # The result replaces the index (source cell names), so the SDK does not read it.
+    # To read obs faster, the SDK does not read the index (the source cell names).
+    # The result replaces the index with the cell key, so the SDK has no use for it.
     columns = cast("list[str]", obs_group.attrs["column-order"])
     obs = pd.DataFrame({name: read_elem(obs_group[name]) for name in columns})
     _check_cell_key(obs, str(row["store_uri"]))
