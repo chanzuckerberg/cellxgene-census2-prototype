@@ -286,7 +286,8 @@ def _read_store(
     """
     group = open_store(row["store_uri"])
     obs_group = group["obs"]
-    assert isinstance(obs_group, zarr.Group), "obs must be an encoded dataframe"
+    if not isinstance(obs_group, zarr.Group):
+        raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")
     # To read obs faster, the SDK decodes the two per-cell string columns only
     # where the result needs them. It does not read the index (the source cell
     # names), because the result replaces the index with the cell key. It reads
@@ -304,7 +305,8 @@ def _read_store(
         obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
     _check_cell_key(obs, str(row["store_uri"]))
     var_group = group["var"]
-    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
+    if not isinstance(var_group, zarr.Group):
+        raise TypeError(f"{row['store_uri']}: var must be an encoded dataframe")
     index = read_elem(var_group[str(var_group.attrs["_index"])])
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _rows(group["X"], keep)
@@ -342,13 +344,15 @@ def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> A
     """
     if node.attrs.get("encoding-type") != "nullable-string-array":
         return pd.array(cast("Any", read_elem(node)))[rows]
-    assert isinstance(node, zarr.Group)
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path} must be an encoded group")
     na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
     dtype = pd.StringDtype(na_value=na_value)
     if not rows.size:
         return pd.array([], dtype=dtype)
     values, mask = node["values"], node["mask"]
-    assert isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)
+    if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
+        raise TypeError(f"{node.store_path} must hold a values and a mask array")
     result: Any = pd.array(np.asarray(values.oindex[rows]), dtype=dtype)
     result[np.asarray(mask.oindex[rows])] = pd.NA
     return result
@@ -381,7 +385,8 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
 
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
     """The selected rows of a CSR matrix, read without loading the rest."""
-    assert isinstance(node, zarr.Group), "X must be an encoded sparse matrix"
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
     dataset = sparse_dataset(node)
     if not len(keep):
         return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)

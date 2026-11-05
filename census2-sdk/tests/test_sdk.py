@@ -493,6 +493,25 @@ def test_cell_key_checked_on_kept_cells(
             census.get_anndata("homo_sapiens", {"tissue": tissue})
 
 
+def test_malformed_store_refused(tmp_path: Path) -> None:
+    """A store node of the wrong kind raises a TypeError that names the node.
+
+    A full-gene assay without `feature_length` raises a ValueError.
+    """
+    root = zarr.open_group(tmp_path / "s.zarr", mode="w")
+    with pytest.raises(TypeError, match="/X must be an encoded sparse matrix"):
+        census2_sdk._rows(root.create_array("X", shape=(1,), dtype="i4"), np.array([0]))
+    key = root.create_group(
+        "key", attributes={"encoding-type": "nullable-string-array"}
+    )
+    key.create_group("values")
+    key.create_array("mask", shape=(1,), dtype="bool")
+    with pytest.raises(TypeError, match="/key must hold a values and a mask array"):
+        census2_sdk._read_column_rows(key, np.array([0]))
+    with pytest.raises(ValueError, match="needs feature_length"):
+        census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
+
+
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     """A null obs value is absent from the catalog and matches no filter."""
     adata = make_store("ds-n", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 5)
