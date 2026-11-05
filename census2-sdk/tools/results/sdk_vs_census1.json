@@ -7,15 +7,11 @@
  "summary": {
   "status": {
    "vacuous": 6,
-   "pass": 8,
+   "pass": 9,
    "unsupported": 10,
-   "fail": 1,
    "skip": 49
   },
   "by_owner": {
-   "4.13": {
-    "column-set X.normalized": 1
-   },
    "4.14": {
     "column-set var.n_measured_obs (expected)": 9,
     "column-set var.nnz (expected)": 9
@@ -60,7 +56,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 39.8,
+   "seconds": 24.8,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -126,7 +122,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 48.2,
+   "seconds": 30.1,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -178,7 +174,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 10.7,
+   "seconds": 12.8,
    "notes": [],
    "cells": {
     "census1": 4778,
@@ -230,7 +226,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 35.3,
+   "seconds": 26.7,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -282,7 +278,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 43.1,
+   "seconds": 44.3,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -328,7 +324,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 33.0,
+   "seconds": 43.6,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -374,7 +370,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 11.9,
+   "seconds": 25.2,
    "notes": [],
    "cells": {
     "census1": 12822,
@@ -440,10 +436,8 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 41.2,
-   "notes": [
-    "the SDK returns the raw layer only; asked for ('raw', 'normalized')"
-   ],
+   "seconds": 25.8,
+   "notes": [],
    "cells": {
     "census1": 3575,
     "sdk": 3575
@@ -480,16 +474,9 @@
      "owner": "4.2",
      "reason": "a column of the pinned reference that Census 1 drops",
      "expected": "the SDK's var keeps this column of the pinned reference"
-    },
-    {
-     "kind": "column-set",
-     "where": "X.normalized",
-     "detail": "present on left only",
-     "owner": "4.13",
-     "reason": "the normalized layer"
     }
    ],
-   "status": "fail"
+   "status": "pass"
   },
   {
    "query": "obs_metadata_only:census_data/homo_sapiens",
@@ -614,7 +601,7 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "seconds": 28.6,
+   "seconds": 37.4,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
