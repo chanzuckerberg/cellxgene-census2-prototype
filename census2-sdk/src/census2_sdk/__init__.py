@@ -287,8 +287,10 @@ def _read_store(
     group = open_store(row["store_uri"])
     obs_group = group["obs"]
     assert isinstance(obs_group, zarr.Group), "obs must be an encoded dataframe"
-    # To read obs faster, the SDK does not read the index (the source cell names).
-    # The result replaces the index with the cell key, so the SDK has no use for it.
+    # To read obs faster, the SDK decodes the two per-cell string columns only
+    # where the result needs them. It does not read the index (the source cell
+    # names), because the result replaces the index with the cell key. It reads
+    # the cell key after the filter, for the kept cells only.
     columns = cast("list[str]", obs_group.attrs["column-order"])
     key = "observation_joinid"
     obs = pd.DataFrame(
@@ -299,7 +301,7 @@ def _read_store(
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
     if key in columns:
-        obs.insert(columns.index(key), key, _kept(obs_group[key], keep))
+        obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
     _check_cell_key(obs, str(row["store_uri"]))
     var_group = group["var"]
     assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
@@ -332,24 +334,24 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
         )
 
 
-def _kept(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> Any:
-    """The kept cells of one `obs` column.
+def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
+    """The values of one `obs` column at the row positions `rows`.
 
-    For a nullable string column, the SDK makes strings for these cells only. The
+    For a nullable string column, the SDK makes strings for these rows only. The
     dtype is the one that `anndata` reads for the same column.
     """
     if node.attrs.get("encoding-type") != "nullable-string-array":
-        return pd.array(cast("Any", read_elem(node)))[keep]
+        return pd.array(cast("Any", read_elem(node)))[rows]
     assert isinstance(node, zarr.Group)
     na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
     dtype = pd.StringDtype(na_value=na_value)
-    if not keep.size:
+    if not rows.size:
         return pd.array([], dtype=dtype)
     values, mask = node["values"], node["mask"]
     assert isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)
-    kept: Any = pd.array(np.asarray(values.oindex[keep]), dtype=dtype)
-    kept[np.asarray(mask.oindex[keep])] = pd.NA
-    return kept
+    result: Any = pd.array(np.asarray(values.oindex[rows]), dtype=dtype)
+    result[np.asarray(mask.oindex[rows])] = pd.NA
+    return result
 
 
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:

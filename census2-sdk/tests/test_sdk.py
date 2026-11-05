@@ -481,7 +481,7 @@ def test_cell_key_checked_on_kept_cells(
     if encoding == "nullable-string-array":
         # An empty selection of a string column reads no key data.
         monkeypatch.setattr(census2_sdk, "read_elem", None)
-    assert census2_sdk._kept(node, np.array([], dtype=int)).dtype == stored
+    assert census2_sdk._read_column_rows(node, np.array([], dtype=int)).dtype == stored
     monkeypatch.undo()
     census = census2_sdk.open_census([catalog])
     result = census.get_anndata("homo_sapiens", {"tissue": "lung"})
