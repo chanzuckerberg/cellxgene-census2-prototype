@@ -117,8 +117,8 @@ def summarize(group: zarr.Group) -> tuple[dict[str, Any], pd.DataFrame]:
     row: dict[str, Any] = {}
     counted: dict[str, pd.Series] = {}
     n_obs: int | None = None
-    # ponytail: list<string> columns; bitmaps over a dictionary (design 2.2) when the
-    # catalog size matters.
+    # The catalog holds list<string> columns. Bitmaps over a dictionary (design 2.2)
+    # replace them when the catalog size matters.
     for column in INDEXED:
         if column not in obs:
             row[column] = None

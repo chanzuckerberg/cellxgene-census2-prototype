@@ -121,7 +121,7 @@ class Census:
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        # ponytail: serial by default; raise the default after the store-count benchmark.
+        # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
                 pool.map(lambda row: _read_store(row, canonical, layers), records)
@@ -383,7 +383,7 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
             )
 
 
-# ponytail: fixed limits; tune them when stores change their row order or chunk size.
+# These limits are fixed. Tune them when stores change their row order or chunk size.
 MAX_RUNS = 256
 RUN_THREADS = 16  # range reads in flight for one store
 
