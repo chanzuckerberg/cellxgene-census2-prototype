@@ -393,20 +393,20 @@ def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix
 
     Each run of adjacent kept rows is one range of `data` and of `indices`, read at the
     same time. Above `MAX_RUNS` runs, the SDK uses anndata's row read, which makes fewer
-    requests.
+    requests. A matrix in another encoding, such as CSC, also goes through that read.
     """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
     arrays = [node[name] for name in ("data", "indices", "indptr")]
     if not all(isinstance(a, zarr.Array) for a in arrays):
-        raise TypeError(f"{node.store_path} must be an encoded CSR matrix")
+        raise TypeError(f"{node.store_path} must hold data, indices, and indptr arrays")
     data, indices, indptr_node = cast("list[zarr.Array[Any]]", arrays)
     n_vars = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
         return sp.csr_matrix((0, n_vars), dtype=data.dtype)
     cut = np.flatnonzero(np.diff(keep) != 1) + 1
     first, last = keep[np.r_[0, cut]], keep[np.r_[cut - 1, len(keep) - 1]] + 1
-    if len(first) > MAX_RUNS:
+    if len(first) > MAX_RUNS or node.attrs.get("encoding-type") != "csr_matrix":
         return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
     indptr = np.asarray(indptr_node[:], dtype=np.int64)
     values = (data, indices)
