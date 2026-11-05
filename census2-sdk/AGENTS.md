@@ -8,8 +8,6 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 ## Prototype scaffolding
 
-The `ponytail:` comments in the code mark the list columns.
-
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
 - The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no

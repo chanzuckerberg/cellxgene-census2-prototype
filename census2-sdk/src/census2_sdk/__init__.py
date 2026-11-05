@@ -121,7 +121,7 @@ class Census:
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        # ponytail: serial by default; raise the default after the store-count benchmark.
+        # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
                 pool.map(lambda row: _read_store(row, canonical, layers), records)
@@ -383,11 +383,44 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
             )
 
 
+# These limits are fixed. Tune them when stores change their row order or chunk size.
+MAX_RUNS = 256
+RUN_THREADS = 16  # range reads in flight for one store
+
+
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
-    """The selected rows of a CSR matrix, read without loading the rest."""
+    """The selected rows of a CSR matrix, read without loading the rest.
+
+    Each run of adjacent kept rows is one range of `data` and of `indices`, read at the
+    same time. Above `MAX_RUNS` runs, the SDK uses anndata's row read, which makes fewer
+    requests. A matrix in another encoding, such as CSC, also goes through that read.
+    """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
-    dataset = sparse_dataset(node)
+    arrays = [node[name] for name in ("data", "indices", "indptr")]
+    if not all(isinstance(a, zarr.Array) for a in arrays):
+        raise TypeError(f"{node.store_path} must hold data, indices, and indptr arrays")
+    data, indices, indptr_node = cast("list[zarr.Array[Any]]", arrays)
+    n_vars = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
-        return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)
-    return sp.csr_matrix(cast("sp.csr_matrix", dataset[keep]))
+        return sp.csr_matrix((0, n_vars), dtype=data.dtype)
+    cut = np.flatnonzero(np.diff(keep) != 1) + 1
+    first, last = keep[np.r_[0, cut]], keep[np.r_[cut - 1, len(keep) - 1]] + 1
+    if len(first) > MAX_RUNS or node.attrs.get("encoding-type") != "csr_matrix":
+        return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
+    indptr = np.asarray(indptr_node[:], dtype=np.int64)
+    values = (data, indices)
+    ranges = [
+        (a, int(indptr[s]), int(indptr[e])) for s, e in zip(first, last) for a in (0, 1)
+    ]
+    with ThreadPoolExecutor(min(RUN_THREADS, len(ranges))) as pool:
+        parts = list(pool.map(lambda r: np.asarray(values[r[0]][r[1] : r[2]]), ranges))
+    counts = np.concatenate([np.diff(indptr[s : e + 1]) for s, e in zip(first, last)])
+    return sp.csr_matrix(
+        (
+            np.concatenate(parts[0::2]),
+            np.concatenate(parts[1::2]),
+            np.r_[0, np.cumsum(counts)],
+        ),
+        shape=(len(keep), n_vars),
+    )
