@@ -68,7 +68,8 @@ def normalized(
     rows = np.repeat(np.arange(counts.shape[0]), np.diff(counts.indptr))
     data = counts.data.astype(np.float32)
     if full_gene.any():
-        assert feature_length is not None, "a full-gene assay needs feature_length"
+        if feature_length is None:
+            raise ValueError("a full-gene assay needs feature_length")
         corrected = full_gene[rows]
         data = np.where(corrected, data / feature_length[counts.indices], data)
         data = data.astype(np.float32)

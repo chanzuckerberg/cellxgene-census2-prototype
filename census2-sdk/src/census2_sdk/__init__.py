@@ -286,18 +286,27 @@ def _read_store(
     """
     group = open_store(row["store_uri"])
     obs_group = group["obs"]
-    assert isinstance(obs_group, zarr.Group), "obs must be an encoded dataframe"
-    # To read obs faster, the SDK does not read the index (the source cell names).
-    # The result replaces the index with the cell key, so the SDK has no use for it.
+    if not isinstance(obs_group, zarr.Group):
+        raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")
+    # To read obs faster, the SDK decodes the two per-cell string columns only
+    # where the result needs them. It does not read the index (the source cell
+    # names), because the result replaces the index with the cell key. It reads
+    # the cell key after the filter, for the kept cells only.
     columns = cast("list[str]", obs_group.attrs["column-order"])
-    obs = pd.DataFrame({name: read_elem(obs_group[name]) for name in columns})
-    _check_cell_key(obs, str(row["store_uri"]))
+    key = "observation_joinid"
+    obs = pd.DataFrame(
+        {name: read_elem(obs_group[name]) for name in columns if name != key}
+    )
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
+    if key in columns:
+        obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
+    _check_cell_key(obs, str(row["store_uri"]))
     var_group = group["var"]
-    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
+    if not isinstance(var_group, zarr.Group):
+        raise TypeError(f"{row['store_uri']}: var must be an encoded dataframe")
     index = read_elem(var_group[str(var_group.attrs["_index"])])
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _rows(group["X"], keep)
@@ -327,8 +336,33 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
         )
 
 
+def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
+    """The values of one `obs` column at the row positions `rows`.
+
+    For a nullable string column, the SDK makes strings for these rows only. The
+    dtype is the one that `anndata` reads for the same column.
+    """
+    if node.attrs.get("encoding-type") != "nullable-string-array":
+        return pd.array(cast("Any", read_elem(node)))[rows]
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path} must be an encoded group")
+    na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
+    dtype = pd.StringDtype(na_value=na_value)
+    if not rows.size:
+        return pd.array([], dtype=dtype)
+    values, mask = node["values"], node["mask"]
+    if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
+        raise TypeError(f"{node.store_path} must hold a values and a mask array")
+    result: Any = pd.array(np.asarray(values.oindex[rows]), dtype=dtype)
+    result[np.asarray(mask.oindex[rows])] = pd.NA
+    return result
+
+
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
-    """Design 1.6: `observation_joinid` is present, non-null, and unique in a store."""
+    """Design 1.6: the kept cells' `observation_joinid` is present, non-null, and unique.
+
+    The writer checks every cell of the store.
+    """
     if "observation_joinid" not in obs.columns:
         raise ValueError(f"{store_uri}: obs has no observation_joinid column")
     joinid = obs["observation_joinid"]
@@ -351,7 +385,8 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
 
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
     """The selected rows of a CSR matrix, read without loading the rest."""
-    assert isinstance(node, zarr.Group), "X must be an encoded sparse matrix"
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
     dataset = sparse_dataset(node)
     if not len(keep):
         return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)

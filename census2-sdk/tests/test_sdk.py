@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-from anndata.io import read_elem
+from anndata.io import read_elem, write_elem
 
 import census2_sdk
 from census2_sdk import catalog
@@ -436,7 +436,7 @@ def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
 def test_obs_index_is_not_read(
     corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The result replaces the source cell names, so the SDK does not decode them."""
+    """The SDK decodes no source cell name, and no key of a dropped cell."""
     names: list[str] = []
 
     def spy(elem: Any) -> Any:
@@ -446,16 +446,70 @@ def test_obs_index_is_not_read(
     monkeypatch.setattr(census2_sdk, "read_elem", spy)
     query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
     # A read of the whole group would decode the index too.
-    assert "/obs/observation_joinid" in names
-    assert "/obs" not in names and "/obs/_index" not in names
+    assert "/obs/tissue" in names
+    assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
 
 
-def test_duplicate_cell_key_refused(corpus: dict[str, Path], tmp_path: Path) -> None:
-    adata = make_store("ds-d", 4, REFERENCE_IDS[:3], ["lung"], ["normal"], 3)
-    adata.obs["observation_joinid"] = pd.array(["k", "k", "l", "m"])
-    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-d")])
-    with pytest.raises(ValueError, match="not unique"):
-        census.get_anndata("homo_sapiens")
+@pytest.mark.parametrize(
+    ("encoding", "dtype"),
+    [
+        ("nullable-string-array", "string"),
+        ("nullable-string-array", pd.StringDtype(na_value=np.nan)),
+        ("categorical", "category"),
+    ],
+)
+def test_cell_key_checked_on_kept_cells(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    dtype: str | pd.StringDtype,
+) -> None:
+    """A bad key in a dropped cell passes. The writer checks every cell."""
+    adata = make_store("ds-d", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 3)
+    adata.obs["tissue"] = pd.Categorical(["kidney"] * 2 + ["lung"] * 2 + ["heart"] * 2)
+    catalog = one_store_catalog(tmp_path, adata, "ds-d")
+    # write_zarr makes a categorical of repeated strings, so write the key again.
+    store = tmp_path / "out" / "v-ds-d.zarr"
+    obs = zarr.open_group(store / "obs", mode="r+")
+    keys = pd.Series(["k", "k", "l", "m", None, "n"], dtype=dtype).array
+    write_elem(obs, "observation_joinid", keys)
+    zarr.consolidate_metadata(store)
+    node = obs["observation_joinid"]
+    assert node.attrs["encoding-type"] == encoding
+    column: Any = read_elem(node)
+    stored = column.dtype
+    if encoding == "nullable-string-array":
+        # An empty selection of a string column reads no key data.
+        monkeypatch.setattr(census2_sdk, "read_elem", None)
+    assert census2_sdk._read_column_rows(node, np.array([], dtype=int)).dtype == stored
+    monkeypatch.undo()
+    census = census2_sdk.open_census([catalog])
+    result = census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    assert result is not None
+    assert list(result.obs["observation_joinid"]) == ["l", "m"]
+    assert result.obs["observation_joinid"].dtype == stored
+    for tissue in ("kidney", "heart"):
+        with pytest.raises(ValueError, match="null or not unique"):
+            census.get_anndata("homo_sapiens", {"tissue": tissue})
+
+
+def test_malformed_store_refused(tmp_path: Path) -> None:
+    """A store node of the wrong kind raises a TypeError that names the node.
+
+    A full-gene assay without `feature_length` raises a ValueError.
+    """
+    root = zarr.open_group(tmp_path / "s.zarr", mode="w")
+    with pytest.raises(TypeError, match="/X must be an encoded sparse matrix"):
+        census2_sdk._rows(root.create_array("X", shape=(1,), dtype="i4"), np.array([0]))
+    key = root.create_group(
+        "key", attributes={"encoding-type": "nullable-string-array"}
+    )
+    key.create_group("values")
+    key.create_array("mask", shape=(1,), dtype="bool")
+    with pytest.raises(TypeError, match="/key must hold a values and a mask array"):
+        census2_sdk._read_column_rows(key, np.array([0]))
+    with pytest.raises(ValueError, match="needs feature_length"):
+        census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
 
 
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
