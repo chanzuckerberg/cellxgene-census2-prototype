@@ -148,7 +148,11 @@ def run(
     requests = dict(done["requests_by_kind"])
     heads = dict(done["heads_by_kind"])
     mb = dict(done["mb_by_kind"])
-    sql_requests = record.get("sql_requests", {})
+    sql_requests = dict(record.get("sql_requests", {}))
+    # The S3 listing of a glob is a kind of its own.
+    listing = int(sql_requests.pop("LIST", 0))
+    if listing:
+        requests["listing"] = listing
     requests["fragment"] = requests.get("fragment", 0) + sum(sql_requests.values())
     heads["fragment"] = heads.get("fragment", 0) + int(sql_requests.get("HEAD", 0))
     mb["fragment"] = round(mb.get("fragment", 0.0) + record.get("sql_mb", 0.0), 3)

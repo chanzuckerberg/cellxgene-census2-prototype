@@ -966,11 +966,15 @@ class Engine:
         return self.catalog[self.catalog["organism"].isin(organisms)]
 
     def _http(self) -> tuple[dict[str, int], float]:
-        """The HTTP requests since the last call, by method, and the MB of the GETs."""
+        """The HTTP requests since the last call, by method, and the MB of the GETs.
+
+        A GET of an S3 listing (`list-type=2`) counts as `LIST`.
+        """
         if not self.options.count_requests:
             return {}, 0.0
         found = self.con.execute(
-            "SELECT request.type, count(*), "
+            "SELECT CASE WHEN request.type = 'GET' AND contains(request.url, "
+            "'list-type=2') THEN 'LIST' ELSE request.type END, count(*), "
             "sum(TRY_CAST(response.headers['Content-Length'] AS BIGINT)) "
             "FROM duckdb_logs_parsed('HTTP') GROUP BY ALL"
         ).fetchall()
