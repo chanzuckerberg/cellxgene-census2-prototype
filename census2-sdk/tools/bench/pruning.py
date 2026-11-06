@@ -21,6 +21,7 @@ label, which exclude a file only when the wanted label sorts outside them.
 import argparse
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import pandas as pd
@@ -43,16 +44,20 @@ def prune(catalog: pd.DataFrame, table: Any, text: str) -> dict[str, Any]:
     bound = bind(table.schema(), expressions.with_members(expr, records), True)
     filter_ = expression_to_pyarrow(bound)
     io = cast("PyArrowFileIO", table.io)
-    groups = kept = rows = 0
-    for task in tasks:
+
+    def one(task: Any) -> tuple[int, int, int]:
+        """The row groups of one file, those that can match, and the matching rows."""
         scheme, netloc, path = io.parse_location(task.file.file_path)
         fs = io.fs_by_scheme(scheme, netloc)
         fragment = ds.ParquetFileFormat().make_fragment(path, filesystem=fs)
         fragment.ensure_complete_metadata()
-        groups += len(fragment.row_groups)
         subset = fragment.subset(filter=filter_)
-        kept += len(subset.row_groups)
-        rows += int(subset.count_rows(filter=filter_))
+        matching = int(subset.count_rows(filter=filter_))
+        return len(fragment.row_groups), len(subset.row_groups), matching
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        counts = list(pool.map(one, tasks))
+    groups, kept, rows = (sum(c[i] for c in counts) for i in range(3))
     return {
         "filter": text,
         "catalog_rows": len(records),

@@ -129,10 +129,20 @@ string that pyiceberg parses. The catalog first excludes the datasets that canno
 expression, and the scan then reads the fragments of the rest. On the `disease` columns, `=`,
 `!=`, `IN`, and `NOT IN` mean membership. `census2_sdk.expressions` states the rules, and
 `expressions.from_value_filter` translates a Census 1 `value_filter` string. The result equals the
-result through the stores, value for value. A categorical column holds the labels that the result
-uses, where the result through the stores holds the labels of every store that it opened. The
-snapshot of the table names the digest of its catalog, and `open_census` refuses a table of
-another catalog.
+result through the stores, value for value, also with `layers=["normalized"]`. A categorical
+column holds the labels that the result uses, where the result through the stores holds the labels
+of every store that it opened. The snapshot of the table names the digest of its catalog, and
+`open_census` refuses a table of another catalog.
+
+A numeric column of the fragment, such as `nnz` or `raw_sum`, takes a range term:
+`"nnz >= 500 AND tissue_general = 'lung'"`. The catalog records no numeric range, so only the table
+tests such a term. `get_obs(..., dtype_backend="pyarrow")` returns `pd.ArrowDtype` columns over
+the scan's Arrow data, which pandas does not copy; the default gives categoricals.
+
+The table path does not read the `var` index of each store that it opens. Every catalog row must
+record the pinned `gene_reference_version`, and the writer projects every store onto that
+reference, so the SDK checks only that each store has the number of genes of the first store, and
+takes `var` from the first store.
 
 ## Checks before concatenation
 
