@@ -15,6 +15,7 @@ the forms of `bench.matrix`: a mapping, or `{"mapping": ..., "iceberg": ..., "sq
 """
 
 import argparse
+import functools
 import json
 import pathlib
 import statistics
@@ -25,7 +26,7 @@ from typing import Any, cast
 import census2_sdk
 from bench.matrix import query_form
 from census2_sdk import catalog as _catalog
-from census2_sdk import expressions
+from census2_sdk import expressions, obs_sql
 
 ORGANISM = "homo_sapiens"
 
@@ -37,6 +38,18 @@ def timed(fn: Callable[[], int], repeats: int) -> tuple[float, int]:
         kept = fn()
         seconds.append(time.perf_counter() - t)
     return round(statistics.median(seconds), 5), kept
+
+
+def kept_sql(engine: obs_sql.Engine, pred: obs_sql.Predicate) -> int:
+    return len(engine.candidates(ORGANISM, pred)[0])
+
+
+def kept_iceberg(records: list[dict[str, Any]], expr: Any) -> int:
+    return sum(1 for r in records if expressions.can_match(expr, r))
+
+
+def kept_mapping(catalog: Any, mapping: dict[str, Any]) -> int:
+    return len(_catalog.exclude(catalog, ORGANISM, mapping))
 
 
 def main() -> int:
@@ -63,24 +76,18 @@ def main() -> int:
             if sql is not None:
                 pred = engine.predicate(sql)
                 record["sql_seconds"], record["sql_kept"] = timed(
-                    lambda pred=pred: len(engine.candidates(ORGANISM, pred)[0]),
-                    args.repeats,
+                    functools.partial(kept_sql, engine, pred), args.repeats
                 )
             iceberg = query_form(query, "table")
             if iceberg is not None:
                 expr = expressions.from_filter(iceberg)
                 record["iceberg_seconds"], record["iceberg_kept"] = timed(
-                    lambda expr=expr: sum(
-                        1 for r in records if expressions.can_match(expr, r)
-                    ),
-                    args.repeats,
+                    functools.partial(kept_iceberg, records, expr), args.repeats
                 )
             mapping = query_form(query, "stores")
             if isinstance(mapping, dict):
                 record["mapping_seconds"], record["mapping_kept"] = timed(
-                    lambda m=mapping: len(
-                        _catalog.exclude(census.catalog, ORGANISM, m)
-                    ),
+                    functools.partial(kept_mapping, census.catalog, mapping),
                     args.repeats,
                 )
             print(json.dumps(record), flush=True)
