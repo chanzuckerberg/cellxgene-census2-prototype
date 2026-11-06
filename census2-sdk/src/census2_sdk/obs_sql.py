@@ -789,7 +789,7 @@ class Options:
     # A Parquet file of the descendants table, for ontology closure.
     descendants: str | None = None
     # Rows per Arrow batch of a result.
-    batch_rows: int = 1_000_000
+    batch_rows: int = 262_144
     # Other DuckDB settings, set before the configuration locks.
     settings: dict[str, str] = field(default_factory=dict)
 
@@ -1090,6 +1090,10 @@ def _encoded(reader: Any, dictionary: bool) -> Iterable[Any]:
                 )
             elif pa.types.is_large_string(f.type) or pa.types.is_string_view(f.type):
                 array = array.cast(pa.string())
+            else:
+                # A copy in pyarrow's memory. An exported array keeps DuckDB's whole
+                # chunk alive, the plain strings of the other columns included.
+                array = pa.concat_arrays([array])
             arrays.append(array)
         names = list(batch.schema.names)
         return pa.RecordBatch.from_arrays(arrays, names=names)
@@ -1104,7 +1108,7 @@ def _encoded(reader: Any, dictionary: bool) -> Iterable[Any]:
             yield pending.popleft().result()
 
 
-_AHEAD = 8
+_AHEAD = 4
 
 
 def catalog_arrow(catalog: pd.DataFrame) -> pa.Table:
@@ -1240,8 +1244,9 @@ def get_anndata(
 def _frame(arrow: pa.Table) -> pd.DataFrame:
     """`census2_sdk._obs_frame` with the row columns, one column for each thread.
 
-    The categorical of each label column is numpy work on its integer codes, which
-    does not hold the GIL for long.
+    Each batch of the scan has its own dictionaries; `combine_chunks` unifies them,
+    one column at a time. The categorical of each label column is numpy work on its
+    integer codes, which does not hold the GIL for long.
     """
     import census2_sdk as sdk
 
@@ -1281,10 +1286,10 @@ def get_obs(
     t0 = time.monotonic()
     frame = pd.DataFrame()
     if arrow.num_rows:
-        arrow = arrow.unify_dictionaries()
         index = pd.Index(arrow.column(KEY_COLUMN).to_pandas())
         arrow = arrow.drop_columns([KEY_COLUMN])
         if dtype_backend == "pyarrow":
+            arrow = arrow.unify_dictionaries()
             frame = cast("pd.DataFrame", arrow.to_pandas(types_mapper=pd.ArrowDtype))
         else:
             frame = _frame(arrow)
