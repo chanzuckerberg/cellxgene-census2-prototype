@@ -21,7 +21,7 @@ import scipy.sparse as sp
 from pyiceberg.expressions import parser
 
 import census2_sdk
-from census2_sdk import catalog, expressions, obs_table
+from census2_sdk import catalog, expressions, fragments, obs_table
 
 REFERENCE_IDS = [f"ENSG{j:011d}" for j in range(20)]
 
@@ -338,7 +338,7 @@ def test_get_obs_reads_the_table_and_no_store(
     assert list(frame.index) == list(obs.index[obs.tissue == "lung"])
     # The cell key is always there. The columns keep the order of the table schema.
     names = ["dataset_id", "donor_id", "observation_joinid"]
-    assert list(frame.columns) == [*names, *obs_table.ROW_COLUMNS]
+    assert list(frame.columns) == [*names, *fragments.ROW_COLUMNS]
     assert isinstance(frame["donor_id"].dtype, pd.CategoricalDtype)
     assert frame.attrs["census2"]["obs_table"][0]["files_planned"] == 2
 

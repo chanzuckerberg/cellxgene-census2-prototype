@@ -39,13 +39,8 @@ from pyiceberg.table import StaticTable
 
 from census2_sdk import catalog as _catalog
 
-# The columns that a fragment adds to the store's obs columns. They agree with
-# census2_dataset_writer.store_format, which the SDK does not import.
-STORE_ROW = "store_row"
-X_START = "x_start"
-X_END = "x_end"
-ROW_COLUMNS = (STORE_ROW, X_START, X_END)
-
+# `census2_sdk.fragments` names the columns that a fragment adds to the store's obs
+# columns. That module imports no engine, so the SQL path shares it.
 # The snapshot summary property that names the catalog of the table.
 CATALOG_SHA256 = "census2.catalog-sha256"
 

@@ -24,6 +24,13 @@ table alone.
 
     census = census2_sdk.open_census(["catalog.parquet"], obs_tables=["obs/homo_sapiens"])
 
+With `obs_engine="duckdb"`, DuckDB reads the fragments of the catalog's datasets
+directly, without a table (`census2_sdk.obs_sql`). The filter can then also be a SQL
+expression, such as `"tissue = 'lung' AND nnz >= 500"`. `get_obs` and `count_obs`
+then open no store.
+
+    census = census2_sdk.open_census(["catalog.parquet"], obs_engine="duckdb")
+
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
 has the columns that all selected stores hold. `uns["census2"]` has the sources, the
 number of catalog rows for the organism, and the number of stores opened. The cell
@@ -62,6 +69,7 @@ import zarr
 from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
+from census2_sdk import fragments
 from census2_sdk import normalize as _normalize
 from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
@@ -71,6 +79,7 @@ if TYPE_CHECKING:  # pyiceberg is the optional `iceberg` extra
     from pyiceberg.table import StaticTable
 
     from census2_sdk.expressions import AnyFilter
+    from census2_sdk.obs_sql import Engine, Options
 
 __all__ = [
     "Census",
@@ -95,6 +104,7 @@ class Census:
         self,
         sources: Sequence[PathLike],
         obs_tables: Sequence[PathLike | None] | None = None,
+        obs_engine: "str | Options | None" = None,
     ) -> None:
         self.sources = [str(s) for s in sources]
         self._counts: pd.DataFrame | None = None
@@ -118,6 +128,28 @@ class Census:
         self.last_scan: list[dict[str, Any]] = []
         if obs_tables is not None:
             self._open_tables([None if t is None else str(t) for t in obs_tables])
+        self._sql: Engine | None = None
+        if obs_engine is not None:
+            self._open_engine(obs_engine)
+
+    def _open_engine(self, obs_engine: "str | Options") -> None:
+        """Open DuckDB over the fragments of every catalog row (`census2_sdk.obs_sql`)."""
+        from census2_sdk import obs_sql
+
+        if self._tables:
+            raise ValueError("a census takes obs_tables or obs_engine, not both")
+        if isinstance(obs_engine, str):
+            if obs_engine != "duckdb":
+                raise ValueError(f"no obs engine {obs_engine!r}; the one is 'duckdb'")
+            obs_engine = obs_sql.Options()
+        self._sql = obs_sql.Engine(self.catalog, obs_engine)
+
+    @property
+    def sql_engine(self) -> "Engine":
+        """The DuckDB engine of a census opened with `obs_engine`."""
+        if self._sql is None:
+            raise ValueError("this census has no obs engine")
+        return self._sql
 
     def _open_tables(self, uris: list[str | None]) -> None:
         """Open the `obs` table of each source that has one, and check its catalog."""
@@ -161,6 +193,10 @@ class Census:
         unknown = sorted(set(layers) - {"normalized"})
         if unknown:
             raise ValueError(f"no layer {unknown}; the one layer is 'normalized'")
+        if self._sql is not None:
+            from census2_sdk import obs_sql
+
+            return obs_sql.get_anndata(self, organism, obs_filter, layers, max_workers)
         if self._tables:
             return self._get_anndata_from_tables(
                 organism, obs_filter, layers, max_workers
@@ -234,10 +270,10 @@ class Census:
             ids = {str(d) for d in mine["dataset_id"]}
             row_filter = expressions.with_members(expr, records)
             names = [f.name for f in table.schema().fields]
-            obs_names = [n for n in names if n not in obs_table.ROW_COLUMNS]
+            obs_names = [n for n in names if n not in fragments.ROW_COLUMNS]
             wanted = obs_names if columns is None else list(columns)
             key = ["dataset_id", "observation_joinid"]
-            selected = tuple(dict.fromkeys([*key, *wanted, *obs_table.ROW_COLUMNS]))
+            selected = tuple(dict.fromkeys([*key, *wanted, *fragments.ROW_COLUMNS]))
             # Read the label columns dictionary-encoded, for pandas categoricals. Not
             # the cell key, whose values are unique, and not a column of a prefix
             # term: pyarrow has no starts_with kernel for a dictionary column.
@@ -375,12 +411,17 @@ class Census:
 
         The SDK opens no store. `columns` names the `obs` columns to return; None
         returns all. The frame always holds the cell key and the row columns of
-        `obs_table.ROW_COLUMNS`, and the columns keep the order of the table schema.
+        `fragments.ROW_COLUMNS`, and the columns keep the order of the table schema.
         Its index is `<dataset_id>_<observation_joinid>`. `frame.attrs["census2"]`
-        holds the statistics of the scan. Every source needs an `obs` table.
+        holds the statistics of the scan. Every source needs an `obs` table, or the
+        census needs an `obs_engine`.
         """
         from census2_sdk import expressions
 
+        if self._sql is not None:
+            from census2_sdk import obs_sql
+
+            return obs_sql.get_obs(self, organism, obs_filter, columns)
         if set(self.sources) - set(self._tables):
             raise ValueError("get_obs needs an obs table for every source")
         expr = expressions.from_filter(obs_filter)
@@ -418,8 +459,13 @@ class Census:
         The count takes any filter and any `obs` column in `by`, for example
         `donor_id`, which the catalog does not count. The frame has the `by` columns
         and `n_cells`, one row for each group, in no fixed order. Every source needs
-        an `obs` table.
+        an `obs` table, or the census needs an `obs_engine`.
         """
+        if self._sql is not None:
+            from census2_sdk import obs_sql
+
+            return obs_sql.count_obs(self, organism, obs_filter, by)
+
         import pyarrow as pa
 
         from census2_sdk import expressions, obs_table
@@ -512,14 +558,20 @@ class Census:
 
 
 def open_census(
-    sources: Sequence[PathLike], obs_tables: Sequence[PathLike | None] | None = None
+    sources: Sequence[PathLike],
+    obs_tables: Sequence[PathLike | None] | None = None,
+    obs_engine: "str | Options | None" = None,
 ) -> Census:
     """Open catalogs, and the `obs` table of each source that has one.
 
     `obs_tables` has one entry for each source: a table location or metadata file, or
     None for a source without a table. See `census2_sdk.obs_table`.
+
+    `obs_engine` is `"duckdb"` or a `census2_sdk.obs_sql.Options`: DuckDB then reads
+    the `obs` fragments of the catalog rows directly, and the filter can be SQL. See
+    `census2_sdk.obs_sql`. A census takes `obs_tables` or `obs_engine`, not both.
     """
-    return Census(sources, obs_tables)
+    return Census(sources, obs_tables, obs_engine)
 
 
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
@@ -667,8 +719,6 @@ def _read_cells(
     reference, so `var` holds positions only: `_get_anndata_from_tables` puts the
     reference genes in after it checks the number of genes.
     """
-    from census2_sdk import obs_table
-
     store_uri = str(row["store_uri"])
     group = open_store(store_uri)
     x = group["X"]
@@ -683,11 +733,11 @@ def _read_cells(
     obs = _obs_frame(cells)
     _check_cell_key(obs, store_uri)
     if X_FROM_RANGES:
-        starts = cells.column(obs_table.X_START).to_numpy()
-        ends = cells.column(obs_table.X_END).to_numpy()
+        starts = cells.column(fragments.X_START).to_numpy()
+        ends = cells.column(fragments.X_END).to_numpy()
         matrix = _rows_by_range(x, starts, ends, shape[1])
     else:
-        matrix = _rows(x, cells.column(obs_table.STORE_ROW).to_numpy())
+        matrix = _rows(x, cells.column(fragments.STORE_ROW).to_numpy())
     computed = {}
     if "normalized" in layers:
         assay = obs["assay_ontology_term_id"].astype(str)
@@ -714,10 +764,8 @@ def _obs_frame(cells: Any, *, keep_rows: bool = False) -> pd.DataFrame:
     """
     import pyarrow as pa
 
-    from census2_sdk import obs_table
-
     names = [
-        n for n in cells.column_names if keep_rows or n not in obs_table.ROW_COLUMNS
+        n for n in cells.column_names if keep_rows or n not in fragments.ROW_COLUMNS
     ]
     columns: dict[str, Any] = {}
     for name in names:
