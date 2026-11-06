@@ -215,3 +215,52 @@ def test_the_table_shapes_run(
     assert (record["stores_opened"], record["cells"]) == expected
     assert record["files_planned"] == 2
     assert record["files_total"] == 2
+
+
+@pytest.mark.parametrize(
+    ("shape", "query", "expected"),
+    [
+        ("query", {"cell_type": "T cell"}, (2, 25)),
+        (
+            "query",
+            "cell_type = 'T cell' AND observation_joinid IN ('j0', 'j2')",
+            (2, 4),
+        ),
+        ("count_donor", {"cell_type": "T cell"}, (0, 25)),
+        ("corpus_obs", None, (0, 50)),
+    ],
+)
+def test_the_sql_shapes_run(
+    table: Path, shape: str, query: Any, expected: tuple[int, int]
+) -> None:
+    from bench import sql
+
+    from census2_sdk import obs_sql
+
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    record = sql.run(
+        str(table / "catalog.parquet"),
+        shape,
+        2,
+        None,
+        obs_sql.Options(threads=2, count_requests=False),
+        query=query,
+    )
+    assert record["status"] == "ok" and record["via"] == "sql"
+    assert (record["stores_opened"], record["cells"]) == expected
+    assert record["files_read"] == 2
+    assert record["cpu_seconds"] >= 0
+
+
+def test_the_aws_sdk_log_count(tmp_path: Path) -> None:
+    from bench import counted
+
+    log = tmp_path / "aws.log"
+    log.write_text(
+        "[DEBUG] CURL (HeaderOut) GET /a.obs.parquet HTTP/1.1\n"
+        "[DEBUG] CURL (HeaderIn) Content-Length: 1048576\n"
+        "[DEBUG] CURL (HeaderOut) HEAD /a.obs.parquet HTTP/1.1\n"
+        "[DEBUG] CURL (HeaderIn) content-length: 0\n"
+        "[DEBUG] CURL (HeaderOut) GET /b.obs.parquet HTTP/1.1\n"
+    )
+    assert counted.count_log(str(log)) == ({"GET": 2, "HEAD": 1}, 1.0)

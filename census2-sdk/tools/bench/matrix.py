@@ -13,8 +13,15 @@ so a stopped matrix keeps its finished runs.
 `--queries` names a JSON file of named mapping filters; a shape `query:<name>` runs
 one of them, and `count_donor:<name>` counts its cells by donor. `--obs-table` gives
 the `obs` table of each catalog, with `{size}` in place of the size, and `--vias`
-selects `stores`, `table`, or both. `--x-from-indptr` and `--scan-workers` pass
-through to each run.
+selects `stores`, `table`, `sql`, or more than one. `--x-from-indptr` and
+`--scan-workers` pass through to each run.
+
+A query can also give one form for each via: `{"mapping": {...}, "iceberg": "...",
+"sql": "..."}`. A via without a form skips the query, for example the store path for
+a numeric range. The `sql` via runs `bench.sql` (DuckDB over the fragments), with
+`--duckdb-threads`, `--duckdb-memory-limit`, `--files`, and `--glob`. The other vias
+run `bench.counted`, which adds the CPU time to the record of `bench.run`;
+`--count-arrow-requests` also counts the S3 requests of pyarrow on those runs.
 """
 
 import argparse
@@ -38,8 +45,12 @@ def one(
     max_rss_gb: float | None = None,
     extra: list[str] | None = None,
 ) -> dict[str, Any]:
+    module = "bench.counted"
+    if extra and "--sql-via" in extra:
+        module = "bench.sql"
+        extra = [a for a in extra if a != "--sql-via"]
     command = [
-        sys.executable, "-m", "bench.run", str(catalog),
+        sys.executable, "-m", module, str(catalog),
         "--shape", shape, "--workers", str(workers), "--cell-type", cell_type,
     ]  # fmt: skip
     if max_rss_gb is not None:
@@ -63,6 +74,15 @@ def one(
     return dict(json.loads(done.stdout.strip().splitlines()[-1]))
 
 
+def query_form(query: dict[str, Any], via: str) -> Any:
+    """The form of a named query for one via, or None when the via has none."""
+    forms = {"mapping", "iceberg", "sql"}
+    if not set(query) <= forms:
+        return query  # a mapping filter, for every via
+    key = {"stores": "mapping", "table": "iceberg", "sql": "sql"}[via]
+    return query.get(key, query.get("mapping"))
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--catalogs", type=pathlib.Path, required=True)
@@ -83,6 +103,11 @@ def main() -> int:
     p.add_argument("--x-from-indptr", action="store_true")
     p.add_argument("--key-first", action="store_true")
     p.add_argument("--scan-workers", type=int, default=None)
+    p.add_argument("--duckdb-threads", default="", help="a list: one run each")
+    p.add_argument("--duckdb-memory-limit", default=None)
+    p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
+    p.add_argument("--glob", default=None, help="with {size} for the size")
+    p.add_argument("--count-arrow-requests", action="store_true")
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
@@ -100,7 +125,18 @@ def main() -> int:
             for via in args.vias.split(","):
                 extra = []
                 if label:
-                    extra += ["--query", json.dumps(queries[label]), "--label", label]
+                    form = query_form(queries[label], via)
+                    if form is None:
+                        continue
+                    extra += ["--query", json.dumps(form), "--label", label]
+                if via == "sql":
+                    extra += ["--sql-via", "--files", args.files]
+                    if args.duckdb_memory_limit is not None:
+                        extra += ["--memory-limit", args.duckdb_memory_limit]
+                    if args.glob is not None:
+                        extra += ["--glob", args.glob.format(size=size)]
+                elif args.count_arrow_requests:
+                    extra.append("--count-arrow-requests")
                 if via == "table":
                     if args.obs_table is None:
                         p.error("the table via needs --obs-table")
@@ -111,8 +147,15 @@ def main() -> int:
                         extra.append("--key-first")
                     if args.scan_workers is not None:
                         extra += ["--scan-workers", str(args.scan_workers)]
-                for workers in (int(w) for w in args.workers.split(",")):
+                threads = args.duckdb_threads.split(",") if via == "sql" else [""]
+                runs = [
+                    (int(w), t)
+                    for w in args.workers.split(",")
+                    for t in (threads if any(threads) else [""])
+                ]
+                for workers, thread in runs:
                     for repeat in range(args.repeats):
+                        more = ["--threads", thread] if thread else []
                         record = one(
                             catalog,
                             shape,
@@ -120,7 +163,7 @@ def main() -> int:
                             args.timeout,
                             cell_type,
                             args.max_rss_gb,
-                            extra,
+                            extra + more,
                         )
                         record.update(
                             where=args.where, repeat=repeat, size=int(size), via=via

@@ -316,13 +316,24 @@ def count_from_stores(
     return groups, len(rows), int(sum(p.sum() for p in parts))
 
 
+def candidate_count(census: census2_sdk.Census, obs_filter: Any) -> int:
+    """The catalog rows that a mapping filter, or an Iceberg expression, keeps."""
+    if isinstance(obs_filter, str):
+        from census2_sdk import expressions
+
+        return len(census._candidates(ORGANISM, expressions.from_filter(obs_filter)))
+    return len(
+        _catalog.exclude(census.catalog, ORGANISM, _catalog.canonicalize(obs_filter))
+    )
+
+
 def run(
     catalog: str,
     shape: str,
     workers: int,
     cell_type: str | None,
     *,
-    query: dict[str, Any] | None = None,
+    query: dict[str, Any] | str | None = None,
     obs_table: str | None = None,
 ) -> dict[str, Any]:
     before = io_read_mb()
@@ -347,7 +358,7 @@ def run(
 
     if shape in ("single", "cell_type", "query"):
         if shape == "single":
-            obs_filter: dict[str, Any] = {"dataset_id": str(rows["dataset_id"].iloc[0])}
+            obs_filter: Any = {"dataset_id": str(rows["dataset_id"].iloc[0])}
         elif shape == "query":
             if query is None:
                 raise ValueError("the query shape needs --query")
@@ -367,11 +378,7 @@ def run(
             census2_sdk.__dict__["open_store"] = original
             _catalog.open_store = original
         t2 = time.monotonic()
-        candidates = len(
-            _catalog.exclude(
-                census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
-            )
-        )
+        candidates = candidate_count(census, obs_filter)
         record["catalog_candidates"] = candidates
         record["stores_opened"] = candidates
         if isinstance(adata, anndata.AnnData) and obs_table is not None:
@@ -399,11 +406,7 @@ def run(
             record.update(stores_opened=0, groups=len(frame))
             record["cells"] = int(frame["n_cells"].sum())
             record.update(table_stats(frame.attrs["census2"]["obs_table"]))
-        record["catalog_candidates"] = len(
-            _catalog.exclude(
-                census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
-            )
-        )
+        record["catalog_candidates"] = candidate_count(census, obs_filter)
     elif shape == "corpus_obs" and obs_table is not None:
         frame = census.get_obs(ORGANISM)
         t2 = time.monotonic()
@@ -448,7 +451,7 @@ def main() -> int:
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--cell-type", default=None)
     p.add_argument("--max-rss-gb", type=float, default=None)
-    p.add_argument("--query", default=None, help="a mapping filter, as JSON")
+    p.add_argument("--query", default=None, help="a mapping or a string, as JSON")
     p.add_argument("--label", default=None, help="a name for the query")
     p.add_argument("--obs-table", default=None)
     p.add_argument("--x-from-indptr", action="store_true")
@@ -468,7 +471,8 @@ def main() -> int:
     if limit_mb is not None:
         base = {"catalog": args.catalog, "shape": args.shape, "workers": args.workers}
         guard_memory(limit_mb, base)
-    query = None if args.query is None else dict(json.loads(args.query))
+    # A JSON object is a mapping filter; a JSON string, an Iceberg expression.
+    query = None if args.query is None else json.loads(args.query)
     record = run(
         args.catalog,
         args.shape,
