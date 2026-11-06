@@ -473,3 +473,37 @@ def test_from_mapping_states_membership_explicitly() -> None:
 def test_a_census_takes_one_obs_engine(corpus: dict[str, Path]) -> None:
     with pytest.raises(ValueError, match="no obs engine"):
         census2_sdk.open_census([corpus["catalog"]], obs_engine="sqlite")
+
+
+@pytest.mark.parametrize(
+    ("value_filter", "text"),
+    [
+        ("tissue == 'lung' and cell_type != 'T cell'", "((\"tissue\" = 'lung') AND (\"cell_type\" <> 'T cell'))"),
+        ("nnz >= 500 or not (sex in ['male'])", "((\"nnz\" >= 500) OR (NOT (\"sex\" IN ('male'))))"),
+        ("is_primary_data == True", "(\"is_primary_data\" = true)"),
+        ("disease == 'flu || normal'", "(\"disease\" = 'flu || normal')"),
+    ],
+)  # fmt: skip
+def test_a_value_filter_translates_to_sql(value_filter: str, text: str) -> None:
+    sql = obs_sql.from_value_filter(value_filter)
+    assert sql == text
+    assert obs_sql.parse(sql).text == text
+
+
+def test_a_census1_filter_keeps_its_meaning_on_a_joined_value(
+    stores: census2_sdk.Census, sql: census2_sdk.Census
+) -> None:
+    """Census 1 compares the joined string; so does the SQL of its translation."""
+    obs = all_cells(stores)
+    text = obs_sql.from_value_filter("disease == 'flu || normal'")
+    adata = sql.get_anndata("homo_sapiens", text)
+    assert adata is not None
+    assert list(adata.obs_names) == list(obs.index[obs.disease == "flu || normal"])
+
+
+@pytest.mark.parametrize(
+    "value_filter", ["a == b", "1 < nnz", "tissue in 'lung'", "f(x)"]
+)
+def test_a_value_filter_without_a_sql_term_is_refused(value_filter: str) -> None:
+    with pytest.raises(obs_sql.FilterError):
+        obs_sql.from_value_filter(value_filter)

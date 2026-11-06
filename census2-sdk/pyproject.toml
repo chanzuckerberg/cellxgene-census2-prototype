@@ -75,6 +75,8 @@ files = [
     "tests",
     "tools/build_catalog.py",
     "tools/build_obs_table.py",
+    "tools/build_descendants.py",
+    "tools/harness/filter_language_sql.py",
     "tools/harness/corpus.py",
     "tools/harness/canonical.py",
     "tools/harness/comparator.py",

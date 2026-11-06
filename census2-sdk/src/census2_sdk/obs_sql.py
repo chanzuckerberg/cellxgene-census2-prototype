@@ -92,6 +92,7 @@ Push-down
 extension, which DuckDB downloads on first use unless it is already installed.
 """
 
+import ast
 import json
 import os
 import pathlib
@@ -603,6 +604,77 @@ def from_mapping(obs_filter: Filter | None) -> str:
         else:
             terms.append(f"{name} IN ({values})")
     return " AND ".join(terms) if terms else "true"
+
+
+def from_value_filter(value_filter: str) -> str:
+    """The SQL of a TileDB-SOMA `value_filter` string of Census 1.
+
+    The translator takes `and`, `or`, `not`, the six comparisons, `in [...]`, and
+    `not in [...]`, with string, number, and boolean literals. It raises `FilterError`
+    for any other construct, for example a comparison of two columns, so that a
+    migration error can name the equivalent filter.
+
+    Each term keeps its Census 1 meaning, also on a multi-valued column: Census 1
+    compares the joined string, and so does SQL.
+    """
+    try:
+        tree = ast.parse(value_filter.strip(), mode="eval").body
+    except SyntaxError as error:
+        raise FilterError(f"not a value filter: {value_filter!r}") from error
+    return _sql_of(tree)
+
+
+_SQL_COMPARISONS: dict[type, str] = {
+    ast.Eq: "=",
+    ast.NotEq: "<>",
+    ast.Lt: "<",
+    ast.LtE: "<=",
+    ast.Gt: ">",
+    ast.GtE: ">=",
+}
+
+
+def _sql_literal(value: Any) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return quote(value)
+    if isinstance(value, (int, float)):
+        return repr(value)
+    raise FilterError(f"no SQL literal for {value!r}")
+
+
+def _sql_of(node: ast.expr) -> str:
+    if isinstance(node, ast.BoolOp):
+        joiner = " AND " if isinstance(node.op, ast.And) else " OR "
+        return "(" + joiner.join(_sql_of(v) for v in node.values) + ")"
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return f"(NOT {_sql_of(node.operand)})"
+    if isinstance(node, ast.Compare):
+        terms, left = [], node.left
+        for op, right in zip(node.ops, node.comparators, strict=True):
+            if not isinstance(left, ast.Name):
+                raise FilterError(f"a term starts with a column: {ast.unparse(left)!r}")
+            try:
+                value = ast.literal_eval(right)
+            except ValueError as error:
+                raise FilterError(f"not a literal: {ast.unparse(right)!r}") from error
+            column = identifier(left.id)
+            if isinstance(op, (ast.In, ast.NotIn)):
+                if not isinstance(value, (list, tuple, set)):
+                    raise FilterError(f"`in` takes a list: {ast.unparse(right)!r}")
+                word = "IN" if isinstance(op, ast.In) else "NOT IN"
+                listed = ", ".join(_sql_literal(v) for v in value)
+                terms.append(f"({column} {word} ({listed}))" if value else "false")
+            elif type(op) in _SQL_COMPARISONS:
+                terms.append(
+                    f"({column} {_SQL_COMPARISONS[type(op)]} {_sql_literal(value)})"
+                )
+            else:
+                raise FilterError(f"no SQL term for {ast.unparse(node)!r}")
+            left = right
+        return terms[0] if len(terms) == 1 else "(" + " AND ".join(terms) + ")"
+    raise FilterError(f"no SQL term for {ast.unparse(node)!r}")
 
 
 def from_filter(obs_filter: object) -> Predicate:
