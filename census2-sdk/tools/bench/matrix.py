@@ -116,6 +116,7 @@ def main() -> int:
     p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
     p.add_argument("--glob", default=None, help="with {size} for the size")
     p.add_argument("--iceberg", default=None, help="a table location, with {size}")
+    p.add_argument("--no-union-by-name", action="store_true")
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
@@ -152,6 +153,8 @@ def main() -> int:
                         extra += ["--glob", args.glob.format(size=size)]
                     if args.iceberg is not None:
                         extra += ["--iceberg", args.iceberg.format(size=size)]
+                    if args.no_union_by_name:
+                        extra.append("--no-union-by-name")
                 if via != "sql" and args.count_arrow:
                     extra.append("--count-arrow")
                 if via != "sql" and args.narrow:
