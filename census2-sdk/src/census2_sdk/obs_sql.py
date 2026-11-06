@@ -93,6 +93,7 @@ extension, which DuckDB downloads on first use unless it is already installed.
 """
 
 import ast
+import collections
 import json
 import os
 import pathlib
@@ -1071,8 +1072,10 @@ def _dictionary_field(f: Any) -> Any:
 def _encoded(reader: Any, dictionary: bool) -> Iterable[Any]:
     """The batches of `reader`, with the string columns dictionary-encoded.
 
-    The encoding of one batch runs while DuckDB produces the next one, in a pool of
-    threads; pyarrow does not hold the GIL while it encodes.
+    The encoding of a batch runs while DuckDB produces the next ones, in a pool of
+    threads; pyarrow does not hold the GIL while it encodes. At most `_AHEAD` plain
+    batches wait for their encoding, so that the peak memory holds the encoded
+    result and only a few batches of plain strings.
     """
     if not dictionary:
         yield from reader
@@ -1091,8 +1094,17 @@ def _encoded(reader: Any, dictionary: bool) -> Iterable[Any]:
         names = list(batch.schema.names)
         return pa.RecordBatch.from_arrays(arrays, names=names)
 
+    pending: collections.deque[Any] = collections.deque()
     with ThreadPoolExecutor(max_workers=4) as pool:
-        yield from pool.map(encode, reader)
+        for batch in reader:
+            pending.append(pool.submit(encode, batch))
+            if len(pending) >= _AHEAD:
+                yield pending.popleft().result()
+        while pending:
+            yield pending.popleft().result()
+
+
+_AHEAD = 8
 
 
 def catalog_arrow(catalog: pd.DataFrame) -> pa.Table:
