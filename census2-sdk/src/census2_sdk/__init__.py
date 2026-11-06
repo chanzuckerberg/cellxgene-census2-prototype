@@ -391,7 +391,6 @@ class Census:
         import time
 
         import pyarrow as pa
-        import pyarrow.compute as pc
 
         from census2_sdk import expressions
 
@@ -410,6 +409,11 @@ class Census:
         # One Arrow table first, so that each categorical has one set of labels.
         frame = pd.DataFrame()
         if order:
+            # The cell key, joined in Arrow rather than one Python string at a time,
+            # one dataset in each task: Arrow's join is one thread, and it releases
+            # the GIL.
+            with ThreadPoolExecutor() as pool:
+                keys = list(pool.map(_cell_key, order))
             arrow = pa.concat_tables(order).unify_dictionaries()
             if dtype_backend == "pyarrow":
                 frame = cast(
@@ -417,12 +421,7 @@ class Census:
                 )
             else:
                 frame = _obs_frame(arrow, keep_rows=True)
-            # The cell key, joined in Arrow rather than one Python string at a time.
-            key = pc.binary_join_element_wise(
-                pc.cast(arrow.column("dataset_id"), pa.string()),
-                arrow.column("observation_joinid"),
-                "_",
-            )
+            key = pa.chunked_array([c for k in keys for c in k.chunks], pa.string())
             frame.index = pd.Index(key.to_pandas())
         frame.attrs["census2"] = {
             "catalog_candidates": len(rows),
@@ -730,6 +729,18 @@ def _read_cells(
     )
     var = pd.DataFrame(index=pd.RangeIndex(shape[1]).astype(str))
     return anndata.AnnData(X=matrix, obs=obs, var=var, layers=computed)
+
+
+def _cell_key(cells: Any) -> Any:
+    """The cell key `<dataset_id>_<observation_joinid>` of an Arrow table of rows."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    return pc.binary_join_element_wise(
+        pc.cast(cells.column("dataset_id"), pa.string()),
+        cells.column("observation_joinid"),
+        "_",
+    )
 
 
 def _obs_frame(cells: Any, *, keep_rows: bool = False) -> pd.DataFrame:
