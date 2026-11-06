@@ -1,0 +1,55 @@
+[
+ {
+  "query": "single_member",
+  "shape": "single",
+  "dataset_id": "6ceeaa86-9ceb-4582-b390-6d4dd6ff0572"
+ },
+ {
+  "query": "single_alone",
+  "shape": "single",
+  "dataset_id": "c6413315-7158-46c5-a5fd-7228385694f1"
+ },
+ {
+  "query": "cell_type",
+  "shape": "cell_type",
+  "cell_type": "neutrophil"
+ },
+ {
+  "query": "lung_macrophage",
+  "shape": "filter",
+  "filter": {
+   "tissue": [
+    "epithelial cell of lung",
+    "lower lobe of left lung",
+    "lung",
+    "lung epithelium",
+    "middle lobe of right lung",
+    "upper lobe of left lung"
+   ],
+   "cell_type": [
+    "TREM2-positive macrophage",
+    "alveolar macrophage",
+    "inflammatory macrophage",
+    "lung interstitial macrophage",
+    "lung macrophage",
+    "macrophage"
+   ]
+  }
+ },
+ {
+  "query": "false_positive",
+  "shape": "filter",
+  "filter": {
+   "assay": "10x 3' v3",
+   "tissue": "mesenteric lymph node"
+  }
+ },
+ {
+  "query": "corpus_obs",
+  "shape": "corpus_obs"
+ },
+ {
+  "query": "open",
+  "shape": "open"
+ }
+]

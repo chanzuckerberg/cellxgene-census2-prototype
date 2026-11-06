@@ -1,0 +1,95 @@
+# CI for the consolidation pipeline. No AWS account is involved: the test writes small
+# stores in the runtime image, consolidates them, and checks the consolidated store.
+name: consolidate-nf
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "consolidate-nf/**"
+      - "census2-dataset-writer/**"
+      - "bulk-ingest-nf/docker/**"
+      - ".github/workflows/consolidate-nf.yml"
+  pull_request:
+    paths:
+      - "consolidate-nf/**"
+      - "census2-dataset-writer/**"
+      - "bulk-ingest-nf/docker/**"
+      - ".github/workflows/consolidate-nf.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: pipx run ruff check consolidate-nf
+      - name: Check formatting
+        run: pipx run ruff format --check consolidate-nf
+
+  test:
+    name: nf-test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: consolidate-nf
+    env:
+      # The version that HealthOmics runs, as manifest.nextflowVersion pins it.
+      NXF_VER: 25.10.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Nextflow and nf-test
+        run: |
+          curl -fsSL https://get.nextflow.io | bash
+          curl -fsSL https://get.nf-test.com | bash
+          sudo mv nextflow nf-test /usr/local/bin/
+          nextflow -version
+          nf-test version
+
+      - uses: docker/setup-buildx-action@v3
+
+      # The runtime image of bulk-ingest-nf, which holds the consolidation module.
+      - name: Build the runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: bulk-ingest-nf/docker/Dockerfile
+          tags: census2-bulk-ingest:dev
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # The same path inside and outside the container, because the plan names
+      # the stores by path.
+      - name: Write the test stores
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:$PWD" -w "$PWD" \
+            census2-bulk-ingest:dev python tools/seed-stores.py tests/stores
+
+      - name: Run the tests
+        run: nf-test test --tag validation,consolidate
+
+      - name: Collect logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nf-test-logs
+          path: |
+            consolidate-nf/.nf-test/tests/*/meta/**
+            consolidate-nf/.nextflow.log*
+          retention-days: 7
+          if-no-files-found: ignore

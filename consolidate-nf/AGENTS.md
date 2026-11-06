@@ -1,0 +1,38 @@
+# census2-consolidate
+
+Consolidation of small Census 2 stores, as a Nextflow pipeline. `README.md` covers what it does and
+how to run it. The repository root `AGENTS.md` gives the Census 2 tentpoles; consolidation is a
+secondary materialization beside them, and the per-dataset stores stay the primary copy.
+`bulk-ingest-nf/AGENTS.md` records the Nextflow and HealthOmics sharp edges, and every one of them
+applies here; this pipeline follows the same patterns. This file records what is particular to
+consolidation.
+
+## Seams
+
+`census2_dataset_writer.consolidation` decides what a consolidated store holds; its module docstring
+gives the layout and the memory contract. `consolidate-group.py` handles the I/O: where the store
+goes, the check, and the receipt. `tools/consolidation-plan.py` decides the groups, outside the
+pipeline, from a catalog. The catalog builder (`census2-sdk/tools/build_catalog.py --consolidated`)
+checks the consolidated stores against the per-dataset stores and names them in the catalog. No
+receipt reaches the catalog.
+
+The pipeline runs in the runtime image of `bulk-ingest-nf`. A change to the consolidation module
+needs a rebuild of that image, as a change to the writer does.
+
+## Sharp edges
+
+`consolidate` writes `X/data` and `X/indices` one whole shard at a time. A write to part of a shard
+reads the shard, merges, and writes it again; anndata's append of each dask block does that. A
+shard written once, whole, is written once.
+
+The source `obs` frames are held until the union frame is written, then dropped. Each member
+reads its own `var` for the check of the members, and `consolidate` then keeps one copy of the
+reference. Memory therefore follows the cell count and the member count of the group. On the
+103-dataset pilot, groups of 0.5 to 1 GiB, 5 to 25 members, and 196,000 to 363,000 cells peaked at
+0.78 to 0.98 GiB, and the group of 25 members peaked highest. The `memory` directive requests 4 GiB
+or 2 GiB plus 2 GiB for each million cells, whichever is more. The planner bounds a group by bytes,
+not cells, so a group of many small datasets with few stored values for each cell can have more
+cells than its bytes suggest.
+
+A plan names stores by URI. A local plan names local paths, which a task container sees only
+through a mount; `tests/nextflow.config` adds one. On HealthOmics, the stores are on S3.

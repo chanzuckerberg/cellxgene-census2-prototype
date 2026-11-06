@@ -58,9 +58,11 @@ COPY census2-dataset-writer /src/census2-dataset-writer
 RUN pip install --no-cache-dir --no-deps --force-reinstall /src/census2-dataset-writer
 
 # Fail fast if the import surface the pipeline relies on is missing. Keep this
-# list matched to what census2_dataset_writer and cxg-ingest.py import.
+# list matched to what census2_dataset_writer, cxg-ingest.py, and consolidate-nf's
+# consolidate-group.py import. consolidate-nf runs in this image as well.
 RUN python -c "\
 import census2_dataset_writer, anndata, zarr, h5py, scipy, numpy, pandas, dask; \
+from census2_dataset_writer import consolidation; \
 import obstore, obstore.store; \
 import cellxgene_ontology_guide; \
 import importlib.metadata as md; \

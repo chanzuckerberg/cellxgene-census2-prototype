@@ -134,7 +134,7 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     prefix.mkdir()
     for seed, (dataset_id, spec) in enumerate(STORES.items()):
         write_one(prefix, make_store(dataset_id, *spec, seed=seed), dataset_id)
-    frame = build_catalog.build(str(prefix), root / "catalog.parquet")
+    frame = build_catalog.build([str(prefix)], root / "catalog.parquet")
     assert len(frame) == 3
     return {"root": root, "prefix": prefix, "catalog": root / "catalog.parquet"}
 
@@ -147,7 +147,7 @@ def one_store_catalog(
     prefix = tmp_path / "out"
     prefix.mkdir()
     write_one(prefix, adata, dataset_id)
-    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    build_catalog.build([str(prefix)], tmp_path / "catalog.parquet")
     return tmp_path / "catalog.parquet"
 
 
@@ -241,7 +241,7 @@ def test_get_anndata_matches_brute_force(
     census = census2_sdk.open_census([corpus["catalog"]])
     result = query(census, obs_filter)
     assert list(result.var_names) == REFERENCE_IDS
-    assert result.uns["census2"]["stores_in_catalog"] == 3
+    assert result.uns["census2"]["datasets_in_catalog"] == 3
     same(result, expected(corpus, obs_filter))
 
 
@@ -265,25 +265,25 @@ def test_concurrent_reads_match_one_at_a_time(
 
     # Each read waits for all three, so a serial read times out. Each store then
     # waits for the next one in catalog order, so the first store finishes last.
-    read_store = census2_sdk._read_store
+    read_rows = census2_sdk._read_rows
     order = list(STORES)
     all_running = threading.Barrier(len(order), timeout=10)
     done = {dataset_id: threading.Event() for dataset_id in order}
     finished: list[str] = []
 
     def overlapping(
-        row: dict[str, Any], canonical: Any, layers: Any = ()
+        opened: Any, read: Any, canonical: Any, layers: Any = ()
     ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, canonical, layers)
-        position = order.index(row["dataset_id"])
+        part = read_rows(opened, read, canonical, layers)
+        position = order.index(read.row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
-        finished.append(str(row["dataset_id"]))
-        done[str(row["dataset_id"])].set()
+        finished.append(str(read.row["dataset_id"]))
+        done[str(read.row["dataset_id"])].set()
         return part
 
-    monkeypatch.setattr(census2_sdk, "_read_store", overlapping)
+    monkeypatch.setattr(census2_sdk, "_read_rows", overlapping)
     many = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
     assert many is not None
     assert finished == list(reversed(STORES))
@@ -346,7 +346,7 @@ def test_store_with_another_var_refused(
             dataset_id, 5, REFERENCE_IDS, ["lung"], ["normal"], seed, var_ids=var_ids
         )
         write_one(prefix, adata, dataset_id)
-    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    build_catalog.build([str(prefix)], tmp_path / "catalog.parquet")
     census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="v-ds-x.zarr: var differs"):
         census.get_anndata("homo_sapiens")
@@ -666,7 +666,7 @@ def builder_prefix(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_builder_reads_the_summary_record(tmp_path: Path) -> None:
     prefix, _ = builder_prefix(tmp_path)
-    row = build_catalog.build(str(prefix)).iloc[0]
+    row = build_catalog.build([str(prefix)]).iloc[0]
     assert row["dataset_id"] == "ds-s"
     assert row["dataset_version_id"] == "v-ds-s"
     assert row["gene_reference_version"] == "GENCODE v48"
@@ -678,7 +678,7 @@ def test_builder_refuses_a_store_without_a_summary_record(tmp_path: Path) -> Non
     prefix, store = builder_prefix(tmp_path)
     set_summary(store, None)
     with pytest.raises(ValueError, match="v-ds-s.zarr: no summary record"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_refuses_an_unknown_record_version(tmp_path: Path) -> None:
@@ -691,7 +691,7 @@ def test_builder_refuses_an_unknown_record_version(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="summary record version 2"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_refuses_a_record_for_another_store(tmp_path: Path) -> None:
@@ -704,7 +704,7 @@ def test_builder_refuses_a_record_for_another_store(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="names dataset version 'v-other'"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
@@ -717,7 +717,7 @@ def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="v-ds-s.zarr: summary record dataset_id is 7"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
@@ -729,7 +729,7 @@ def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
     prefix = tmp_path / "out"
     prefix.mkdir()
     write_one(prefix, adata, "ds-v")
-    assert bool(build_catalog.build(str(prefix)).iloc[0]["spatial"]) is True
+    assert bool(build_catalog.build([str(prefix)]).iloc[0]["spatial"]) is True
 
 
 # --- the dataset_id column ------------------------------------------------------

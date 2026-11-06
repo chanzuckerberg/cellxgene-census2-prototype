@@ -31,6 +31,8 @@ returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
 which ships no S3 client. `census2_dataset_writer.store_format` names what a
 store holds beyond AnnData-Zarr, for the writer and for a reader of a store.
+`census2_dataset_writer.consolidation` writes a consolidated store: a second copy of
+several per-dataset stores in one store.
 
 Decisions
 ---------
@@ -168,6 +170,8 @@ from . import assays, genes, tissues
 from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
+from .store_format import CONSOLIDATION_KEY as CONSOLIDATION_KEY
+from .store_format import CONSOLIDATION_VERSION as CONSOLIDATION_VERSION
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
 from .store_format import MEASURED_COLUMN as MEASURED_COLUMN
@@ -176,8 +180,12 @@ from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
 from .store_format import ColType as ColType
+from .store_format import ConsolidatedMember as ConsolidatedMember
+from .store_format import ConsolidationRecord as ConsolidationRecord
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import obs_digest as obs_digest
+from .store_format import validate_consolidation as validate_consolidation
 from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
@@ -1088,3 +1096,7 @@ def create(
         summary = summary_record(result)
         write(adata, dest, summary=summary, consolidate=consolidate, threads=threads)
     return result
+
+
+# Last, because the module imports the functions above from this package.
+from . import consolidation as consolidation  # a public module; callers name it

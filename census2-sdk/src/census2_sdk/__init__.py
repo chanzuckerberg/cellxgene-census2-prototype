@@ -15,9 +15,10 @@ columns of design 2.2 and `dataset_id`. A filter grammar is open (design section
 
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
 has the columns that all selected stores hold. `uns["census2"]` has the sources, the
-number of catalog rows for the organism, and the number of stores opened. The cell
-key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
-`<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
+number of catalog rows for the organism, the number of datasets read, and the number
+of stores opened. The cell key `(dataset_id, observation_joinid)` is in `obs`, and
+`obs_names` is `<dataset_id>_<observation_joinid>`. When no cell matches,
+`get_anndata` returns None.
 
 The stores hold only the counts. `layers=["normalized"]` adds the Census 1
 normalized values in `layers["normalized"]`, calculated on read.
@@ -36,11 +37,21 @@ that each catalog row holds. Its filter takes the columns of
 
 Each store's `obs` holds `dataset_id`, which the writer adds. The SDK refuses a
 store whose `dataset_id` differs from the dataset of its catalog row.
+
+A catalog row can also name a consolidated store, a second copy of several small
+datasets in one store, with the rows of its dataset there (`consolidated_store_uri`,
+`consolidated_row_start`, `consolidated_row_stop`). The SDK then reads the dataset from
+the consolidated store, and opens each store once for all of its selected datasets.
+Exclusion stays per dataset, so a consolidated store opens only when one of its
+datasets can match. The SDK reads only the rows of the selected datasets, and the
+result is the result of the per-dataset stores. `open_census(..., consolidated=False)`
+reads the per-dataset stores, which stay the primary copy.
 """
 
 import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import anndata
@@ -48,11 +59,18 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 import zarr
-from anndata.io import read_elem, sparse_dataset
+from anndata.io import read_elem
 
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
-from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
+from census2_sdk.catalog import (
+    CONSOLIDATED,
+    CanonicalFilter,
+    Filter,
+    members,
+    open_store,
+    unrecorded,
+)
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
 __all__ = [
@@ -74,8 +92,12 @@ class Census:
     Each call to `get_anndata` or `count_cells` runs one query over them.
     """
 
-    def __init__(self, sources: Sequence[PathLike]) -> None:
+    def __init__(
+        self, sources: Sequence[PathLike], *, consolidated: bool = True
+    ) -> None:
         self.sources = [str(s) for s in sources]
+        # Read a dataset from the consolidated store that its catalog row names, if any.
+        self.consolidated = consolidated
         self._counts: pd.DataFrame | None = None
         # One read per catalog, so that the rows and the counts come from one version.
         self._contents = [_catalog.read(source) for source in self.sources]
@@ -109,9 +131,12 @@ class Census:
         `normalized`, which the SDK calculates from the counts with the Census 1
         algorithm, without its rounding (`census2_sdk.normalize`).
 
-        `max_workers` is the largest number of stores that the SDK reads at the
-        same time, and it must be a positive integer. The result is the same for
-        every allowed value: the stores keep their catalog order.
+        `max_workers` is the largest number of reads that the SDK runs at the
+        same time, and it must be a positive integer. The SDK first opens each
+        store, then reads each selected dataset, and both steps use up to
+        `max_workers` threads. The datasets of one consolidated store thus read at
+        the same time as well. The result is the same for every allowed value:
+        the datasets keep their catalog order.
         """
         unknown = sorted(set(layers) - {"normalized"})
         if unknown:
@@ -120,14 +145,25 @@ class Census:
         rows = _catalog.exclude(self.catalog, organism, canonical)
         _check_composition(rows, ORGANISMS[organism]["version"])
 
-        records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+        reads = _reads(rows, self.consolidated)
+        # Each store opens once, for all of its selected datasets.
+        uris = list(dict.fromkeys(r.uri for r in reads))
+        consolidated = {r.uri for r in reads if r.rows is not None}
         # ponytail: serial by default; raise the default after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            parts = list(
-                pool.map(lambda row: _read_store(row, canonical, layers), records)
+            opened = dict(
+                zip(
+                    uris,
+                    pool.map(lambda u: _open(u, u in consolidated), uris),
+                    strict=True,
+                )
             )
-        uris = list(rows["store_uri"].astype(str))
-        _check_var(parts, uris)
+            parts = list(
+                pool.map(
+                    lambda r: _read_rows(opened[r.uri], r, canonical, layers), reads
+                )
+            )
+        _check_var(parts, [r.uri for r in reads])
         if not sum(part.n_obs for part in parts):
             return None
         # Zero-row parts stay in, so the obs schema is the columns that all
@@ -137,13 +173,15 @@ class Census:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
         # version and one index, so the first store supplies the var columns,
-        # except the assayed genes of its own dataset.
-        var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        # except the assayed genes of its own dataset. A consolidated store holds
+        # those in `varm`, so its `var` has no such column.
+        var = cast("pd.DataFrame", read_elem(opened[uris[0]].group["var"]))
         result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
-            "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
-            "stores_opened": len(rows),
+            "datasets_in_catalog": int((self.catalog["organism"] == organism).sum()),
+            "datasets_read": len(reads),
+            "stores_opened": len(uris),
         }
         return result
 
@@ -201,9 +239,13 @@ class Census:
         return self._counts
 
 
-def open_census(sources: Sequence[PathLike]) -> Census:
-    """Open catalogs."""
-    return Census(sources)
+def open_census(sources: Sequence[PathLike], *, consolidated: bool = True) -> Census:
+    """Open catalogs.
+
+    With `consolidated` false, the SDK reads every dataset from its per-dataset store,
+    and ignores the consolidated stores that the catalog names.
+    """
+    return Census(sources, consolidated=consolidated)
 
 
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
@@ -275,52 +317,239 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
     return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
-def _read_store(
-    row: dict[str, Any], obs_filter: CanonicalFilter, layers: Sequence[str] = ()
-) -> anndata.AnnData:
-    """The selected cells of one store. `X` holds the counts on the reference genes.
+@dataclass(frozen=True)
+class _Read:
+    """One selected dataset, and where the SDK reads it.
+
+    `rows` is the dataset's row range in a consolidated store, or None for a
+    per-dataset store, which holds the dataset whole.
+    """
+
+    row: dict[str, Any]
+    uri: str
+    rows: tuple[int, int] | None
+
+
+@dataclass
+class _Opened:
+    """One open store, and what all of its datasets share.
+
+    `var` holds only the index. `n_obs` is the number of rows of the store.
+    `categories` holds the categories of each categorical `obs` column of a
+    consolidated store, read once for all the datasets of the store.
+    """
+
+    uri: str
+    group: zarr.Group
+    var: pd.DataFrame
+    n_obs: int
+    categories: dict[str, pd.Index] = field(default_factory=dict)
+
+
+def _reads(rows: pd.DataFrame, consolidated: bool) -> list[_Read]:
+    """The read of each selected dataset, in catalog order.
+
+    A row that names a consolidated store is read there, unless `consolidated` is false.
+    A catalog without the columns names none.
+    """
+    records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+    use = consolidated and all(c in rows.columns for c in CONSOLIDATED)
+    reads = []
+    for row in records:
+        uri = row.get(CONSOLIDATED[0]) if use else None
+        if unrecorded(uri):
+            reads.append(_Read(row, str(row["store_uri"]), None))
+        else:
+            span = (int(row[CONSOLIDATED[1]]), int(row[CONSOLIDATED[2]]))
+            reads.append(_Read(row, str(uri), span))
+    return reads
+
+
+def _group(parent: zarr.Group, name: str, uri: str, kind: str) -> zarr.Group:
+    """The child group `name`, or a TypeError that names the store and the node."""
+    node = parent[name]
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{uri}: {name} must be {kind}")
+    return node
+
+
+def _open(uri: str, consolidated: bool) -> _Opened:
+    """Open a store, and read what its datasets share: the var index, and categories.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
-    compares. `get_anndata` reads the var columns from one store. `layers` names
+    compares. `get_anndata` reads the var columns from one store. The number of
+    rows comes from the attributes of `X`, which the open already read. The
+    categories of a consolidated store's `obs` columns serve each member's read.
+    """
+    group = open_store(uri)
+    var_group = _group(group, "var", uri, "an encoded dataframe")
+    index = read_elem(var_group[str(var_group.attrs["_index"])])
+    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
+    x = _group(group, "X", uri, "an encoded sparse matrix")
+    opened = _Opened(uri, group, var, int(cast("list[int]", x.attrs["shape"])[0]))
+    if not consolidated:
+        return opened
+    _check_record(opened)
+    obs = _group(group, "obs", uri, "an encoded dataframe")
+    names = [str(name) for name in cast("list[str]", obs.attrs["column-order"])]
+    categorical = [
+        name
+        for name in names
+        if isinstance(obs[name], zarr.Group) and _encoding(obs[name]) == "categorical"
+    ]
+
+    def categories(name: str) -> pd.Index:
+        node = _group(obs, name, uri, "an encoded categorical")
+        return cast("pd.Index", pd.Index(np.asarray(read_elem(node["categories"]))))
+
+    # Each column is a read of its own, so read them at the same time, as `_obs_rows`
+    # reads the columns of a dataset.
+    threads = max(1, min(len(categorical), OBS_THREADS))
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        opened.categories = dict(
+            zip(categorical, pool.map(categories, categorical), strict=True)
+        )
+    return opened
+
+
+def _encoding(node: zarr.Array[Any] | zarr.Group) -> str:
+    return str(node.attrs.get("encoding-type", ""))
+
+
+def _check_record(opened: _Opened) -> None:
+    """A consolidated store holds a consolidation record, in its root attributes."""
+    namespace = opened.group.attrs.get("cellxgene-census2")
+    if not isinstance(namespace, dict) or "consolidation" not in namespace:
+        raise ValueError(
+            f"{opened.uri}: no consolidation record; not a consolidated store"
+        )
+
+
+def _member_rows(opened: _Opened, read: _Read) -> tuple[int, int]:
+    """The rows of the dataset in a consolidated store, which its record must list."""
+    namespace = cast("dict[str, Any]", opened.group.attrs["cellxgene-census2"])
+    listed = cast("list[dict[str, Any]]", namespace["consolidation"].get("members", []))
+    version = str(read.row["dataset_version_id"])
+    spans = [
+        (m.get("row_start"), m.get("row_stop"))
+        for m in listed
+        if m.get("dataset_version_id") == version
+    ]
+    if read.rows is None or spans != [read.rows]:
+        raise ValueError(
+            f"{opened.uri}: the consolidation record does not list {version} at rows "
+            f"{read.rows}"
+        )
+    return read.rows
+
+
+def _read_rows(
+    opened: _Opened,
+    read: _Read,
+    obs_filter: CanonicalFilter,
+    layers: Sequence[str] = (),
+) -> anndata.AnnData:
+    """The selected cells of one dataset. `X` holds the counts on the reference genes.
+
+    The read takes only the rows of the dataset from `obs` and `X`: all of a
+    per-dataset store, or the member's rows of a consolidated store. `layers` names
     the layers to calculate from the counts.
     """
-    group = open_store(row["store_uri"])
-    obs_group = group["obs"]
-    if not isinstance(obs_group, zarr.Group):
-        raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")
-    # To read obs faster, the SDK decodes the two per-cell string columns only
-    # where the result needs them. It does not read the index (the source cell
-    # names), because the result replaces the index with the cell key. It reads
-    # the cell key after the filter, for the kept cells only.
-    columns = cast("list[str]", obs_group.attrs["column-order"])
+    dataset_id = str(read.row["dataset_id"])
+    if read.rows is None:
+        where, (start, stop) = opened.uri, (0, opened.n_obs)
+    else:
+        where, (start, stop) = f"{opened.uri}[{dataset_id}]", _member_rows(opened, read)
+    obs_group = _group(opened.group, "obs", opened.uri, "an encoded dataframe")
+    # To read obs faster, the SDK decodes the per-cell string columns only where
+    # the result needs them. It does not read the index (the source cell names, or
+    # the cell key in a consolidated store), because the result sets the cell key. It
+    # reads the cell key after the filter, for the kept cells only.
+    columns = [str(c) for c in cast("list[str]", obs_group.attrs["column-order"])]
     key = "observation_joinid"
-    obs = pd.DataFrame(
-        {name: read_elem(obs_group[name]) for name in columns if name != key}
-    )
-    dataset_id = str(row["dataset_id"])
-    _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
+    obs = _obs_rows(opened, obs_group, [c for c in columns if c != key], start, stop)
+    _check_dataset_id(obs, dataset_id, where)
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
     if key in columns:
-        obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
-    _check_cell_key(obs, str(row["store_uri"]))
-    var_group = group["var"]
-    if not isinstance(var_group, zarr.Group):
-        raise TypeError(f"{row['store_uri']}: var must be an encoded dataframe")
-    index = read_elem(var_group[str(var_group.attrs["_index"])])
-    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
-    x = _rows(group["X"], keep)
+        kept = _read_column_rows(obs_group[key], start + keep)
+        obs.insert(columns.index(key), key, kept)
+    _check_cell_key(obs, where)
+    x = _rows(opened.group["X"], keep, start)
     computed = {}
     if "normalized" in layers:
         assay = obs["assay_ontology_term_id"].astype(str)
         full_gene = assay.isin(_normalize.FULL_GENE_ASSAYS).to_numpy()
         length = None
         if full_gene.any():
+            var_group = _group(opened.group, "var", opened.uri, "an encoded dataframe")
             length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
         computed["normalized"] = _normalize.normalized(x, full_gene, length)
 
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
-    return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
+    return anndata.AnnData(X=x, obs=obs, var=opened.var, layers=computed)
+
+
+# The obs columns of one dataset that the SDK reads at the same time.
+OBS_THREADS = 8
+
+
+def _obs_rows(
+    opened: _Opened, group: zarr.Group, columns: list[str], start: int, stop: int
+) -> pd.DataFrame:
+    """Rows `start` to `stop` of the `obs` columns `columns`, without the other rows.
+
+    A read of all the rows of a store reads each column whole with `read_elem`.
+    A read of part of the rows gives each column the type that `read_elem` gives
+    it, and a categorical column keeps only the categories that its rows use. A
+    per-dataset store holds no unused category, because the writer writes none, so
+    a member of a consolidated store gets the categories of its per-dataset store.
+    """
+    whole = (start, stop) == (0, opened.n_obs)
+
+    def one(name: str) -> Any:
+        if whole:
+            return read_elem(group[name])
+        return _column_rows(opened, group, name, start, stop)
+
+    # Each column is a read of its own, with a round trip or two, so read them at the
+    # same time. The pool waits on no other task, so it cannot deadlock the pool of
+    # `get_anndata`.
+    with ThreadPoolExecutor(max_workers=max(1, min(len(columns), OBS_THREADS))) as pool:
+        values = list(pool.map(one, columns))
+    return pd.DataFrame(dict(zip(columns, values, strict=True)), columns=columns)
+
+
+def _column_rows(
+    opened: _Opened, group: zarr.Group, name: str, start: int, stop: int
+) -> Any:
+    """Rows `start` to `stop` of one `obs` column, with the type of `read_elem`.
+
+    The encodings that anndata writes for the store's column types read in part:
+    categorical, array, string array, and nullable string array. Another encoding
+    reads whole, and then the rows are cut from it.
+    """
+    node = group[name]
+    kind = _encoding(node)
+    if isinstance(node, zarr.Array) and kind in ("array", "string-array"):
+        return node[start:stop]
+    if isinstance(node, zarr.Group) and kind == "categorical":
+        codes = np.asarray(cast("zarr.Array[Any]", node["codes"])[start:stop])
+        categories = opened.categories[name]
+        used = np.unique(codes[codes >= 0])
+        # Renumber the codes over the used categories. A null keeps the code -1,
+        # which indexes the -1 at the end.
+        renumber = np.full(len(categories) + 1, -1, dtype=np.int64)
+        renumber[used] = np.arange(len(used))
+        return pd.Categorical.from_codes(
+            renumber[codes],
+            categories=categories[used],
+            ordered=bool(node.attrs.get("ordered", False)),
+        )
+    if isinstance(node, zarr.Group) and kind == "nullable-string-array":
+        return _read_column_rows(node, np.arange(start, stop))
+    # `read_elem` is typed for every element kind; here it is an array.
+    return cast("Any", read_elem(node))[start:stop]
 
 
 def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:
@@ -353,8 +582,11 @@ def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> A
     values, mask = node["values"], node["mask"]
     if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
         raise TypeError(f"{node.store_path} must hold a values and a mask array")
-    result: Any = pd.array(np.asarray(values.oindex[rows]), dtype=dtype)
-    result[np.asarray(mask.oindex[rows])] = pd.NA
+    # One run of rows reads as a slice, which zarr reads faster than a selection.
+    contiguous = rows[-1] - rows[0] + 1 == rows.size
+    selection: Any = slice(int(rows[0]), int(rows[-1]) + 1) if contiguous else rows
+    result: Any = pd.array(np.asarray(values.oindex[selection]), dtype=dtype)
+    result[np.asarray(mask.oindex[selection])] = pd.NA
     return result
 
 
@@ -383,11 +615,36 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
             )
 
 
-def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
-    """The selected rows of a CSR matrix, read without loading the rest."""
+def _rows(
+    node: zarr.Array[Any] | zarr.Group, keep: np.ndarray, start: int = 0
+) -> sp.csr_matrix:
+    """The selected rows of a CSR matrix, read without loading the rest.
+
+    `keep` holds row numbers from `start`. The read takes `indptr` from the first
+    to the last selected row, then the `data` and `indices` of the selected rows.
+    When the selected rows follow one another, that is one slice. Otherwise it is
+    one selection of every selected stored value, as anndata's row read makes.
+    """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
-    dataset = sparse_dataset(node)
+    arrays = [node[name] for name in ("data", "indices", "indptr")]
+    if not all(isinstance(a, zarr.Array) for a in arrays):
+        raise TypeError(f"{node.store_path} must hold data, indices, and indptr arrays")
+    data_array, indices_array, indptr_array = cast("list[zarr.Array[Any]]", arrays)
+    n_var = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
-        return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)
-    return sp.csr_matrix(cast("sp.csr_matrix", dataset[keep]))
+        return sp.csr_matrix((0, n_var), dtype=data_array.dtype)
+    first, last = start + int(keep[0]), start + int(keep[-1])
+    indptr = np.asarray(indptr_array[first : last + 2])
+    local = keep - keep[0]
+    begins, lengths = indptr[local], indptr[local + 1] - indptr[local]
+    selection: slice | np.ndarray
+    if len(keep) == last - first + 1:
+        selection = slice(int(indptr[0]), int(indptr[-1]))
+    else:
+        offsets = np.cumsum(lengths) - lengths
+        selection = np.arange(int(lengths.sum())) + np.repeat(begins - offsets, lengths)
+    data = np.asarray(data_array[selection])
+    indices = np.asarray(indices_array[selection])
+    new_indptr = np.concatenate([[0], np.cumsum(lengths)])
+    return sp.csr_matrix((data, indices, new_indptr), shape=(len(keep), n_var))

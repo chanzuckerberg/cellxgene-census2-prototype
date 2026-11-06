@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr.storage
-from bench import catalogs, matrix, run
+from bench import catalogs, fanout, matrix, run
 from zarr.abc.store import RangeByteRequest
 from zarr.core.buffer import default_buffer_prototype
 
@@ -108,13 +108,94 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.mark.parametrize("workers", [1, 2])
 def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> None:
     run.COUNTER.requests = run.COUNTER.nbytes = 0
-    record = run.run(str(stores / "catalog.parquet"), shape, workers, None)
+    obs_filter = {"cell_type": "T cell"} if shape == "filter" else None
+    record = run.run(
+        str(stores / "catalog.parquet"), shape, workers, None, obs_filter=obs_filter
+    )
     assert record["status"] == "ok"
     assert record["catalog_stores"] == 2
     expected = {"single": (1, 30), "open": (2, 0)}.get(shape, (2, 50))
     assert (record["stores_opened"], record["cells"]) == expected
     assert record["requests"] > 0
     assert record["mb_payload"] > 0
+
+
+@pytest.mark.parametrize("reader", run.READERS)
+def test_readers_open_the_same_store(
+    stores: Path, reader: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK's open reads the metadata of both Zarr formats; the lean open, one."""
+    monkeypatch.setattr(run, "READER", reader)
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    group = run.open_counted(str(stores / "v-0.zarr"))
+    assert set(group.keys()) >= {"obs", "var", "X"}
+    assert run.COUNTER.requests == {"sdk": 4, "lean": 1}[reader]
+    record = run.run(str(stores / "catalog.parquet"), "cell_type", 2, "T cell")
+    assert (record["reader"], record["stores_opened"], record["cells"]) == (
+        reader,
+        2,
+        50,
+    )
+    assert record["cpu_seconds"] > 0
+
+
+@pytest.mark.parametrize("shape", ["open", "corpus_obs"])
+def test_processes_read_every_store(stores: Path, shape: str) -> None:
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    one = run.run(str(stores / "catalog.parquet"), shape, 2, None)
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    two = run.run(str(stores / "catalog.parquet"), shape, 2, None, processes=2)
+    assert (two["processes"], two["stores_opened"]) == (2, 2)
+    assert (two["cells"], two["requests"]) == (one["cells"], one["requests"])
+    assert two["cpu_seconds"] > 0 and two["process_start_seconds"] > 0
+
+
+def test_serving_uris_open_a_consolidated_store_once() -> None:
+    rows = pd.DataFrame(
+        {
+            "store_uri": ["a.zarr", "b.zarr", "c.zarr"],
+            "consolidated_store_uri": ["ab.zarr", "ab.zarr", None],
+        }
+    )
+    assert run.serving_uris(rows) == ["ab.zarr", "c.zarr"]
+    assert run.serving_uris(rows, per_dataset=True) == ["a.zarr", "b.zarr", "c.zarr"]
+    assert run.serving_uris(rows.drop(columns="consolidated_store_uri")) == [
+        "a.zarr",
+        "b.zarr",
+        "c.zarr",
+    ]
+
+
+def test_fanout_counts_the_stores_of_a_plan(stores: Path) -> None:
+    plan = [
+        {
+            "group": "g",
+            "members": [{"dataset_version_id": "v-0"}, {"dataset_version_id": "v-1"}],
+        }
+    ]
+    rows = pd.read_parquet(stores / "catalog.parquet")
+    rows["dataset_version_id"] = ["v-0", "v-1"]
+    rows.to_parquet(stores / "catalog-v.parquet")
+    queries: list[dict[str, Any]] = [
+        {"query": "all", "shape": "open"},
+        {"query": "one", "shape": "single", "dataset_id": "ds-1"},
+        {"query": "t", "shape": "filter", "filter": {"cell_type": "T cell"}},
+    ]
+    records = fanout.fanout(stores / "catalog-v.parquet", queries, {"one_group": plan})
+    got = {r["query"]: (r["datasets"], r["stores"]) for r in records}
+    assert got["all"] == (2, {"per_dataset": 2, "one_group": 1})
+    assert got["one"] == (1, {"per_dataset": 1, "one_group": 1})
+    assert got["t"] == (2, {"per_dataset": 2, "one_group": 1})
+    # The catalog holds no cell counts, so the matching datasets are unknown.
+    assert records[0]["datasets_with_cells"] is None
+
+
+def test_query_args_pass_the_query() -> None:
+    assert matrix.query_args({"dataset_id": "d"}) == ["--dataset-id", "d"]
+    assert matrix.query_args({"filter": {"tissue": "lung"}}) == [
+        "--filter",
+        '{"tissue": "lung"}',
+    ]
 
 
 def test_memory_limit_stops_the_run(
