@@ -120,6 +120,36 @@ def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> 
     assert record["mb_payload"] > 0
 
 
+@pytest.mark.parametrize("reader", run.READERS)
+def test_readers_open_the_same_store(
+    stores: Path, reader: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK's open reads the metadata of both Zarr formats; the lean open, one."""
+    monkeypatch.setattr(run, "READER", reader)
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    group = run.open_counted(str(stores / "v-0.zarr"))
+    assert set(group.keys()) >= {"obs", "var", "X"}
+    assert run.COUNTER.requests == {"sdk": 4, "lean": 1}[reader]
+    record = run.run(str(stores / "catalog.parquet"), "cell_type", 2, "T cell")
+    assert (record["reader"], record["stores_opened"], record["cells"]) == (
+        reader,
+        2,
+        50,
+    )
+    assert record["cpu_seconds"] > 0
+
+
+@pytest.mark.parametrize("shape", ["open", "corpus_obs"])
+def test_processes_read_every_store(stores: Path, shape: str) -> None:
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    one = run.run(str(stores / "catalog.parquet"), shape, 2, None)
+    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    two = run.run(str(stores / "catalog.parquet"), shape, 2, None, processes=2)
+    assert (two["processes"], two["stores_opened"]) == (2, 2)
+    assert (two["cells"], two["requests"]) == (one["cells"], one["requests"])
+    assert two["cpu_seconds"] > 0 and two["process_start_seconds"] > 0
+
+
 def test_serving_uris_open_a_consolidated_store_once() -> None:
     rows = pd.DataFrame(
         {

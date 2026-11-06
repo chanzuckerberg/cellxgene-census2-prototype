@@ -15,9 +15,17 @@ an earlier run. The shapes are:
   nothing. This measures the time of a full read of `X` without a result in memory.
 
 `--workers` is the largest number of stores read at the same time. The record
-holds the elapsed time of the catalog read and of the query. It also holds the
-number of datasets selected, of stores opened, and of cells, the reads and the
-payload, and the peak memory.
+holds the elapsed time of the catalog read and of the query, and the CPU time of
+the query (user and system). It also holds the number of datasets selected, of
+stores opened, and of cells, the reads and the payload, and the peak memory.
+
+`--reader` selects how a store opens. `sdk` is `census2_sdk.catalog.open_store`:
+a new obstore client for each store, and no Zarr format, so zarr looks for the
+metadata of both formats. `lean` gives `zarr_format=3` and shares one obstore
+client for each bucket. Both count the reads, and the SDK queries use the same
+open. `--processes` splits the stores of the corpus shapes over that many
+processes, with `--workers` threads in all. The processes start, and import
+their modules, before the clock starts.
 
 A catalog that names consolidated stores is read through them: a query opens each
 consolidated store once for its selected datasets, and the corpus shapes open each
@@ -33,6 +41,8 @@ prints a record with the status `memory_limit` and stops with exit code 3.
 import argparse
 import importlib.metadata
 import json
+import math
+import multiprocessing
 import os
 import resource
 import sys
@@ -54,6 +64,7 @@ import census2_sdk
 from census2_sdk import catalog as _catalog
 
 SHAPES = ("single", "cell_type", "filter", "open", "corpus_obs", "corpus_x")
+READERS = ("sdk", "lean")
 ORGANISM = "homo_sapiens"
 MEMORY_LIMIT_EXIT = 3
 
@@ -131,8 +142,21 @@ class CountingStore(zarr.storage.WrapperStore[Store]):
             yield group
 
 
+# How `open_counted` opens a store; one of READERS. `main` sets it.
+READER = "sdk"
+# The lean reader's counting store over one obstore client, for each bucket.
+_BUCKETS: dict[str, CountingStore] = {}
+_BUCKETS_LOCK = threading.Lock()
+
+
 def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
-    """`census2_sdk.catalog.open_store`, through a counting store."""
+    """Open a store through a counting store, by the open of `READER`.
+
+    `sdk` opens as `census2_sdk.catalog.open_store` does. `lean` opens with
+    `zarr_format=3`, and through one obstore client for each bucket.
+    """
+    if READER == "lean":
+        return open_lean(uri)
     if _catalog.is_remote(uri):
         import obstore.store
 
@@ -142,6 +166,28 @@ def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
     else:
         base = zarr.storage.LocalStore(str(uri), read_only=True)
     return zarr.open_group(CountingStore(base), mode="r")
+
+
+def open_lean(uri: str | os.PathLike[str]) -> zarr.Group:
+    """Open a store with `zarr_format=3`, through the obstore client of its bucket.
+
+    The open reads one object, the root `zarr.json` with the consolidated metadata,
+    and reuses the connections of the client.
+    """
+    if not _catalog.is_remote(uri):
+        local = CountingStore(zarr.storage.LocalStore(str(uri), read_only=True))
+        return zarr.open_group(local, mode="r", zarr_format=3)
+    scheme, rest = str(uri).split("://", 1)
+    bucket, _, path = rest.partition("/")
+    with _BUCKETS_LOCK:
+        store = _BUCKETS.get(bucket)
+        if store is None:
+            import obstore.store
+
+            client = obstore.store.from_url(f"{scheme}://{bucket}")
+            store = CountingStore(zarr.storage.ObjectStore(client, read_only=True))
+            _BUCKETS[bucket] = store
+    return zarr.open_group(store, path=path.rstrip("/"), mode="r", zarr_format=3)
 
 
 def read_obs(uri: str) -> int:
@@ -170,6 +216,73 @@ def open_only(uri: str) -> int:
     """Open a store and read nothing more."""
     open_counted(uri)
     return 0
+
+
+CORPUS_READS: dict[str, Callable[[str], int]] = {
+    "open": open_only,
+    "corpus_obs": read_obs,
+    "corpus_x": read_x,
+}
+
+
+def cpu_seconds() -> tuple[float, float]:
+    """The user and system CPU time of this process so far."""
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    return usage.ru_utime, usage.ru_stime
+
+
+def read_corpus(shape: str, uris: list[str], threads: int) -> dict[str, Any]:
+    """Read the stores `uris` by `shape` with `threads` threads, in this process.
+
+    Return the cells, and the reads, the payload, and the CPU time of this call.
+    """
+    requests, nbytes = COUNTER.requests, COUNTER.nbytes
+    user, system = cpu_seconds()
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        cells = sum(pool.map(CORPUS_READS[shape], uris))
+    end_user, end_system = cpu_seconds()
+    return {
+        "cells": cells,
+        "requests": COUNTER.requests - requests,
+        "nbytes": COUNTER.nbytes - nbytes,
+        "cpu_user": end_user - user,
+        "cpu_sys": end_system - system,
+    }
+
+
+def _start_child(reader: str, ready: Any) -> None:
+    global READER
+    READER = reader
+    ready.wait()
+
+
+def _child_ready(_: int) -> None:
+    return None
+
+
+def _child_read(task: tuple[str, list[str], int]) -> dict[str, Any]:
+    return read_corpus(*task)
+
+
+def read_corpus_processes(
+    shape: str, uris: list[str], workers: int, processes: int
+) -> tuple[dict[str, Any], float, float]:
+    """`read_corpus` over `processes` processes, `workers` threads in all.
+
+    Return the sums of the parts, and the times at which the read started and
+    ended. The processes start, and wait for one another, before the read starts.
+    """
+    context = multiprocessing.get_context("spawn")
+    ready = context.Barrier(processes)
+    threads = max(1, math.ceil(workers / processes))
+    with context.Pool(processes, _start_child, (READER, ready)) as pool:
+        pool.map(_child_ready, range(processes), chunksize=1)
+        tasks = [(shape, uris[k::processes], threads) for k in range(processes)]
+        start = time.monotonic()
+        parts = pool.map(_child_read, tasks, chunksize=1)
+        end = time.monotonic()
+    total = {key: sum(part[key] for part in parts) for key in parts[0]}
+    return total, start, end
 
 
 def source_rows(rows: pd.DataFrame) -> pd.DataFrame:
@@ -275,6 +388,7 @@ def run(
     dataset_id: str | None = None,
     obs_filter: dict[str, Any] | None = None,
     per_dataset: bool = False,
+    processes: int = 1,
 ) -> dict[str, Any]:
     t0 = time.monotonic()
     # Without the keyword, so that the SDK of an earlier commit runs this as well.
@@ -285,6 +399,7 @@ def run(
     )
     rows = census.catalog[census.catalog["organism"] == ORGANISM]
     t1 = time.monotonic()
+    catalog_seconds = round(t1 - t0, 3)
     record: dict[str, Any] = {
         "catalog": catalog,
         "catalog_stores": len(serving_uris(rows, per_dataset)),
@@ -292,7 +407,10 @@ def run(
         "shape": shape,
         "workers": workers,
         "per_dataset": per_dataset,
+        "reader": READER,
+        "processes": processes,
     }
+    cpu = {"cpu_user": 0.0, "cpu_sys": 0.0}
 
     if shape in ("single", "cell_type", "filter"):
         if shape == "single":
@@ -308,35 +426,47 @@ def run(
         original = _catalog.open_store
         census2_sdk.__dict__["open_store"] = open_counted
         _catalog.open_store = open_counted
+        user, system = cpu_seconds()
         try:
             adata = census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
         finally:
             census2_sdk.__dict__["open_store"] = original
             _catalog.open_store = original
         t2 = time.monotonic()
+        end_user, end_system = cpu_seconds()
+        cpu = {"cpu_user": end_user - user, "cpu_sys": end_system - system}
         selected = _catalog.exclude(
             census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
         )
         record["datasets"] = len(selected)
         record["stores_opened"] = len(serving_uris(selected, per_dataset))
         record["cells"] = int(adata.n_obs) if isinstance(adata, anndata.AnnData) else 0
-    else:
-        read: Callable[[str], int] = {
-            "open": open_only,
-            "corpus_obs": read_obs,
-            "corpus_x": read_x,
-        }[shape]
+    elif processes > 1:
         uris = serving_uris(rows, per_dataset)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            cells = sum(pool.map(read, uris))
-        t2 = time.monotonic()
+        total, start, t2 = read_corpus_processes(shape, uris, workers, processes)
+        record["process_start_seconds"] = round(start - t1, 3)
+        t1 = start
+        COUNTER.requests += total["requests"]
+        COUNTER.nbytes += total["nbytes"]
+        cpu = {k: total[k] for k in cpu}
         record["datasets"] = len(rows)
         record["stores_opened"] = len(uris)
-        record["cells"] = cells
+        record["cells"] = total["cells"]
+    else:
+        uris = serving_uris(rows, per_dataset)
+        part = read_corpus(shape, uris, workers)
+        t2 = time.monotonic()
+        cpu = {k: part[k] for k in cpu}
+        record["datasets"] = len(rows)
+        record["stores_opened"] = len(uris)
+        record["cells"] = part["cells"]
 
     record.update(
-        catalog_seconds=round(t1 - t0, 3),
+        catalog_seconds=catalog_seconds,
         query_seconds=round(t2 - t1, 3),
+        cpu_user_seconds=round(cpu["cpu_user"], 3),
+        cpu_sys_seconds=round(cpu["cpu_sys"], 3),
+        cpu_seconds=round(cpu["cpu_user"] + cpu["cpu_sys"], 3),
         requests=COUNTER.requests,
         mb_payload=round(COUNTER.nbytes / 2**20, 2),
         peak_rss_mb=peak_rss_mb(),
@@ -357,8 +487,16 @@ def main() -> int:
     p.add_argument(
         "--per-dataset", action="store_true", help="ignore the consolidated stores"
     )
+    p.add_argument("--reader", choices=READERS, default="sdk")
+    p.add_argument(
+        "--processes", type=int, default=1, help="processes of the corpus shapes"
+    )
     p.add_argument("--max-rss-gb", type=float, default=None)
     args = p.parse_args()
+    if args.processes > 1 and args.shape not in CORPUS_READS:
+        p.error("--processes applies to the corpus shapes only")
+    global READER
+    READER = args.reader
     limit_mb = None if args.max_rss_gb is None else args.max_rss_gb * 1024
     if limit_mb is not None:
         base = {"catalog": args.catalog, "shape": args.shape, "workers": args.workers}
@@ -371,6 +509,7 @@ def main() -> int:
         dataset_id=args.dataset_id,
         obs_filter=json.loads(args.filter) if args.filter else None,
         per_dataset=args.per_dataset,
+        processes=args.processes,
     )
     publish(*final_record(record, limit_mb))
     return 0

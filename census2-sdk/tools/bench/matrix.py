@@ -14,7 +14,8 @@ so a stopped matrix keeps its finished runs.
 file is a JSON list of objects with `query` (a name), `shape`, and the arguments of
 the shape: `dataset_id`, `cell_type`, or `filter`. `--per-dataset` reads the
 per-dataset stores of a catalog that names consolidated stores, and `--config` labels
-the records.
+the records. `--only` runs the named queries of the file. `--reader` and
+`--processes` pass to `bench.run`.
 
     python -m bench.matrix --catalog catalog.parquet --queries queries.json \\
         --workers 1,8,32 --repeats 3 --config consolidated --where ec2 --out runs.jsonl
@@ -83,11 +84,20 @@ def append(out: pathlib.Path, record: dict[str, Any]) -> None:
 
 def run_queries(args: argparse.Namespace) -> int:
     queries = json.loads(pathlib.Path(args.queries).read_text())
+    if args.only:
+        names = args.only.split(",")
+        unknown = sorted(set(names) - {q["query"] for q in queries})
+        if unknown:
+            raise SystemExit(f"no query {unknown} in {args.queries}")
+        queries = [q for q in queries if q["query"] in names]
     rows = source_rows(pd.read_parquet(args.catalog))
     default_cell_type = args.cell_type or pick_cell_type(rows)
     for query in queries:
         cell_type = str(query.get("cell_type", default_cell_type))
         extra = query_args(query) + (["--per-dataset"] if args.per_dataset else [])
+        extra += ["--reader", args.reader]
+        if args.processes > 1:
+            extra += ["--processes", str(args.processes)]
         for workers in (int(w) for w in args.workers.split(",")):
             for repeat in range(args.repeats):
                 record = one(
@@ -120,6 +130,9 @@ def main() -> int:
     p.add_argument("--queries", type=pathlib.Path, default=None)
     p.add_argument("--per-dataset", action="store_true")
     p.add_argument("--config", default=None, help="a label for the configuration")
+    p.add_argument("--only", default=None, help="query names, comma-separated")
+    p.add_argument("--reader", default="sdk", help="the open of bench.run")
+    p.add_argument("--processes", type=int, default=1)
     p.add_argument("--workers", default="1,32")
     p.add_argument("--repeats", type=int, default=3)
     p.add_argument("--timeout", type=float, default=1800)
