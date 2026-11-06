@@ -270,6 +270,13 @@ def evaluate(expr: Any, obs: pd.DataFrame) -> np.ndarray:
     if name not in obs.columns:
         return np.zeros(n, dtype=bool)
     column = obs[name]
+    if isinstance(column.dtype, pd.CategoricalDtype):
+        # Test each category once, then index by the codes. A null has code -1, which
+        # indexes the null result at the end.
+        categories = pd.Series(column.cat.categories)
+        frame = pd.DataFrame({name: pd.concat([categories, pd.Series([None])])})
+        by_category = evaluate(expr, frame.reset_index(drop=True))
+        return np.asarray(by_category[column.cat.codes.to_numpy()], dtype=bool)
     present = column.notna().to_numpy()
     if isinstance(expr, ex.IsNull):
         return ~present
@@ -291,10 +298,7 @@ def evaluate(expr: Any, obs: pd.DataFrame) -> np.ndarray:
         ex.GreaterThan: lambda a, b: a > b,
         ex.GreaterThanOrEqual: lambda a, b: a >= b,
     }
-    labels: Any = column
-    if isinstance(column.dtype, pd.CategoricalDtype):
-        labels = column.astype(str)
-    return np.asarray(compare[type(expr)](labels, value), dtype=bool) & present
+    return np.asarray(compare[type(expr)](column, value), dtype=bool) & present
 
 
 def count_from_stores(

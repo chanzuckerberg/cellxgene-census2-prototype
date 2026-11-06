@@ -223,6 +223,32 @@ def test_the_table_shapes_run(
     assert record["manifests"] == 1
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("cell_type = 'T cell'", [True, False, False, True]),
+        ("cell_type != 'T cell'", [False, True, False, False]),
+        ("cell_type IN ('B cell')", [False, True, False, False]),
+        ("cell_type NOT IN ('B cell')", [True, False, False, True]),
+        ("cell_type IS NULL", [False, False, True, False]),
+        ("nnz >= 500 AND cell_type != 'B cell'", [True, False, False, False]),
+        ("is_primary_data = true OR nnz < 100", [True, True, False, True]),
+    ],
+)
+def test_evaluate_follows_the_scan_rules(text: str, expected: list[bool]) -> None:
+    """A null label matches no comparison, as in the scan of the table."""
+    from pyiceberg.expressions import parser
+
+    obs = pd.DataFrame(
+        {
+            "cell_type": pd.Categorical(["T cell", "B cell", None, "T cell"]),
+            "nnz": np.array([600, 700, 800, 50], dtype=np.int64),
+            "is_primary_data": np.array([True, True, False, False]),
+        }
+    )
+    assert list(run.evaluate(parser.parse(text), obs)) == expected
+
+
 def test_pruning_reports_the_files_and_row_groups_that_can_match(table: Path) -> None:
     from bench import pruning
 
