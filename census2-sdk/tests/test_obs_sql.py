@@ -536,3 +536,18 @@ def test_a_fragment_variant_gives_the_same_result(
             stores.get_anndata("homo_sapiens", obs_filter, layers=["normalized"]),
             census.get_anndata("homo_sapiens", obs_filter, layers=["normalized"]),
         )
+
+
+def test_without_the_catalog_test_every_fragment_is_read(
+    corpus: dict[str, Path], sql: census2_sdk.Census
+) -> None:
+    """`files="all"` skips the catalog test, also when it would keep no dataset."""
+    census = census2_sdk.open_census(
+        [corpus["catalog"]], obs_engine=obs_sql.Options(files="all")
+    )
+    for text in ("tissue = 'brain'", "tissue = 'kidney'"):
+        frame = census.get_obs("homo_sapiens", text)
+        stats = frame.attrs["census2"]
+        assert stats["catalog_candidates"] == 3
+        assert stats["obs_sql"][0]["files"] == 3
+        assert frame.index.equals(sql.get_obs("homo_sapiens", text).index)

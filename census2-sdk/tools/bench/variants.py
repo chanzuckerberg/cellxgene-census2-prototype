@@ -14,9 +14,12 @@ layouts on the same cells:
   its store, so the SDK reads the stores as before; it sorts each dataset's rows by
   `store_row` after the scan.
 
-The variant of `<name>.obs.parquet` is `<out>/<name>.obs.parquet`. The output catalog
-is the input catalog with each row's `obs_fragment_uri` at its variant
+The variant of a row's fragment is `<out>/<dataset_id>.obs.parquet`, so the copies of
+`bench.fragments`, which share a file name, get one variant each. The output catalog is
+the input catalog with each row's `obs_fragment_uri` at its variant
 (`census2_sdk.fragments.URI_COLUMN`) and the variant's size in `obs_fragment_bytes`.
+With `--sizes`, `--catalog-out` is a directory, and it gets `catalog-<n>.parquet`, the
+first n rows, for each size, as `bench.fragments` writes them.
 
     python -m bench.variants catalog-103.parquet --variant sorted \\
         --out s3://my-bucket/variants/sorted --catalog-out catalog-103-sorted.parquet
@@ -81,7 +84,7 @@ def build(
         pathlib.Path(out).mkdir(parents=True, exist_ok=True)
     records: list[dict[str, Any]] = catalog.to_dict("records")  # type: ignore[assignment]
     sources = [fragments.uri(r) for r in records]
-    dests = [f"{out}/{s.rsplit('/', 1)[1]}" for s in sources]
+    dests = [f"{out}/{r['dataset_id']}{fragments.SUFFIX}" for r in records]
 
     def one(pair: tuple[str, str]) -> int:
         cursor = con.cursor()
@@ -108,6 +111,7 @@ def main() -> int:
     p.add_argument("--sort", default="cell_type,tissue")
     p.add_argument("--row-group-rows", type=int, default=65_536)
     p.add_argument("--workers", type=int, default=16)
+    p.add_argument("--sizes", default=None, help="catalogs of the first n rows")
     args = p.parse_args()
     catalog = pd.read_parquet(args.catalog)
     result = build(
@@ -118,8 +122,15 @@ def main() -> int:
         args.row_group_rows,
         args.workers,
     )
-    result.to_parquet(args.catalog_out)
-    print(f"{len(result)} rows -> {args.catalog_out}")
+    if args.sizes is None:
+        result.to_parquet(args.catalog_out)
+        print(f"{len(result)} rows -> {args.catalog_out}")
+        return 0
+    args.catalog_out.mkdir(parents=True, exist_ok=True)
+    for size in (int(n) for n in args.sizes.split(",")):
+        path = args.catalog_out / f"catalog-{size}.parquet"
+        result.head(size).to_parquet(path)
+        print(f"{size} rows -> {path}")
     return 0
 
 

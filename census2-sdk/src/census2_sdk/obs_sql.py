@@ -754,6 +754,10 @@ def _catalog_test(node: Node) -> str:
     return f"(CASE WHEN ({values}) IS NULL THEN true ELSE coalesce({some}, false) END)"
 
 
+# The `files` modes that read every fragment of the organism, with no catalog test.
+NO_CATALOG_TEST = frozenset({"all", "iceberg_all"})
+
+
 @dataclass
 class Options:
     """How the SDK runs DuckDB.
@@ -768,6 +772,7 @@ class Options:
       name against the fragments of the catalog. DuckDB lists the directory first.
     - `iceberg`: `iceberg_scan` of the metadata file in `iceberg`, with a
       `dataset_id IN (...)` term for the datasets that the catalog keeps.
+    - `iceberg_all`: `iceberg_scan` with no catalog test; the manifests alone prune.
     """
 
     # DuckDB's worker threads. None keeps DuckDB's default, the number of cores.
@@ -917,8 +922,15 @@ class Engine:
         return pred
 
     def candidates(self, organism: str, pred: Predicate) -> tuple[pd.DataFrame, float]:
-        """The catalog rows of `organism` that the catalog test keeps, and its time."""
+        """The catalog rows of `organism` that the catalog test keeps, and its time.
+
+        The modes without a catalog test (`all`, `iceberg_all`) keep every row of the
+        organism.
+        """
         t0 = time.monotonic()
+        if self.options.files in NO_CATALOG_TEST:
+            scoped = self.catalog[self.catalog["organism"] == organism]
+            return scoped, round(time.monotonic() - t0, 4)
         sql = (
             "SELECT census2_row FROM catalog WHERE organism = ? AND "
             f"{catalog_test(pred)} ORDER BY census2_row"
@@ -935,8 +947,7 @@ class Engine:
         by_name = "true" if self.options.union_by_name else "false"
         mode = self.options.files
         if mode in ("catalog", "all"):
-            scoped = rows if mode == "catalog" else self._organism(rows)
-            files = [fragments.uri(r) for r in _records(scoped)]
+            files = [fragments.uri(r) for r in _records(rows)]
             listed = ", ".join(quote(f) for f in files)
             return (
                 f"read_parquet([{listed}], union_by_name = {by_name})",
@@ -959,25 +970,31 @@ class Engine:
             ids = ", ".join(quote(str(d)) for d in rows["dataset_id"]) or "NULL"
             source = f"iceberg_scan({quote(self.options.iceberg)})"
             return source, f"(dataset_id IN ({ids}))", len(rows)
+        if mode == "iceberg_all":
+            if self.options.iceberg is None:
+                raise ValueError("files='iceberg_all' needs Options.iceberg")
+            source = f"iceberg_scan({quote(self.options.iceberg)})"
+            return source, "true", len(rows)
         raise ValueError(f"no files mode {mode!r}")
-
-    def _organism(self, rows: pd.DataFrame) -> pd.DataFrame:
-        organisms = set(rows["organism"]) if len(rows) else set()
-        return self.catalog[self.catalog["organism"].isin(organisms)]
 
     def _http(self) -> tuple[dict[str, int], float]:
         """The HTTP requests since the last call, by method, and the MB of the GETs.
 
         A GET of an S3 listing counts as `LIST`. The log hides the query string of
-        a URL, so a listing is a GET whose path names no object (it ends with `/`).
+        a URL, so a listing is a GET whose path names no object (it ends with `/`). A
+        request for Iceberg metadata counts as `META_GET` or `META_HEAD`, and the MB
+        are of the fragment GETs only.
         """
         if not self.options.count_requests:
             return {}, 0.0
         found = self.con.execute(
-            "SELECT CASE WHEN request.type = 'GET' AND ends_with(split_part("
-            "request.url, '?', 1), '/') THEN 'LIST' ELSE request.type END, count(*), "
-            "sum(TRY_CAST(response.headers['Content-Length'] AS BIGINT)) "
-            "FROM duckdb_logs_parsed('HTTP') GROUP BY ALL"
+            "WITH r AS (SELECT request.type AS t, split_part(request.url, '?', 1) AS u, "
+            "TRY_CAST(response.headers['Content-Length'] AS BIGINT) AS n "
+            "FROM duckdb_logs_parsed('HTTP')) "
+            "SELECT CASE WHEN t = 'GET' AND ends_with(u, '/') THEN 'LIST' "
+            "WHEN ends_with(u, '.avro') OR ends_with(u, '.metadata.json') "
+            "OR ends_with(u, 'version-hint.text') THEN 'META_' || t ELSE t END, "
+            "count(*), sum(n) FROM r GROUP BY ALL"
         ).fetchall()
         self.con.execute("CALL truncate_duckdb_logs()")
         counts = {str(t): int(n) for t, n, _ in found}

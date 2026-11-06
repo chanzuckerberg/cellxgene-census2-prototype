@@ -47,7 +47,7 @@ from bench.run import (
 )
 from census2_sdk import obs_sql
 
-SHAPES = ("single", "cell_type", "query", "count", "corpus_obs")
+SHAPES = ("single", "cell_type", "query", "count", "corpus_obs", "obs")
 
 
 def sql_stats(stats: list[dict[str, Any]]) -> dict[str, Any]:
@@ -131,6 +131,15 @@ def run(
         record.update(stores_opened=0, groups=len(frame))
         record["cells"] = int(frame["n_cells"].sum())
         record["catalog_candidates"] = frame.attrs["census2"]["catalog_candidates"]
+    elif shape == "obs":
+        # `get_obs` of the query: the selection without `X`.
+        obs_filter = query if query is not None else default_filter()
+        record["query"] = obs_filter
+        frame = census.get_obs(ORGANISM, obs_filter)
+        t2 = time.monotonic()
+        stats = frame.attrs["census2"]["obs_sql"]
+        record.update(stores_opened=0, cells=len(frame))
+        record["catalog_candidates"] = frame.attrs["census2"]["catalog_candidates"]
     elif shape == "corpus_obs":
         backend: Literal["numpy", "pyarrow"] = "pyarrow" if arrow_obs else "numpy"
         frame = census.get_obs(ORGANISM, dtype_backend=backend)
@@ -149,10 +158,15 @@ def run(
     heads = dict(done["heads_by_kind"])
     mb = dict(done["mb_by_kind"])
     sql_requests = dict(record.get("sql_requests", {}))
-    # The S3 listing of a glob is a kind of its own.
+    # The S3 listing of a glob is a kind of its own, and so are Iceberg's metadata files.
     listing = int(sql_requests.pop("LIST", 0))
     if listing:
         requests["listing"] = listing
+    for method in ("META_GET", "META_HEAD"):
+        n = int(sql_requests.pop(method, 0))
+        requests["table_metadata"] = requests.get("table_metadata", 0) + n
+        if method == "META_HEAD":
+            heads["table_metadata"] = heads.get("table_metadata", 0) + n
     requests["fragment"] = requests.get("fragment", 0) + sum(sql_requests.values())
     heads["fragment"] = heads.get("fragment", 0) + int(sql_requests.get("HEAD", 0))
     mb["fragment"] = round(mb.get("fragment", 0.0) + record.get("sql_mb", 0.0), 3)

@@ -52,5 +52,8 @@
   },
   "iceberg": "disease = 'COVID-19' AND cell_type = 'neutrophil'",
   "sql": "list_contains(string_split(disease, ' || '), 'COVID-19') AND cell_type = 'neutrophil'"
+ },
+ "rare": {
+  "cell_type": "motor neuron"
  }
 }
