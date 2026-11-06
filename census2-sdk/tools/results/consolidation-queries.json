@@ -2,7 +2,7 @@
  {
   "query": "single_member",
   "shape": "single",
-  "dataset_id": "518d9049-2a76-44f8-8abc-1e2b59ab5ba1"
+  "dataset_id": "6ceeaa86-9ceb-4582-b390-6d4dd6ff0572"
  },
  {
   "query": "single_alone",
@@ -15,16 +15,24 @@
   "cell_type": "neutrophil"
  },
  {
-  "query": "compound",
+  "query": "lung_macrophage",
   "shape": "filter",
   "filter": {
    "tissue": [
-    "blood"
+    "epithelial cell of lung",
+    "lower lobe of left lung",
+    "lung",
+    "lung epithelium",
+    "middle lobe of right lung",
+    "upper lobe of left lung"
    ],
    "cell_type": [
-    "plasmacytoid dendritic cell",
-    "conventional dendritic cell",
-    "dendritic cell"
+    "TREM2-positive macrophage",
+    "alveolar macrophage",
+    "inflammatory macrophage",
+    "lung interstitial macrophage",
+    "lung macrophage",
+    "macrophage"
    ]
   }
  },

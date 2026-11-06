@@ -1,0 +1,107 @@
+{
+ "datasets": 103,
+ "stores_before": 103,
+ "stores_after": 44,
+ "consolidated_stores": 5,
+ "members": 64,
+ "bytes_total_gib": 55.42,
+ "cells_total": 13316710,
+ "second_copy_share_of_bytes": 0.0785,
+ "mib_before_p0_25_50_75_90_100": [
+  6.1,
+  30.6,
+  119.5,
+  426.2,
+  1237.6,
+  5700.8
+ ],
+ "mib_after_p0_25_50_75_90_100": [
+  257.8,
+  402.4,
+  586.3,
+  1112.4,
+  4127.5,
+  5700.8
+ ],
+ "cells_before_p0_25_50_75_90_100": [
+  1465,
+  8410,
+  33041,
+  78111,
+  267123,
+  1712244
+ ],
+ "cells_after_p0_25_50_75_90_100": [
+  29343,
+  67805,
+  154684,
+  304652,
+  815910,
+  1712244
+ ],
+ "small_share_of_stores": 0.621,
+ "small_share_of_bytes": 0.0805,
+ "consolidated": [
+  {
+   "store": "c-3e70a3cacdebdbd1.zarr",
+   "members": 25,
+   "mib": 444.0,
+   "cells": 196512,
+   "pct_rank_bytes_among_alone": 35.9,
+   "pct_rank_cells_among_alone": 64.1,
+   "out_over_in": 0.926
+  },
+  {
+   "store": "c-07008fce38a97dbf.zarr",
+   "members": 17,
+   "mib": 993.1,
+   "cells": 260915,
+   "pct_rank_bytes_among_alone": 69.2,
+   "pct_rank_cells_among_alone": 71.8,
+   "out_over_in": 0.97
+  },
+  {
+   "store": "c-65385b90bed6ec72.zarr",
+   "members": 10,
+   "mib": 1003.7,
+   "cells": 233692,
+   "pct_rank_bytes_among_alone": 69.2,
+   "pct_rank_cells_among_alone": 66.7,
+   "out_over_in": 0.981
+  },
+  {
+   "store": "c-657d0eb0558608e4.zarr",
+   "members": 5,
+   "mib": 1006.3,
+   "cells": 296282,
+   "pct_rank_bytes_among_alone": 69.2,
+   "pct_rank_cells_among_alone": 74.4,
+   "out_over_in": 0.986
+  },
+  {
+   "store": "c-7b097c5b679323af.zarr",
+   "members": 7,
+   "mib": 1010.0,
+   "cells": 363466,
+   "pct_rank_bytes_among_alone": 69.2,
+   "pct_rank_cells_among_alone": 82.1,
+   "out_over_in": 0.986
+  }
+ ],
+ "cell_type": {
+  "name": "neutrophil",
+  "datasets_with_cells": 14,
+  "cells": 35795,
+  "datasets_alone": 4,
+  "datasets_in_consolidated": 10,
+  "consolidated_stores": 5,
+  "share_of_cells_in_consolidated": 0.062,
+  "alone_top4_share": 0.938,
+  "stores_per_dataset_path": 14,
+  "stores_consolidated_path": 9
+ },
+ "author_cell_names": {
+  "in_more_than_one_store": 535874,
+  "stores_with_one": 25
+ }
+}
