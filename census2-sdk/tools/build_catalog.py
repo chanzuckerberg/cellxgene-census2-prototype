@@ -15,14 +15,14 @@ in the same pass that reads the values for the catalog row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
-`--compacted` names a prefix of compacted stores, each a second copy of several
-datasets (see `census2_dataset_writer.compaction`). The builder checks each compacted
+`--consolidated` names a prefix of consolidated stores, each a second copy of several
+datasets (see `census2_dataset_writer.consolidation`). The builder checks each consolidated
 store against the per-dataset stores, and then writes the store and the rows of each
-member into the member's row (`COMPACTED`). A row keeps its per-dataset `store_uri`,
+member into the member's row (`CONSOLIDATED`). A row keeps its per-dataset `store_uri`,
 which stays the primary copy. The builder refuses the catalog when a check fails.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/stores/ catalog.parquet \\
-        --compacted s3://bucket/compacted/
+        --consolidated s3://bucket/consolidated/
 
 A remote prefix needs the `s3` extra and credentials in the environment.
 """
@@ -41,10 +41,10 @@ import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import zarr
 from anndata.io import read_elem
-from census2_dataset_writer import compaction
+from census2_dataset_writer import consolidation
 
 from census2_sdk.catalog import (
-    COMPACTED,
+    CONSOLIDATED,
     COUNTED,
     COUNTS,
     INDEXED,
@@ -58,10 +58,10 @@ COUNT_ENTRY = pa.struct(
     [pa.field(c, pa.string()) for c in COUNTED]
     + [pa.field("is_primary_data", pa.bool_()), pa.field("n_cells", pa.int64())]
 )
-# Declared for the same reason: a catalog without compacted stores has the columns,
+# Declared for the same reason: a catalog without consolidated stores has the columns,
 # with the same types, and every value null.
-COMPACTED_TYPES = dict(
-    zip(COMPACTED, (pa.string(), pa.int64(), pa.int64()), strict=True)
+CONSOLIDATED_TYPES = dict(
+    zip(CONSOLIDATED, (pa.string(), pa.int64(), pa.int64()), strict=True)
 )
 
 
@@ -105,7 +105,7 @@ def summary_record(
 def _row(store_uri: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The catalog row of one per-dataset store, and the identity of its cells.
 
-    The identity is what a compacted store must match: the digest of the
+    The identity is what a consolidated store must match: the digest of the
     `observation_joinid` values, the stored values of `X`, and the assayed genes
     (`MEASURED_COLUMN` of `var`).
     """
@@ -140,15 +140,15 @@ def build(
     prefixes: Sequence[str],
     out: str | pathlib.Path | None = None,
     *,
-    compacted: Sequence[str] = (),
+    consolidated: Sequence[str] = (),
     workers: int = 8,
 ) -> pd.DataFrame:
     """One catalog row for each per-dataset store under `prefixes`.
 
     The store's summary record supplies `dataset_id`, `dataset_version_id`, and
     `gene_reference_version`. The store's `obs` and `uns` supply the rest, the
-    cell counts included. The compacted stores under `compacted` supply the
-    `COMPACTED` columns; see `compacted_rows`. `workers` stores are read at the
+    cell counts included. The consolidated stores under `consolidated` supply the
+    `CONSOLIDATED` columns; see `consolidated_rows`. `workers` stores are read at the
     same time.
     """
     uris = [
@@ -167,20 +167,20 @@ def build(
     identities = {
         row["dataset_version_id"]: {**row, **identity} for row, identity in results
     }
-    serving = compacted_rows(compacted, identities, workers=workers)
-    for column, kind in zip(COMPACTED, ("object", "Int64", "Int64"), strict=True):
+    serving = consolidated_rows(consolidated, identities, workers=workers)
+    for column, kind in zip(CONSOLIDATED, ("object", "Int64", "Int64"), strict=True):
         values = [
             serving.get(v, (None, None, None))
             for v in frame.get("dataset_version_id", [])
         ]
-        position = COMPACTED.index(column)
+        position = CONSOLIDATED.index(column)
         frame[column] = pd.Series([v[position] for v in values], dtype=kind)
     if out is not None:
         table = pa.Table.from_pandas(
-            frame.drop(columns=[COUNTS, *COMPACTED], errors="ignore"),
+            frame.drop(columns=[COUNTS, *CONSOLIDATED], errors="ignore"),
             preserve_index=False,
         )
-        for column, kind in COMPACTED_TYPES.items():
+        for column, kind in CONSOLIDATED_TYPES.items():
             cells = frame[column].astype(object).where(frame[column].notna(), None)
             table = table.append_column(column, pa.array(list(cells), type=kind))
         counts = pa.array(list(frame.get(COUNTS, [])), type=pa.list_(COUNT_ENTRY))
@@ -188,17 +188,17 @@ def build(
     return frame
 
 
-def compacted_rows(
+def consolidated_rows(
     prefixes: Sequence[str],
     rows: dict[str, dict[str, Any]],
     *,
     workers: int = 8,
 ) -> dict[str, tuple[str, int, int]]:
-    """The compacted store and the rows of each member, by dataset version.
+    """The consolidated store and the rows of each member, by dataset version.
 
     `rows` holds the catalog row and the cell identity of each per-dataset store.
-    Each compacted store must agree with them; see `check_compacted`. A dataset
-    version may be in one compacted store only.
+    Each consolidated store must agree with them; see `check_consolidated`. A dataset
+    version may be in one consolidated store only.
     """
     uris = [
         f"{prefix.rstrip('/')}/{name}"
@@ -206,27 +206,27 @@ def compacted_rows(
         for name in _stores(prefix.rstrip("/"))
     ]
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        records = list(pool.map(lambda uri: check_compacted(uri, rows), uris))
+        records = list(pool.map(lambda uri: check_consolidated(uri, rows), uris))
     serving: dict[str, tuple[str, int, int]] = {}
     for uri, record in zip(uris, records, strict=True):
         for member in record["members"]:
             version = member["dataset_version_id"]
             if version in serving:
                 raise ValueError(
-                    f"{version} is in two compacted stores: {serving[version][0]}, {uri}"
+                    f"{version} is in two consolidated stores: {serving[version][0]}, {uri}"
                 )
             serving[version] = (uri, member["row_start"], member["row_stop"])
     return serving
 
 
-def check_compacted(
+def check_consolidated(
     uri: str, rows: dict[str, dict[str, Any]]
-) -> census2_dataset_writer.CompactionRecord:
-    """Check one compacted store against the per-dataset stores. Return its record.
+) -> census2_dataset_writer.ConsolidationRecord:
+    """Check one consolidated store against the per-dataset stores. Return its record.
 
     Each member must match a per-dataset store: the same `dataset_id`, number of
     cells, gene reference, `obs_digest`, and `nnz`. The members must compose: one
-    organism, one gene reference, and one spatial value. The compacted store must
+    organism, one gene reference, and one spatial value. The consolidated store must
     hold what its record says: the member's `dataset_id` and `observation_joinid`
     values in its rows, and its stored values of `X`. The member's column of
     `varm["measured"]` must be the assayed genes of its per-dataset store. These
@@ -236,11 +236,11 @@ def check_compacted(
     name = uri.rsplit("/", 1)[1]
     group = open_store(uri)
     try:
-        record = compaction.read_compaction(group)
+        record = consolidation.read_consolidation(group)
     except census2_dataset_writer.SummaryRecordError as e:
         raise ValueError(f"{name}: {e}") from e
     if record is None:
-        raise ValueError(f"{name}: no compaction record")
+        raise ValueError(f"{name}: no consolidation record")
     members = record["members"]
     matched = []
     for member in members:
@@ -274,7 +274,7 @@ def check_compacted(
         if len(values) > 1:
             raise ValueError(f"{name}: the members differ in {field}: {sorted(values)}")
 
-    # The compacted store holds what its record says.
+    # The consolidated store holds what its record says.
     x = group["X"]
     obs = group["obs"]
     assert isinstance(x, zarr.Group) and isinstance(obs, zarr.Group)
@@ -308,7 +308,7 @@ def check_compacted(
 
 
 def _measured(group: zarr.Group, name: str, n_members: int) -> np.ndarray:
-    """The assayed genes of each member of a compacted store: genes x members."""
+    """The assayed genes of each member of a consolidated store: genes x members."""
     varm = group["varm"]
     if not isinstance(varm, zarr.Group) or MEASURED_COLUMN not in varm:
         raise ValueError(f"{name}: no varm {MEASURED_COLUMN}")
@@ -414,10 +414,10 @@ def main(argv: list[str]) -> int:
         "paths", nargs="+", help="prefixes of per-dataset stores, then the catalog"
     )
     p.add_argument(
-        "--compacted",
+        "--consolidated",
         action="append",
         default=[],
-        help="a prefix of compacted stores; give it once for each prefix",
+        help="a prefix of consolidated stores; give it once for each prefix",
     )
     p.add_argument(
         "--workers", type=int, default=8, help="stores read at the same time"
@@ -426,10 +426,12 @@ def main(argv: list[str]) -> int:
     if len(args.paths) < 2:
         p.error("give one or more store prefixes, then the catalog")
     *prefixes, out = args.paths
-    frame = build(prefixes, out, compacted=args.compacted, workers=args.workers)
-    served = int(frame[COMPACTED[0]].notna().sum())
-    stores = int(frame[COMPACTED[0]].nunique())
-    print(f"{len(frame)} rows -> {out}; {served} read from {stores} compacted stores")
+    frame = build(prefixes, out, consolidated=args.consolidated, workers=args.workers)
+    served = int(frame[CONSOLIDATED[0]].notna().sum())
+    stores = int(frame[CONSOLIDATED[0]].nunique())
+    print(
+        f"{len(frame)} rows -> {out}; {served} read from {stores} consolidated stores"
+    )
     return 0
 
 

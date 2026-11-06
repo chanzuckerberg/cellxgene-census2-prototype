@@ -13,11 +13,11 @@ so a stopped matrix keeps its finished runs.
 `--catalog` and `--queries` run named queries over one catalog instead. The queries
 file is a JSON list of objects with `query` (a name), `shape`, and the arguments of
 the shape: `dataset_id`, `cell_type`, or `filter`. `--per-dataset` reads the
-per-dataset stores of a catalog that names compacted stores, and `--config` labels
+per-dataset stores of a catalog that names consolidated stores, and `--config` labels
 the records.
 
     python -m bench.matrix --catalog catalog.parquet --queries queries.json \\
-        --workers 1,8,32 --repeats 3 --config compacted --where ec2 --out runs.jsonl
+        --workers 1,8,32 --repeats 3 --config consolidated --where ec2 --out runs.jsonl
 """
 
 import argparse

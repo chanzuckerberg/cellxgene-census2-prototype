@@ -160,33 +160,37 @@ has a `dataset_id` column is an error: `build` raises `ValueError`, because that
 store. `write` refuses an AnnData whose `dataset_id` column does not hold the summary record's
 `dataset_id`.
 
-## Compaction
+## Consolidation
 
-`census2_dataset_writer.compaction.compact(sources, dest)` writes a compacted store: a second copy
-of several per-dataset stores in one store. The per-dataset stores stay the primary copy. The SDK
-reads a dataset from a compacted store when the catalog row of the dataset names one, so a query
-opens one store for several datasets. The [`compact-nf`](../compact-nf/README.md) pipeline runs
-this function for each group of a plan.
+`census2_dataset_writer.consolidation.consolidate(sources, dest)` writes a consolidated store: a
+second copy of several small per-dataset stores in one store. The copy is lossless, and the
+per-dataset stores stay the primary copy. The SDK reads a dataset from a consolidated store when the
+catalog row of the dataset names one, so a query opens one store for several datasets. The
+[`consolidate-nf`](../consolidate-nf/README.md) pipeline runs this function for each group of a
+plan. This consolidation of stores is not Zarr's consolidated metadata, which every store, of
+either kind, also holds in its root group.
 
 ```python
-from census2_dataset_writer import compaction
+from census2_dataset_writer import consolidation
 
-record = compaction.compact(
-    ["stores/v1.zarr", "stores/v2.zarr"], "compacted/c-0123.zarr"
+record = consolidation.consolidate(
+    ["stores/v1.zarr", "stores/v2.zarr"], "consolidated/c-0123.zarr"
 )
 assert (
-    compaction.verify("compacted/c-0123.zarr", ["stores/v1.zarr", "stores/v2.zarr"])
+    consolidation.verify(
+        "consolidated/c-0123.zarr", ["stores/v1.zarr", "stores/v2.zarr"]
+    )
     == []
 )
 ```
 
-A compacted store is an AnnData-Zarr store, and a plain anndata reader opens it. Its members follow
-one another along `obs`, each in the row order of its per-dataset store. It holds a compaction
-record and no summary record, under the same namespace:
+A consolidated store is an AnnData-Zarr store, and a plain anndata reader opens it. Its members
+follow one another along `obs`, each in the row order of its per-dataset store. It holds a
+consolidation record and no summary record, under the same namespace:
 
 ```json
 "cellxgene-census2": {
-  "compaction": {
+  "consolidation": {
     "version": 1,
     "gene_reference_version": "GENCODE v48",
     "members": [
@@ -216,10 +220,14 @@ store usable on its own:
   per-dataset store.
 - The `obs` index is the cell key, `<dataset_id>_<observation_joinid>`, because the author cell
   names of a per-dataset index can occur in more than one dataset.
+- `var` is the gene reference without `measured`, because that column differs between datasets.
+  `varm["measured"]` holds it: a boolean matrix of genes x members, with column `k` for member `k`
+  of the record. It is the members' part of a presence matrix of genes and datasets.
 
-`compact` refuses members that do not compose: two organisms, two gene references or two `var`
-tables, other `obs` columns, other `X` value types, or spatial with non-spatial datasets. The caller
-keeps one more rule: all members share one access grant, because a compacted store has one.
+`consolidate` refuses members that do not compose: two organisms, two gene references or two `var`
+tables apart from `measured`, other `obs` columns, other `X` value types, or spatial with
+non-spatial datasets. The caller keeps one more rule: all members share one access grant, because a
+consolidated store has one.
 
 ## Receipts
 

@@ -120,16 +120,16 @@ def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> 
     assert record["mb_payload"] > 0
 
 
-def test_serving_uris_open_a_compacted_store_once() -> None:
+def test_serving_uris_open_a_consolidated_store_once() -> None:
     rows = pd.DataFrame(
         {
             "store_uri": ["a.zarr", "b.zarr", "c.zarr"],
-            "compacted_store_uri": ["ab.zarr", "ab.zarr", None],
+            "consolidated_store_uri": ["ab.zarr", "ab.zarr", None],
         }
     )
     assert run.serving_uris(rows) == ["ab.zarr", "c.zarr"]
     assert run.serving_uris(rows, per_dataset=True) == ["a.zarr", "b.zarr", "c.zarr"]
-    assert run.serving_uris(rows.drop(columns="compacted_store_uri")) == [
+    assert run.serving_uris(rows.drop(columns="consolidated_store_uri")) == [
         "a.zarr",
         "b.zarr",
         "c.zarr",

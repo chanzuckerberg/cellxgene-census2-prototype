@@ -38,13 +38,13 @@ that each catalog row holds. Its filter takes the columns of
 Each store's `obs` holds `dataset_id`, which the writer adds. The SDK refuses a
 store whose `dataset_id` differs from the dataset of its catalog row.
 
-A catalog row can also name a compacted store, a second copy of several small
-datasets in one store, with the rows of its dataset there (`compacted_store_uri`,
-`compacted_row_start`, `compacted_row_stop`). The SDK then reads the dataset from
-the compacted store, and opens each store once for all of its selected datasets.
-Exclusion stays per dataset, so a compacted store opens only when one of its
+A catalog row can also name a consolidated store, a second copy of several small
+datasets in one store, with the rows of its dataset there (`consolidated_store_uri`,
+`consolidated_row_start`, `consolidated_row_stop`). The SDK then reads the dataset from
+the consolidated store, and opens each store once for all of its selected datasets.
+Exclusion stays per dataset, so a consolidated store opens only when one of its
 datasets can match. The SDK reads only the rows of the selected datasets, and the
-result is the result of the per-dataset stores. `open_census(..., compacted=False)`
+result is the result of the per-dataset stores. `open_census(..., consolidated=False)`
 reads the per-dataset stores, which stay the primary copy.
 """
 
@@ -64,7 +64,7 @@ from anndata.io import read_elem
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
 from census2_sdk.catalog import (
-    COMPACTED,
+    CONSOLIDATED,
     CanonicalFilter,
     Filter,
     members,
@@ -92,10 +92,12 @@ class Census:
     Each call to `get_anndata` or `count_cells` runs one query over them.
     """
 
-    def __init__(self, sources: Sequence[PathLike], *, compacted: bool = True) -> None:
+    def __init__(
+        self, sources: Sequence[PathLike], *, consolidated: bool = True
+    ) -> None:
         self.sources = [str(s) for s in sources]
-        # Read a dataset from the compacted store that its catalog row names, if any.
-        self.compacted = compacted
+        # Read a dataset from the consolidated store that its catalog row names, if any.
+        self.consolidated = consolidated
         self._counts: pd.DataFrame | None = None
         # One read per catalog, so that the rows and the counts come from one version.
         self._contents = [_catalog.read(source) for source in self.sources]
@@ -132,7 +134,7 @@ class Census:
         `max_workers` is the largest number of reads that the SDK runs at the
         same time, and it must be a positive integer. The SDK first opens each
         store, then reads each selected dataset, and both steps use up to
-        `max_workers` threads. The datasets of one compacted store thus read at
+        `max_workers` threads. The datasets of one consolidated store thus read at
         the same time as well. The result is the same for every allowed value:
         the datasets keep their catalog order.
         """
@@ -143,16 +145,16 @@ class Census:
         rows = _catalog.exclude(self.catalog, organism, canonical)
         _check_composition(rows, ORGANISMS[organism]["version"])
 
-        reads = _reads(rows, self.compacted)
+        reads = _reads(rows, self.consolidated)
         # Each store opens once, for all of its selected datasets.
         uris = list(dict.fromkeys(r.uri for r in reads))
-        compacted = {r.uri for r in reads if r.rows is not None}
+        consolidated = {r.uri for r in reads if r.rows is not None}
         # ponytail: serial by default; raise the default after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             opened = dict(
                 zip(
                     uris,
-                    pool.map(lambda u: _open(u, u in compacted), uris),
+                    pool.map(lambda u: _open(u, u in consolidated), uris),
                     strict=True,
                 )
             )
@@ -171,7 +173,7 @@ class Census:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
         # version and one index, so the first store supplies the var columns,
-        # except the assayed genes of its own dataset. A compacted store holds
+        # except the assayed genes of its own dataset. A consolidated store holds
         # those in `varm`, so its `var` has no such column.
         var = cast("pd.DataFrame", read_elem(opened[uris[0]].group["var"]))
         result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
@@ -237,13 +239,13 @@ class Census:
         return self._counts
 
 
-def open_census(sources: Sequence[PathLike], *, compacted: bool = True) -> Census:
+def open_census(sources: Sequence[PathLike], *, consolidated: bool = True) -> Census:
     """Open catalogs.
 
-    With `compacted` false, the SDK reads every dataset from its per-dataset store,
-    and ignores the compacted stores that the catalog names.
+    With `consolidated` false, the SDK reads every dataset from its per-dataset store,
+    and ignores the consolidated stores that the catalog names.
     """
-    return Census(sources, compacted=compacted)
+    return Census(sources, consolidated=consolidated)
 
 
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
@@ -319,7 +321,7 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
 class _Read:
     """One selected dataset, and where the SDK reads it.
 
-    `rows` is the dataset's row range in a compacted store, or None for a
+    `rows` is the dataset's row range in a consolidated store, or None for a
     per-dataset store, which holds the dataset whole.
     """
 
@@ -334,7 +336,7 @@ class _Opened:
 
     `var` holds only the index. `n_obs` is the number of rows of the store.
     `categories` holds the categories of each categorical `obs` column of a
-    compacted store, read once for all the datasets of the store.
+    consolidated store, read once for all the datasets of the store.
     """
 
     uri: str
@@ -344,21 +346,21 @@ class _Opened:
     categories: dict[str, pd.Index] = field(default_factory=dict)
 
 
-def _reads(rows: pd.DataFrame, compacted: bool) -> list[_Read]:
+def _reads(rows: pd.DataFrame, consolidated: bool) -> list[_Read]:
     """The read of each selected dataset, in catalog order.
 
-    A row that names a compacted store is read there, unless `compacted` is false.
+    A row that names a consolidated store is read there, unless `consolidated` is false.
     A catalog without the columns names none.
     """
     records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-    use = compacted and all(c in rows.columns for c in COMPACTED)
+    use = consolidated and all(c in rows.columns for c in CONSOLIDATED)
     reads = []
     for row in records:
-        uri = row.get(COMPACTED[0]) if use else None
+        uri = row.get(CONSOLIDATED[0]) if use else None
         if unrecorded(uri):
             reads.append(_Read(row, str(row["store_uri"]), None))
         else:
-            span = (int(row[COMPACTED[1]]), int(row[COMPACTED[2]]))
+            span = (int(row[CONSOLIDATED[1]]), int(row[CONSOLIDATED[2]]))
             reads.append(_Read(row, str(uri), span))
     return reads
 
@@ -371,13 +373,13 @@ def _group(parent: zarr.Group, name: str, uri: str, kind: str) -> zarr.Group:
     return node
 
 
-def _open(uri: str, compacted: bool) -> _Opened:
+def _open(uri: str, consolidated: bool) -> _Opened:
     """Open a store, and read what its datasets share: the var index, and categories.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
     compares. `get_anndata` reads the var columns from one store. The number of
     rows comes from the attributes of `X`, which the open already read. The
-    categories of a compacted store's `obs` columns serve each member's read.
+    categories of a consolidated store's `obs` columns serve each member's read.
     """
     group = open_store(uri)
     var_group = _group(group, "var", uri, "an encoded dataframe")
@@ -385,7 +387,7 @@ def _open(uri: str, compacted: bool) -> _Opened:
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _group(group, "X", uri, "an encoded sparse matrix")
     opened = _Opened(uri, group, var, int(cast("list[int]", x.attrs["shape"])[0]))
-    if not compacted:
+    if not consolidated:
         return opened
     _check_record(opened)
     obs = _group(group, "obs", uri, "an encoded dataframe")
@@ -402,16 +404,18 @@ def _encoding(node: zarr.Array[Any] | zarr.Group) -> str:
 
 
 def _check_record(opened: _Opened) -> None:
-    """A compacted store holds a compaction record, in its root attributes."""
+    """A consolidated store holds a consolidation record, in its root attributes."""
     namespace = opened.group.attrs.get("cellxgene-census2")
-    if not isinstance(namespace, dict) or "compaction" not in namespace:
-        raise ValueError(f"{opened.uri}: no compaction record; not a compacted store")
+    if not isinstance(namespace, dict) or "consolidation" not in namespace:
+        raise ValueError(
+            f"{opened.uri}: no consolidation record; not a consolidated store"
+        )
 
 
 def _member_rows(opened: _Opened, read: _Read) -> tuple[int, int]:
-    """The rows of the dataset in a compacted store, which its record must list."""
+    """The rows of the dataset in a consolidated store, which its record must list."""
     namespace = cast("dict[str, Any]", opened.group.attrs["cellxgene-census2"])
-    listed = cast("list[dict[str, Any]]", namespace["compaction"].get("members", []))
+    listed = cast("list[dict[str, Any]]", namespace["consolidation"].get("members", []))
     version = str(read.row["dataset_version_id"])
     spans = [
         (m.get("row_start"), m.get("row_stop"))
@@ -420,7 +424,7 @@ def _member_rows(opened: _Opened, read: _Read) -> tuple[int, int]:
     ]
     if read.rows is None or spans != [read.rows]:
         raise ValueError(
-            f"{opened.uri}: the compaction record does not list {version} at rows "
+            f"{opened.uri}: the consolidation record does not list {version} at rows "
             f"{read.rows}"
         )
     return read.rows
@@ -435,7 +439,7 @@ def _read_rows(
     """The selected cells of one dataset. `X` holds the counts on the reference genes.
 
     The read takes only the rows of the dataset from `obs` and `X`: all of a
-    per-dataset store, or the member's rows of a compacted store. `layers` names
+    per-dataset store, or the member's rows of a consolidated store. `layers` names
     the layers to calculate from the counts.
     """
     dataset_id = str(read.row["dataset_id"])
@@ -446,7 +450,7 @@ def _read_rows(
     obs_group = _group(opened.group, "obs", opened.uri, "an encoded dataframe")
     # To read obs faster, the SDK decodes the per-cell string columns only where
     # the result needs them. It does not read the index (the source cell names, or
-    # the cell key in a compacted store), because the result sets the cell key. It
+    # the cell key in a consolidated store), because the result sets the cell key. It
     # reads the cell key after the filter, for the kept cells only.
     columns = [str(c) for c in cast("list[str]", obs_group.attrs["column-order"])]
     key = "observation_joinid"
@@ -486,7 +490,7 @@ def _obs_rows(
     A read of part of the rows gives each column the type that `read_elem` gives
     it, and a categorical column keeps only the categories that its rows use. A
     per-dataset store holds no unused category, because the writer writes none, so
-    a member of a compacted store gets the categories of its per-dataset store.
+    a member of a consolidated store gets the categories of its per-dataset store.
     """
     whole = (start, stop) == (0, opened.n_obs)
 

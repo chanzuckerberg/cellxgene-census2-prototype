@@ -42,33 +42,37 @@ ontology term), and `is_primary_data`. The builder counts in the same pass that 
 For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
 117,712 entries, and the catalog is 1,014 KiB.
 
-### Compacted stores
+### Consolidated stores
 
-A compacted store is a second copy of several datasets in one store; see
-[`compact-nf`](../compact-nf/README.md). `--compacted` names a prefix of compacted stores:
+A consolidated store is a lossless second copy of several small datasets in one store; see
+[`consolidate-nf`](../consolidate-nf/README.md). It is not Zarr's consolidated metadata, which every
+store holds. `--consolidated` names a prefix of consolidated stores:
 
 ```bash
 python census2-sdk/tools/build_catalog.py s3://bucket/stores/ catalog.parquet \
-    --compacted s3://bucket/compacted/
+    --consolidated s3://bucket/consolidated/
 ```
 
-The builder then fills three columns of each member's row: `compacted_store_uri`, and
-`compacted_row_start` and `compacted_row_stop`, the rows of the dataset in that store. The row
-keeps its per-dataset `store_uri`, and all its other fields come from the per-dataset store as
+The builder then fills three columns of each member's row: `consolidated_store_uri`, and
+`consolidated_row_start` and `consolidated_row_stop`, the rows of the dataset in that store. The
+row keeps its per-dataset `store_uri`, and all its other fields come from the per-dataset store as
 before. Exclusion therefore stays per dataset. The three columns are null for a dataset that no
-compacted store holds, and a catalog without compacted stores has them too.
+consolidated store holds, and a catalog without consolidated stores has them too.
 
-The builder refuses the catalog when a compacted store does not agree with the per-dataset stores:
+The builder refuses the catalog when a consolidated store does not agree with the per-dataset
+stores:
 
 - each member has a per-dataset store, with the same `dataset_id`, number of cells, gene reference,
   `observation_joinid` digest, and number of stored values of `X`
-- the compacted store holds the member's `dataset_id` and `observation_joinid` values at the
+- the consolidated store holds the member's `dataset_id` and `observation_joinid` values at the
   member's rows, and that number of stored values of `X`
+- the member's column of `varm["measured"]` is the `measured` column of its per-dataset store
 - the members have one organism, one gene reference, and one spatial value
-- a dataset is in one compacted store at most
+- a dataset is in one consolidated store at most
 
-These checks read two `obs` columns of each compacted store and some values of `X/indptr`, not the
-matrix. The `compact-nf` pipeline can compare the whole matrix when it writes the store.
+These checks read two `obs` columns and `varm["measured"]` of each consolidated store, and some
+values of `X/indptr`, not the matrix. The `consolidate-nf` pipeline can compare the whole matrix
+when it writes the store.
 
 ## Query
 
@@ -99,15 +103,16 @@ The result holds:
 
 When no cell matches, `get_anndata` returns None.
 
-The SDK reads a dataset from the compacted store that its catalog row names. It opens each store
-once for all of its selected datasets, and reads only the rows of each dataset from `obs` and `X`.
-The result is the same as from the per-dataset stores: the same cells in the same order, the same
-`obs` columns with the same types and categories, and the same `X`.
-`open_census(sources, compacted=False)` reads the per-dataset stores, which stay the primary copy.
+The SDK reads a dataset from the consolidated store that its catalog row names. It opens each
+store once for all of its selected datasets, and reads only the rows of each dataset from `obs` and
+`X`. The result is the same as from the per-dataset stores: the same cells in the same order, the
+same `obs` columns with the same types and categories, the same `var`, and the same `X` and
+`layers["normalized"]`. `open_census(sources, consolidated=False)` reads the per-dataset stores,
+which stay the primary copy.
 
 `max_workers` applies twice: the SDK opens up to `max_workers` stores at the same time, and then
-reads up to `max_workers` datasets at the same time. The datasets of one compacted store thus read
-at the same time as well.
+reads up to `max_workers` datasets at the same time. The datasets of one consolidated store thus
+read at the same time as well.
 
 ## Count
 

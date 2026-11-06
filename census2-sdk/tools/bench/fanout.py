@@ -1,9 +1,9 @@
 """Count the datasets and the stores that each query reads, from a catalog alone.
 
-The count needs no store, so it runs on a catalog of any size. A compaction plan
-from `compact-nf/tools/compaction-plan.py` stands in for its compacted stores: each
+The count needs no store, so it runs on a catalog of any size. A consolidation plan
+from `consolidate-nf/tools/consolidation-plan.py` stands in for its consolidated stores: each
 member of a group reads from one store, the group. A plan thus shows the store
-count that a compaction would give before any store is written.
+count that a consolidation would give before any store is written.
 
 For each query and each plan, the record holds the datasets that the catalog keeps,
 the stores that a read opens, and the datasets that hold a matching cell, when the
@@ -34,7 +34,9 @@ def with_plan(rows: pd.DataFrame, groups: list[dict[str, Any]]) -> pd.DataFrame:
         for m in g["members"]
     }
     out = rows.copy()
-    out[_catalog.COMPACTED[0]] = [store.get(str(v)) for v in out["dataset_version_id"]]
+    out[_catalog.CONSOLIDATED[0]] = [
+        store.get(str(v)) for v in out["dataset_version_id"]
+    ]
     return out
 
 

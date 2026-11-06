@@ -19,9 +19,9 @@ holds the elapsed time of the catalog read and of the query. It also holds the
 number of datasets selected, of stores opened, and of cells, the reads and the
 payload, and the peak memory.
 
-A catalog that names compacted stores is read through them: a query opens each
-compacted store once for its selected datasets, and the corpus shapes open each
-compacted store in place of its datasets. `--per-dataset` reads the per-dataset
+A catalog that names consolidated stores is read through them: a query opens each
+consolidated store once for its selected datasets, and the corpus shapes open each
+consolidated store in place of its datasets. `--per-dataset` reads the per-dataset
 stores instead.
 
 `--max-rss-gb` is a memory limit. When the peak memory passes it, the process
@@ -177,21 +177,22 @@ def source_rows(rows: pd.DataFrame) -> pd.DataFrame:
     return rows[rows["copy"] == 0] if "copy" in rows.columns else rows
 
 
-# `catalog.COMPACTED[0]`, by name, so that the SDK of an earlier commit runs this
+# `catalog.CONSOLIDATED[0]`, by name, so that the SDK of an earlier commit runs this
 # file as well, for a baseline.
-COMPACTED_URI = "compacted_store_uri"
+CONSOLIDATED_URI = "consolidated_store_uri"
 
 
 def serving_uris(rows: pd.DataFrame, per_dataset: bool = False) -> list[str]:
     """The stores that a read of `rows` opens, each once, in catalog order.
 
-    A row that names a compacted store is read there, unless `per_dataset` is set.
+    A row that names a consolidated store is read there, unless `per_dataset` is set.
     """
     uris = [str(u) for u in rows["store_uri"]]
-    if not per_dataset and COMPACTED_URI in rows.columns:
-        compacted = rows[COMPACTED_URI]
+    if not per_dataset and CONSOLIDATED_URI in rows.columns:
+        consolidated = rows[CONSOLIDATED_URI]
         uris = [
-            str(c) if pd.notna(c) else u for c, u in zip(compacted, uris, strict=True)
+            str(c) if pd.notna(c) else u
+            for c, u in zip(consolidated, uris, strict=True)
         ]
     return list(dict.fromkeys(uris))
 
@@ -278,7 +279,7 @@ def run(
     t0 = time.monotonic()
     # Without the keyword, so that the SDK of an earlier commit runs this as well.
     census = (
-        census2_sdk.open_census([catalog], compacted=False)
+        census2_sdk.open_census([catalog], consolidated=False)
         if per_dataset
         else census2_sdk.open_census([catalog])
     )
@@ -354,7 +355,7 @@ def main() -> int:
     p.add_argument("--dataset-id", default=None, help="the dataset of `single`")
     p.add_argument("--filter", default=None, help="the filter of `filter`, as JSON")
     p.add_argument(
-        "--per-dataset", action="store_true", help="ignore the compacted stores"
+        "--per-dataset", action="store_true", help="ignore the consolidated stores"
     )
     p.add_argument("--max-rss-gb", type=float, default=None)
     args = p.parse_args()

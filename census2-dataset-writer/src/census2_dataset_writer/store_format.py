@@ -10,11 +10,11 @@ format, so that the writer and a reader of a store use one definition:
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
-- The compaction record of a compacted store, under
-  `attrs[SUMMARY_NAMESPACE][COMPACTION_KEY]`: `CompactionRecord`,
-  `COMPACTION_VERSION`, and `validate_compaction`. A compacted store is a second
+- The consolidation record of a consolidated store, under
+  `attrs[SUMMARY_NAMESPACE][CONSOLIDATION_KEY]`: `ConsolidationRecord`,
+  `CONSOLIDATION_VERSION`, and `validate_consolidation`. A consolidated store is a second
   copy of several per-dataset stores in one store; see
-  `census2_dataset_writer.compaction`.
+  `census2_dataset_writer.consolidation`.
 - `obs_digest`, the identity of a store's cells: a digest of its
   `observation_joinid` values in row order.
 
@@ -92,21 +92,21 @@ def validate_summary(obj: object) -> SummaryRecord:
     return cast("SummaryRecord", obj)
 
 
-# Where the compaction record is: a key beside SUMMARY_KEY. A compacted store
-# holds a compaction record and no summary record, so a reader that expects one
-# dataset in a store refuses a compacted store.
-COMPACTION_KEY = "compaction"
+# Where the consolidation record is: a key beside SUMMARY_KEY. A consolidated store
+# holds a consolidation record and no summary record, so a reader that expects one
+# dataset in a store refuses a consolidated store.
+CONSOLIDATION_KEY = "consolidation"
 
-# The format of the compaction record. Raise it when a field changes meaning or
+# The format of the consolidation record. Raise it when a field changes meaning or
 # goes away. A reader refuses a version that it does not know.
-COMPACTION_VERSION = 1
+CONSOLIDATION_VERSION = 1
 
 
-class CompactedMember(TypedDict):
-    """One dataset in a compacted store: its identity, and where its rows are.
+class ConsolidatedMember(TypedDict):
+    """One dataset in a consolidated store: its identity, and where its rows are.
 
     The rows of a member are `row_start` to `row_stop` (exclusive) of the
-    compacted store, in the row order of its per-dataset store. `nnz` and
+    consolidated store, in the row order of its per-dataset store. `nnz` and
     `obs_digest` identify the per-dataset store that the rows came from, so a
     catalog builder can check the two copies against each other cheaply.
     """
@@ -119,65 +119,69 @@ class CompactedMember(TypedDict):
     nnz: int
     # `obs_digest` of the member's `observation_joinid` values.
     obs_digest: str
-    # The `uns` of the per-dataset store. A compacted store has one `uns` for
+    # The `uns` of the per-dataset store. A consolidated store has one `uns` for
     # all of its members, so the values of each member are kept here.
     uns: dict[str, str]
 
 
-class CompactionRecord(TypedDict):
-    """The facts about a compacted store that a catalog needs, held in the store."""
+class ConsolidationRecord(TypedDict):
+    """The facts about a consolidated store that a catalog needs, held in the store."""
 
     version: int
     # The gene reference of every member, as in `SummaryRecord`.
     gene_reference_version: str
     # In row order: the first member starts at row 0, and each member starts
     # where the one before it stops.
-    members: list[CompactedMember]
+    members: list[ConsolidatedMember]
 
 
-def validate_compaction(obj: object) -> CompactionRecord:
-    """Return `obj` as a compaction record, or raise `SummaryRecordError` saying why not.
+def validate_consolidation(obj: object) -> ConsolidationRecord:
+    """Return `obj` as a consolidation record, or raise `SummaryRecordError` saying why not.
 
-    A compaction record is read from a store, which is external input, so its type
+    A consolidation record is read from a store, which is external input, so its type
     is checked here at run time. The record must have exactly the fields of
-    `CompactionRecord`, and each member exactly the fields of `CompactedMember`.
+    `ConsolidationRecord`, and each member exactly the fields of `ConsolidatedMember`.
     The members must cover the rows from 0 without a gap or an overlap, each with at
     least one row, and no dataset may occur twice.
     """
-    if not isinstance(obj, dict) or set(obj) != set(CompactionRecord.__annotations__):
+    if not isinstance(obj, dict) or set(obj) != set(
+        ConsolidationRecord.__annotations__
+    ):
         raise SummaryRecordError(
-            f"a compaction record is an object with the fields "
-            f"{sorted(CompactionRecord.__annotations__)}"
+            f"a consolidation record is an object with the fields "
+            f"{sorted(ConsolidationRecord.__annotations__)}"
         )
     version = obj["version"]
-    if type(version) is not int or version != COMPACTION_VERSION:
+    if type(version) is not int or version != CONSOLIDATION_VERSION:
         raise SummaryRecordError(
-            f"compaction record version {version!r}; "
-            f"this package reads {COMPACTION_VERSION}"
+            f"consolidation record version {version!r}; "
+            f"this package reads {CONSOLIDATION_VERSION}"
         )
     if not isinstance(obj["gene_reference_version"], str):
         raise SummaryRecordError(
-            "compaction record gene_reference_version is not a string"
+            "consolidation record gene_reference_version is not a string"
         )
     members = obj["members"]
     if not isinstance(members, list) or not members:
-        raise SummaryRecordError("a compaction record lists one or more members")
-    fields = set(CompactedMember.__annotations__)
+        raise SummaryRecordError("a consolidation record lists one or more members")
+    fields = set(ConsolidatedMember.__annotations__)
     stop = 0
     for member in members:
         if not isinstance(member, dict) or set(member) != fields:
             raise SummaryRecordError(
-                f"a compacted member is an object with the fields {sorted(fields)}"
+                f"a consolidated member is an object with the fields {sorted(fields)}"
             )
         for field in ("dataset_id", "dataset_version_id", "obs_digest"):
             if not isinstance(member[field], str) or not member[field]:
-                raise SummaryRecordError(f"compacted member {field} is not a string")
+                raise SummaryRecordError(f"consolidated member {field} is not a string")
         for field in ("row_start", "row_stop", "nnz"):
             if type(member[field]) is not int:
-                raise SummaryRecordError(f"compacted member {field} is not an integer")
+                raise SummaryRecordError(
+                    f"consolidated member {field} is not an integer"
+                )
         if member["row_start"] != stop or member["row_stop"] <= member["row_start"]:
             raise SummaryRecordError(
-                f"compacted member {member['dataset_version_id']} has rows "
+                f"consolidated member {member['dataset_version_id']} has rows "
                 f"{member['row_start']}:{member['row_stop']}; the next row is {stop}"
             )
         stop = member["row_stop"]
@@ -185,12 +189,16 @@ def validate_compaction(obj: object) -> CompactionRecord:
         if not isinstance(uns, dict) or not all(
             isinstance(k, str) and isinstance(v, str) for k, v in uns.items()
         ):
-            raise SummaryRecordError("compacted member uns is not an object of strings")
+            raise SummaryRecordError(
+                "consolidated member uns is not an object of strings"
+            )
     for field in ("dataset_id", "dataset_version_id"):
         values = [m[field] for m in members]
         if len(set(values)) != len(values):
-            raise SummaryRecordError(f"a {field} occurs twice in a compaction record")
-    return cast("CompactionRecord", obj)
+            raise SummaryRecordError(
+                f"a {field} occurs twice in a consolidation record"
+            )
+    return cast("ConsolidationRecord", obj)
 
 
 def obs_digest(joinids: Iterable[str]) -> str:
