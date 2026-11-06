@@ -22,10 +22,13 @@ code of the Iceberg spike. There is no table metadata, no commit, and no table b
 
 **Take-home figures** (in-region, 103 datasets and 13.3 million cells, 8 workers, median of 3):
 
-- Count all cells by donor: **0.71 s** through DuckDB, 1.78 s through the Iceberg table, 23.2 s
-  through `main`'s stores; peak memory 0.5, 1.7, and 1.1 GiB.
-- WMG's production filter (8.4 million cells), counted by tissue and cell type: **0.64 s**,
-  2.66 s, 20.4 s.
+- WMG's production filter (8.4 million cells), counted by tissue and cell type: **0.64 s**
+  through DuckDB, 2.66 s through the Iceberg table, and 3.47 s through `main`'s stores with a
+  reader that reads only the needed `obs` columns (#33's session); about 5 times the store
+  baseline.
+- Neutrophils counted by donor: **0.35 s**, 0.54 s, and 0.75 s with the same narrow store read.
+- Count all 13.3 million cells by donor: **0.71 s** through DuckDB and 1.78 s through the table,
+  at 0.5 and 1.7 GiB peak. The narrow store read of this count is unmeasured.
 - A catalog false positive (four datasets pass the catalog, none holds a cell): **0.56 s**,
   0.71 s, 2.29 s in-region; **1.95 s**, 23 s, 27 s on a laptop.
 - `get_anndata` with `X`: DuckDB and Iceberg tie (neutrophils 5.65 s and 5.58 s, against 9.24 s
@@ -236,10 +239,22 @@ Seconds at 1 / 8 / 32 workers (`tools/results/obs_duckdb/ec2-main.jsonl`):
 | (f) `tissue_general = 'pancreas'` | 12,815 | 3 / 3 / 3 | 8.27 / 4.34 / 4.41 | 3.36 / 2.80 / 2.99 | 3.29 / 2.66 / 2.71 |
 | numeric: (b) with `nnz >= 1000` | 4,113 | – / 11 / 11 | – | 8.62 / 3.51 / 3.22 | 6.32 / 3.50 / 3.08 |
 | membership: COVID-19 neutrophils | 1,258 | 6 / 6 / 6 | 11.3 / 3.00 / 3.12 | 3.01 / 1.88 / 1.97 | 3.00 / 1.90 / 1.79 |
-| (e) all `obs` | 13,316,710 | 103 / 0 / 0 | 136 / 22.7 / 15.3 | 4.96 / 5.04 / 4.98 | 3.76 / 3.73 / 3.84 |
+| (e) all `obs` | 13,316,710 | 103 / 0 / 0 | 136 / 22.7 / 15.3 ⁴ | 4.96 / 5.04 / 4.98 | 3.76 / 3.73 / 3.84 |
 | count (b) by donor | 35,795 | 14 / 0 / 0 | 18.4 / 4.66 / 3.52 | 0.58 / 0.54 / 0.53 | 0.36 / 0.35 / 0.46 |
-| count all by donor | 13,316,710 | 103 / 0 / 0 | 130 / 23.2 / 15.6 | 1.75 / 1.78 / 1.68 | 0.68 / 0.71 / 0.65 |
-| (g) WMG count by tissue and cell type | 8,365,927 | 57 / 0 / 0 | 82.8 / 20.4 / 16.4 | 2.53 / 2.66 / 2.51 | 0.60 / 0.64 / 0.60 |
+| count (b) by donor, stores read only the needed columns ¹ | 35,795 | 14 / – / – | 2.53 / 0.75 / 0.62 | | |
+| count all by donor | 13,316,710 | 103 / 0 / 0 | 130 / 23.2 / 15.6 ² | 1.75 / 1.78 / 1.68 | 0.68 / 0.71 / 0.65 |
+| (g) WMG count by tissue and cell type | 8,365,927 | 57 / 0 / 0 | 83.2 / 15.4 / 11.3 ³ | 2.53 / 2.66 / 2.51 | 0.60 / 0.64 / 0.60 |
+| (g), stores read only the needed columns ¹ | 8,365,927 | 57 / – / – | 14.5 / 3.47 / 3.23 | | |
+
+¹ The store path of #33's `bench.run --narrow`, which reads only the `obs` columns of the filter
+and of the count, in #33's session on its own instance (`obs_iceberg/ec2-103-narrow*.jsonl`,
+`ec2-103-wmg.jsonl`). This is the fair store baseline for an `obs`-only question.
+² All `obs` columns of every store; a narrow read of this count was not measured.
+⁴ The store path reads each store's `obs` and drops it, and builds no combined frame, so it is
+not a like-for-like baseline for (e).
+³ #33's session, after its fix of the bench evaluator (`03b2ec7`), which `main`'s path does not
+use. This session ran before that fix and measured 82.8 / 20.4 / 16.4 s. No other store-path
+shape here uses that evaluator: the other counts take a mapping filter.
 
 At 8 workers: every object read, the MB read, the process CPU time (user and system), and the
 peak memory (`ec2-main.jsonl`, `ec2-table-counts.jsonl`):
@@ -256,8 +271,10 @@ peak memory (`ec2-main.jsonl`, `ec2-table-counts.jsonl`):
 | membership | 578 / 220 / 218 | 155 / 155 / 154 | 3.7 / 3.2 / 3.2 | 0.6 / 0.7 / 0.7 |
 | (e) | 5,801 / 322 / 594 | 380 / 483 / 477 | 18.2 / 11.1 / 21.9 | 1.1 / 7.4 / 7.7 |
 | count (b) | 837 / 131 / 113 | 84 / 2.8 / 9.7 | 3.4 / 0.6 / 0.9 | 0.7 / 0.5 / 0.4 |
+| count (b), narrow stores ¹ | 121 / – / – | 3.1 / – / – | 0.7 / – / – | 0.3 / – / – |
 | count all | 5,801 / 649 / 419 | 380 / 8.9 / 50 | 18.4 / 1.9 / 1.2 | 1.1 / 1.7 / 0.5 |
-| (g) | 3,311 / 788 / 593 | 304 / 24 / 50 | 20.3 / 2.7 / 1.8 | 1.4 / 1.4 / 0.5 |
+| (g) | 3,311 / 788 / 593 | 304 / 24 / 50 | 14.0 ³ / 2.7 / 1.8 | 1.4 / 1.4 / 0.5 |
+| (g), narrow stores ¹ | 631 / – / – | 31 / – / – | 4.3 / – / – | 0.5 / – / – |
 
 - **The `obs` engine is a small part of a selection with `X`.** For (b), DuckDB's query took about
   0.6 s of the 5.6 s; both engine paths read the same 821 MB of `X` and used 16 CPU-seconds. For
@@ -402,12 +419,14 @@ its extensions in 0.30 s. The counts equal the Python counts.
    positive and read no store `obs`, which helps most at low concurrency: (b) 9.0 s against
    28.8 s through the stores at 1 worker. A large selection is bound by `X` on all three paths.
 2. **For an `obs`-only question, DuckDB over the files is the fastest of the three and the
-   smallest in memory.** It groups and counts in the engine: a count of all cells by donor in
-   0.71 s against 1.78 s (table) and 23.2 s (stores); WMG's filter, counted, in 0.64 s against
-   2.66 s and 20.4 s; at 2,060 datasets, 10.9 s at 1.8 GiB against 31.2 s at 23.7 GiB. #33
-   shows that a store reader that reads only the needed columns comes within 1.1 to 1.3 times of
-   the table at 8 and 32 workers (#33, section 3.4); the store path still opens every store that
-   the catalog keeps.
+   smallest in memory.** It groups and counts in the engine. Against a store reader that reads
+   only the needed `obs` columns (#33's session, section 3.4), WMG's filter, counted, took 0.64 s
+   against 3.47 s, about 5 times faster, and the table 2.66 s; neutrophils by donor 0.35 s
+   against 0.75 s, and the table 0.54 s. The narrow store read still opens every store that the
+   catalog keeps. A count of all cells by donor took 0.71 s against 1.78 s through the table,
+   and at 2,060 datasets 10.9 s at 1.8 GiB against 31.2 s at 23.7 GiB; a narrow store read of
+   that count is unmeasured. The full store read (23.2 s at 103) is not a fair baseline for an
+   `obs`-only question.
 3. **The catalog is a sufficient file index.** It lists the fragments, pins their versions, and
    records each dataset's value sets. A catalog test that DuckDB evaluates over the value sets
    takes 1 to 7 ms at 2,060 rows, and it is exact for every single-column term (section 5). The
