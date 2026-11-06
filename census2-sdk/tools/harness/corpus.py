@@ -1,11 +1,11 @@
-"""The fixed query corpus (task 2.1, evidence section 11.2).
+"""The fixed query corpus.
 
-Every later phase is checked against this set of reads. Phase 4 signs off value
-identity over it. Phase 5 proves that exclusion drops no dataset over it. Phase 6
-proves result identity over it. Phase 13 requires R and Python to agree on it.
+The later tests of the prototype use this set of reads. They check value identity of
+the stores, exclusion that drops no dataset, result identity of the SDK, and agreement
+between R and Python.
 
 Each entry names a Census 1 SDK accessor (`get_anndata`, `get_obs`, `get_var`,
-`get_presence_matrix`) and the phases that rely on it. The filter values are pinned in
+`get_presence_matrix`). The filter values are pinned in
 `query_values.json` from release 2025-11-08. A filter that matches nothing passes
 vacuously, so no value is written inline.
 
@@ -73,13 +73,13 @@ class Entry:
 
 
 CORPUS: tuple[Entry, ...] = (
-    # ---- documented-usage anchors: the baseline of the no-regression threshold (evidence 11.2).
+    # ---- documented-usage anchors: the baseline of the no-regression threshold.
     # Filters verbatim from the Census 1 notebooks, so they bind to label columns, human only.
     Entry(
         key="documented_narrow",
         accessor="get_anndata",
         exercises="the narrowest documented filter: 431,901 cells across 10 datasets (1%), "
-        "the low end of the fan-out range that decides store organization (evidence 10.5, 11.2)",
+        "the low end of the fan-out range that decides store organization",
         relied_on_by=("4.9", "5", "6", "13"),
         obs_filter="tissue_general == 'vasculature'",
         scope="human_non_spatial",
@@ -88,8 +88,8 @@ CORPUS: tuple[Entry, ...] = (
         key="documented_wide",
         accessor="get_anndata",
         exercises="the widest documented filter: 58,762,981 cells across 447 datasets (41%), "
-        "the high end of the same fan-out range and the wide-filter case Phase 6's "
-        "concurrency runs target",
+        "the high end of the same fan-out range and the wide-filter case of the "
+        "concurrency runs",
         relied_on_by=("5", "6"),
         obs_filter="tissue_general in ['brain', 'lung']",
         scope="human_non_spatial",
@@ -98,7 +98,7 @@ CORPUS: tuple[Entry, ...] = (
         key="client_documented_two_column",
         accessor="get_anndata",
         exercises="the two-column shape the SDK's own documentation uses (is_primary_data "
-        "== True and tissue_general == X, 9.2x cost cliff measured in evidence 9.3)",
+        "== True and tissue_general == X, a measured 9.2x cost cliff)",
         relied_on_by=("4.9", "5", "6", "13"),
         obs_filter="is_primary_data == True and "
         "tissue_general_ontology_term_id == '{tissue_general_primary}'",
@@ -142,8 +142,7 @@ CORPUS: tuple[Entry, ...] = (
     Entry(
         key="single_gene_all_cells",
         accessor="get_anndata",
-        exercises="worst-case sparse column access: one gene, every cell, no obs filter "
-        "(evidence 11.2 corpus table)",
+        exercises="worst-case sparse column access: one gene, every cell, no obs filter",
         relied_on_by=("6",),
         var_filter="feature_id == '{feature_id_sample}'",
         scope="non_spatial",
@@ -159,7 +158,6 @@ CORPUS: tuple[Entry, ...] = (
         pair="column_locality",
     ),
     # ---- silent-failure traps: a wrong stack returns a plausible subset and raises nothing
-    # (evidence 11.2)
     Entry(
         key="multivalued_disease",
         accessor="get_anndata",
@@ -205,7 +203,7 @@ CORPUS: tuple[Entry, ...] = (
         key="obs_metadata_only",
         accessor="get_obs",
         exercises="a metadata-only read with a column projection: no X touched, which is "
-        "the read the catalog excludes and the shape evidence 9.3 costs per column",
+        "the read the catalog excludes and the shape whose cost was measured per column",
         relied_on_by=("5", "6"),
         obs_filter="cell_type_ontology_term_id == '{cell_type_ontology_term_id}'",
         obs_columns=(
@@ -217,8 +215,8 @@ CORPUS: tuple[Entry, ...] = (
     Entry(
         key="var_all_genes",
         accessor="get_var",
-        exercises="the full var frame: under Census 2 this is the pinned reference itself "
-        "(plan assumption C), so its content changes meaning between stacks",
+        exercises="the full var frame: under Census 2 this is the pinned reference itself, "
+        "so its content changes meaning between stacks",
         relied_on_by=("4.9", "6"),
     ),
     Entry(
@@ -230,7 +228,8 @@ CORPUS: tuple[Entry, ...] = (
     ),
 )
 
-# Required by evidence 11.2 and not expressible yet. Listed here so the gap is visible.
+# Entries that the corpus needs and that the harness cannot express yet. Listed here so the
+# gap is visible.
 DEFERRED: tuple[tuple[str, str], ...] = (
     (
         "identity_coords",
@@ -242,7 +241,7 @@ DEFERRED: tuple[tuple[str, str], ...] = (
     (
         "spatial_scene",
         (
-            "scenes, point clouds, images: no AnnData form, needs the Phase 3 "
+            "scenes, point clouds, images: no AnnData form, needs the "
             "spatialdata decision and its own comparison path"
         ),
     ),

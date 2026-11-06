@@ -64,6 +64,7 @@ RUN python -c "\
 import census2_dataset_writer, anndata, zarr, h5py, scipy, numpy, pandas, dask; \
 from census2_dataset_writer import compaction; \
 import obstore, obstore.store; \
+import cellxgene_ontology_guide; \
 import importlib.metadata as md; \
 from anndata.experimental import read_elem_lazy; \
 from anndata.io import read_elem; \

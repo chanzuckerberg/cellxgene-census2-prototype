@@ -1,4 +1,4 @@
-"""Run the benchmark matrix: each combination in a new process (task 6.4).
+"""Run the benchmark matrix: each combination in a new process.
 
 The matrix is sizes x shapes x workers x repeats. A run that exceeds `--timeout`
 gets the status `exceeded`. A run that passes `--max-rss-gb` gets the status

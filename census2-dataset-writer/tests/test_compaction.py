@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
-from anndata.io import read_elem
+from anndata.io import read_elem, write_elem
 from census2_dataset_writer import compaction
 from test_writer import dataset, refdata  # noqa: F401  # refdata is an autouse fixture
 
@@ -26,10 +26,14 @@ SIZES = (40, 25, 60)
 
 
 def per_dataset_stores(tmp_path: Path, sizes: tuple[int, ...] = SIZES) -> list[Path]:
-    """One store for each size, each with its own identifiers and cell types."""
+    """One store for each size, each with its own identifiers and cell types.
+
+    Each dataset measures a different number of the reference genes, so the
+    `measured` column of `var` differs between the stores.
+    """
     stores = []
     for k, n_obs in enumerate(sizes):
-        adata = dataset(n_obs=n_obs, seed=k)
+        adata = dataset(n_obs=n_obs, n_var=12 - 2 * (k % 3), seed=k)
         # Each dataset has a cell type of its own, so the union has more categories
         # than any member.
         cell_type = adata.obs["cell_type"].astype(str).to_numpy(dtype=object)
@@ -132,11 +136,47 @@ def test_a_plain_reader_opens_the_store(tmp_path: Path) -> None:
     stores, dest, _ = compacted(tmp_path)
     adata = anndata.read_zarr(dest)
     assert adata.n_obs == sum(SIZES)
+    measured = census2_dataset_writer.MEASURED_COLUMN
     var = cast("pd.DataFrame", anndata.read_zarr(stores[0]).var)
-    assert cast("pd.DataFrame", adata.var).equals(var)
+    assert cast("pd.DataFrame", adata.var).equals(var.drop(columns=measured))
     assert adata.uns["organism_ontology_term_id"] == "NCBITaxon:9606"
     # The consolidated metadata survives the record, which is the last write.
     assert zarr.open_consolidated(dest, mode="r") is not None
+
+
+def test_varm_holds_the_assayed_genes_of_each_member(tmp_path: Path) -> None:
+    stores, dest, record = compacted(tmp_path)
+    measured = census2_dataset_writer.MEASURED_COLUMN
+    matrix = np.asarray(anndata.read_zarr(dest).varm[measured])
+    assert matrix.dtype == bool
+    assert matrix.shape[1] == len(record["members"])
+    columns = [
+        cast("pd.DataFrame", anndata.read_zarr(s).var)[measured].to_numpy()
+        for s in stores
+    ]
+    assert len({int(c.sum()) for c in columns}) == len(stores)  # each differs
+    for k, column in enumerate(columns):
+        assert np.array_equal(matrix[:, k], column)
+    # A changed column is a difference.
+    root = zarr.open_group(dest, mode="r+")
+    array = root[f"varm/{measured}"]
+    assert isinstance(array, zarr.Array)
+    array[0, 1] = not bool(array[0, 1])
+    name = record["members"][1]["dataset_version_id"]
+    assert compaction.verify(dest, stores) == [f"{name}: varm {measured} differs"]
+
+
+def test_a_store_without_measured_is_refused(tmp_path: Path) -> None:
+    stores = per_dataset_stores(tmp_path, (10, 12))
+    var = cast("pd.DataFrame", read_elem(zarr.open_group(stores[1])["var"]))
+    write_elem(
+        zarr.open_group(stores[1], mode="r+", use_consolidated=False),
+        "var",
+        var.drop(columns=census2_dataset_writer.MEASURED_COLUMN),
+    )
+    zarr.consolidate_metadata(stores[1])
+    with pytest.raises(compaction.CompactionError, match="no measured column"):
+        compaction.compact(stores, tmp_path / "out.zarr")
 
 
 def test_obs_and_x_have_the_fixed_layout(tmp_path: Path) -> None:

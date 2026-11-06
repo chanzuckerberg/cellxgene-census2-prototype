@@ -173,11 +173,11 @@ def test_truncated_strict_subset(truth: ad.AnnData) -> None:
 
 
 def test_normalized_tolerance_is_bounded(truth: ad.AnnData) -> None:
-    """The stated rtol forgives last-ulp noise and nothing more."""
+    """The stated rtol forgives the Census 1 rounding and nothing more."""
     corrupt = truth.copy()
     layer = layer_of(corrupt, "normalized")
     within = layer.copy()
-    within.data[0] *= 1 + 1e-7  # inside rtol=1e-6: the same answer
+    within.data[0] *= 1 + 2**-16  # the largest Census 1 rounding: the same answer
     corrupt.layers["normalized"] = within
     assert compare(canonicalize_anndata(truth), canonicalize_anndata(corrupt)) == []
     beyond = layer.copy()

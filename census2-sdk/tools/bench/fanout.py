@@ -50,13 +50,13 @@ def query_filter(query: dict[str, Any], rows: pd.DataFrame) -> dict[str, Any]:
     return {}
 
 
-def matching(counts: pd.DataFrame, versions: pd.Series, normalized: Any) -> int | None:
+def matching(counts: pd.DataFrame, versions: pd.Series, canonical: Any) -> int | None:
     """The kept datasets that hold a matching cell, or None if the counts cannot tell."""
-    if set(normalized) - {"dataset_id", *_catalog.COUNTED}:
+    if set(canonical) - {"dataset_id", *_catalog.COUNTED}:
         return None
     rows = counts[counts["dataset_version_id"].isin(versions)]
     keep = np.ones(len(rows), dtype=bool)
-    for column, wanted in normalized.items():
+    for column, wanted in canonical.items():
         if column == "dataset_id":
             continue
         values = rows[column].astype(object)
@@ -85,12 +85,12 @@ def fanout(
     records = []
     for query in queries:
         obs_filter = query_filter(query, rows)
-        normalized = _catalog.normalize(obs_filter)
-        kept = _catalog.exclude(rows, ORGANISM, normalized) if normalized else rows
+        canonical = _catalog.canonicalize(obs_filter)
+        kept = _catalog.exclude(rows, ORGANISM, canonical) if canonical else rows
         hits = (
             None
             if counts is None
-            else matching(counts, kept["dataset_version_id"], normalized)
+            else matching(counts, kept["dataset_version_id"], canonical)
         )
         record: dict[str, Any] = {
             "query": query["query"],

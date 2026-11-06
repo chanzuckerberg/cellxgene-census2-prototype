@@ -61,11 +61,24 @@ version have the same size. `tools/census1-sample.py` asserts this for each reco
 script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
 a source build, which fails.
 
-`census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`:
-`dataset_id` and the 19 CxG columns that Census 1 copies, each with a fixed type. Every other source
-column goes. The receipt names them in `dropped_obs_columns`, and the run report counts the datasets
-that drop any, which is most of them. The round-trip check requires exactly the schema's columns, in
-order, each of its type, with the source's values and the summary record's `dataset_id`.
+`census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`. The
+schema holds `dataset_id`, the 19 CxG columns that Census 1 copies, the `tissue_general` pair, and
+five statistics of the counts. Each column has a fixed type. `add_tissue_general` and
+`add_obs_stats` compute the derived columns. Every other source column goes. The receipt names them
+in `dropped_obs_columns`, and the run report counts the datasets that drop any, which is most of
+them. The round-trip check requires exactly the schema's columns, in order, each of its type. The
+values must be the source's values, the roll-up of the source's tissue terms, and the summary
+record's `dataset_id`. The check computes the Census 1 statistics again from the kept source counts,
+with its own code, and requires equal values. The `measured` column of `var` must mark exactly the
+kept source features.
+
+`census2_dataset_writer.cell_mask` applies the Census 1 cell filters (tissue type, assay, primary
+data on a spatial assay), and the store keeps only the cells that pass. The receipt counts the cells
+that each filter drops in `dropped_cells`, and the run report totals them. The round-trip check
+compares the store with the source rows that its `obs` index names. It requires that index to be the
+source index without the dropped cells, in order, and the number dropped to equal the receipt's
+total. The check does not apply the filters itself. On Census 1 LTS `2025-11-08`, the filters drop
+32,069 cells from 6 of 1,258 datasets. Each of the 6 stores then holds the Census 1 cell count.
 
 A breadcrumb for when the projection carries more columns, for example the perturbation fields that
 schema 7.1.0 adds, or author columns: some datasets name an `obs` column with a `/` in it, and Zarr
@@ -98,10 +111,11 @@ also hold a dense matrix beside sparse counts, for example a dense normalized `X
 `2025-11-08`, 9 hold a dense `X` beside a sparse `raw.X`, and none holds dense counts.
 
 The DNA methylation datasets (snmC-seq) hold dense counts: `X` is dense, and there is no `raw` and
-no `layers`. Admission rejects them on their assay: `census2_dataset_writer.admit` requires one cell
-on an assay allowlist, and no methylation assay is on it. Of 2228 datasets, 53 have no allowed
-assay, and 18 dense datasets are among the 53. The criterion is the assay and not the encoding, so
-admission accepts a dataset that holds dense counts on an allowed assay.
+no `layers`. The cell filters reject them on their assay. No methylation assay is on the assay
+allowlist, so `census2_dataset_writer.cell_mask` keeps no cell, and `build` rejects the dataset
+before it reads `X`. Of 2228 datasets, 53 have no allowed assay, and 18 dense datasets are among the
+53. The criterion is the assay and not the encoding, so the writer accepts a dataset that holds
+dense counts on an allowed assay.
 
 The memory request is still `size * 2.5` for every dataset. On the prototyping manifest, the
 largest peak was 4.0 GiB, on a 16.4 GiB h5ad, and no task used more than 40% of its reservation.
@@ -168,6 +182,17 @@ because starting a task needs Docker. Assert that the tasks were created: assert
 error message is absent also passes when the run fails for another reason. Tests read the pinned
 manifest in `tests/fixtures`, so a failure means the code changed rather than the corpus, and they
 assert on the receipt, which has to stay correct anyway.
+
+The round-trip check audits its own coverage. Each slot group that the writer reports in
+`slots`, and the summary record, must be in `compared` or in `NOT_COMPARED`, or the check fails
+with a `coverage` failure. `not_compared` in the receipt lists the groups that the store holds and
+the check skipped. A new slot in the writer thus fails the check until the check compares it or
+`NOT_COMPARED` names it, and the tests assert `not_compared` rather than each entry of `compared`.
+
+The audit shows that the check compared each slot, not that the store format is right. The check
+takes the `obs` schema from `census2_dataset_writer.OBS_COLUMNS`, the same definition that the
+writer uses, and no test restates the list. Thus an error in `OBS_COLUMNS`, such as a missing
+column, passes the check. Review is what catches it.
 
 CI runs `--tag validation,ingest`, the union of the two tags. `ingest` is a second tag on the
 ingest suite so that CI takes those tests without the `s3_//` escape test, which writes to object

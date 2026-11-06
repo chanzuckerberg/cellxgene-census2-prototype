@@ -3,7 +3,9 @@
 The corpus is the three stores of `test_sdk`. `ds-a` and `ds-b` also have a second
 copy in one compacted store, which `census2_dataset_writer.compaction` writes. The
 catalog builder then names that store in their rows. A query must give the same
-result from the compacted store as from the per-dataset stores.
+result from the compacted store as from the per-dataset stores, the normalized
+layer included. The two members measured different genes, and `ds-b` is from a
+full-gene assay, so the normalized layer of its cells uses `feature_length`.
 """
 
 import shutil
@@ -16,6 +18,7 @@ import census2_dataset_writer
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.sparse as sp
 import zarr
 from census2_dataset_writer import compaction
 from test_sdk import STORES, X, expected, make_store, same, write_one
@@ -24,6 +27,8 @@ import census2_sdk
 from census2_sdk import catalog
 
 MEMBERS = ("ds-a", "ds-b")
+# Smart-seq2, a full-gene assay.
+FULL_GENE = "EFO:0008931"
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +37,12 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     prefix, compacted = root / "out", root / "compacted"
     prefix.mkdir()
     for seed, (dataset_id, spec) in enumerate(STORES.items()):
-        write_one(prefix, make_store(dataset_id, *spec, seed=seed), dataset_id)
+        adata = make_store(dataset_id, *spec, seed=seed)
+        if dataset_id == "ds-b":
+            adata.obs["assay_ontology_term_id"] = pd.Categorical(
+                [FULL_GENE] * adata.n_obs
+            )
+        write_one(prefix, adata, dataset_id)
     sources = [prefix / f"v-{d}.zarr" for d in MEMBERS]
     compaction.compact(sources, compacted / "c-ab.zarr")
     build_catalog.build(
@@ -63,7 +73,7 @@ def test_catalog_names_the_compacted_store(corpus: dict[str, Path]) -> None:
     assert frame.loc["ds-a", "compacted_row_start"] == 0
     assert frame.loc["ds-a", "compacted_row_stop"] == STORES["ds-a"][0]
     assert frame.loc["ds-b", "compacted_row_start"] == STORES["ds-a"][0]
-    assert pd.isna(frame.loc["ds-c", "compacted_store_uri"])
+    assert bool(frame["compacted_store_uri"].isna()["ds-c"])
     # The per-dataset store stays the store of each row.
     assert frame.loc["ds-a", "store_uri"] == str(corpus["prefix"] / "v-ds-a.zarr")
 
@@ -75,8 +85,13 @@ def test_compacted_reads_equal_per_dataset_reads(
 ) -> None:
     fast = census2_sdk.open_census([corpus["catalog"]])
     slow = census2_sdk.open_census([corpus["catalog"]], compacted=False)
-    got = fast.get_anndata("homo_sapiens", obs_filter, max_workers=max_workers)
-    want = slow.get_anndata("homo_sapiens", obs_filter, max_workers=max_workers)
+    layers = ["normalized"]
+    got = fast.get_anndata(
+        "homo_sapiens", obs_filter, layers=layers, max_workers=max_workers
+    )
+    want = slow.get_anndata(
+        "homo_sapiens", obs_filter, layers=layers, max_workers=max_workers
+    )
     assert got is not None and want is not None
     assert list(got.obs_names) == list(want.obs_names)
     pd.testing.assert_frame_equal(
@@ -85,8 +100,12 @@ def test_compacted_reads_equal_per_dataset_reads(
     pd.testing.assert_frame_equal(
         cast("pd.DataFrame", got.var), cast("pd.DataFrame", want.var)
     )
+    assert "measured" not in got.var.columns
     assert X(got).dtype == X(want).dtype
     assert np.array_equal(X(got).toarray(), X(want).toarray())
+    normalized = [sp.csr_matrix(r.layers["normalized"]) for r in (got, want)]
+    assert normalized[0].dtype == normalized[1].dtype
+    assert np.array_equal(normalized[0].toarray(), normalized[1].toarray())
     same(got, expected(corpus, obs_filter))
     # The per-dataset path opens one store for each dataset.
     assert want.uns["census2"]["stores_opened"] == want.uns["census2"]["datasets_read"]
@@ -169,6 +188,17 @@ def test_builder_refuses_a_member_with_other_cells(
     )
     write_one(prefix, adata, "ds-b")
     with pytest.raises(ValueError, match=r"v-ds-b differs .*\['obs_digest'\]"):
+        build_catalog.build([str(prefix)], compacted=[str(compacted)])
+
+
+def test_builder_refuses_other_assayed_genes(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    prefix, compacted = copy_corpus(corpus, tmp_path)
+    array = zarr.open_group(compacted / "c-ab.zarr", mode="r+")["varm/measured"]
+    assert isinstance(array, zarr.Array)
+    array[0, 1] = not bool(array[0, 1])
+    with pytest.raises(ValueError, match="member 1 has other assayed genes"):
         build_catalog.build([str(prefix)], compacted=[str(compacted)])
 
 

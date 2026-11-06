@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Build the prototype catalog from the Iteration 1 stores: one Parquet row for each dataset.
+"""Build the prototype catalog from the stores: one Parquet row for each dataset.
 
 The catalog builder is not part of the SDK. The SDK reads a catalog; the Census 2 team
-publishes one (design 2.3, 3.3). This script is the Iteration 1 stand-in for that
+publishes one (design 2.3, 3.3). This script is the prototype stand-in for that
 builder. It reads one or more prefixes that hold `<dataset_version_id>.zarr` stores.
 Each store's summary record, in the attributes of its root group, gives the dataset's
 identifiers and the gene reference version. The rest of the row comes from the store's
 `obs` and `uns`. The builder reads no receipt.
 
-Each row also holds the cell counts of its store, in the `cell_counts` column
-(tracker 5.9). The column has one entry for each combination of the `COUNTED` values
-and `is_primary_data`, with the number of cells in `n_cells`. The builder counts the
-cells in the same pass that reads the values for the catalog row.
+Each row also holds the cell counts of its store, in the `cell_counts` column. The
+column has one entry for each combination of the `COUNTED` values and
+`is_primary_data`, with the number of cells in `n_cells`. The builder counts the cells
+in the same pass that reads the values for the catalog row.
 
     python census2-sdk/tools/build_catalog.py s3://bucket/prefix/ catalog.parquet
 
@@ -51,7 +51,7 @@ from census2_sdk.catalog import (
     is_remote,
     open_store,
 )
-from census2_sdk.gene_reference import TAXON_TO_ORGANISM
+from census2_sdk.gene_reference import MEASURED_COLUMN, TAXON_TO_ORGANISM
 
 # The declared type keeps a column that no store holds as a string in every catalog.
 COUNT_ENTRY = pa.struct(
@@ -106,13 +106,14 @@ def _row(store_uri: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """The catalog row of one per-dataset store, and the identity of its cells.
 
     The identity is what a compacted store must match: the digest of the
-    `observation_joinid` values and the stored values of `X`.
+    `observation_joinid` values, the stored values of `X`, and the assayed genes
+    (`MEASURED_COLUMN` of `var`).
     """
     name = store_uri.rsplit("/", 1)[1]
     group = open_store(store_uri)
     record = summary_record(group, name)
     row, cells = summarize(group)
-    identity: dict[str, Any] = {"obs_digest": None, "nnz": None}
+    identity: dict[str, Any] = {"obs_digest": None, "nnz": None, "measured": None}
     obs = group["obs"]
     assert isinstance(obs, zarr.Group)
     if "observation_joinid" in obs:
@@ -122,6 +123,9 @@ def _row(store_uri: str) -> tuple[dict[str, Any], dict[str, Any]]:
     if isinstance(x, zarr.Group) and "indptr" in x:
         indptr = cast("zarr.Array[Any]", x["indptr"])
         identity["nnz"] = int(np.asarray(indptr[-1:])[0])
+    var = group["var"]
+    if isinstance(var, zarr.Group) and MEASURED_COLUMN in var:
+        identity["measured"] = np.asarray(read_elem(var[MEASURED_COLUMN]), dtype=bool)
     return {
         "dataset_id": record["dataset_id"],
         "dataset_version_id": record["dataset_version_id"],
@@ -224,8 +228,10 @@ def check_compacted(
     cells, gene reference, `obs_digest`, and `nnz`. The members must compose: one
     organism, one gene reference, and one spatial value. The compacted store must
     hold what its record says: the member's `dataset_id` and `observation_joinid`
-    values in its rows, and its stored values of `X`. These checks read two `obs`
-    columns and some values of `X/indptr`, not the matrix.
+    values in its rows, and its stored values of `X`. The member's column of
+    `varm["measured"]` must be the assayed genes of its per-dataset store. These
+    checks read two `obs` columns, `varm["measured"]`, and some values of
+    `X/indptr`, not the matrix.
     """
     name = uri.rsplit("/", 1)[1]
     group = open_store(uri)
@@ -283,8 +289,12 @@ def check_compacted(
     indptr = np.asarray(
         cast("zarr.Array[Any]", x["indptr"]).get_orthogonal_selection(np.array(bounds))
     )
+    measured = _measured(group, name, len(members))
     for k, member in enumerate(members):
         start, stop = member["row_start"], member["row_stop"]
+        assayed = rows[member["dataset_version_id"]]["measured"]
+        if assayed is None or not np.array_equal(measured[:, k], assayed):
+            raise ValueError(f"{name}: member {k} has other assayed genes")
         if set(dataset_ids[start:stop]) != {member["dataset_id"]}:
             raise ValueError(f"{name}: rows {start}:{stop} hold another dataset_id")
         if (
@@ -295,6 +305,20 @@ def check_compacted(
         if int(indptr[k + 1] - indptr[k]) != member["nnz"]:
             raise ValueError(f"{name}: rows {start}:{stop} hold other values of X")
     return record
+
+
+def _measured(group: zarr.Group, name: str, n_members: int) -> np.ndarray:
+    """The assayed genes of each member of a compacted store: genes x members."""
+    varm = group["varm"]
+    if not isinstance(varm, zarr.Group) or MEASURED_COLUMN not in varm:
+        raise ValueError(f"{name}: no varm {MEASURED_COLUMN}")
+    matrix = np.asarray(read_elem(varm[MEASURED_COLUMN]))
+    if matrix.dtype != bool or matrix.ndim != 2 or matrix.shape[1] != n_members:
+        raise ValueError(
+            f"{name}: varm {MEASURED_COLUMN} is {matrix.dtype} {matrix.shape}; "
+            f"want bool with {n_members} columns"
+        )
+    return matrix
 
 
 def summarize(group: zarr.Group) -> tuple[dict[str, Any], pd.DataFrame]:

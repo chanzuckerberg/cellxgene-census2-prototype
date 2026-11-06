@@ -1,4 +1,4 @@
-"""Run one benchmark query in this process and print one JSON line (task 6.4).
+"""Run one benchmark query in this process and print one JSON line.
 
 Each run is a new process, so no connection or metadata cache carries over from
 an earlier run. The shapes are:
@@ -314,7 +314,7 @@ def run(
             _catalog.open_store = original
         t2 = time.monotonic()
         selected = _catalog.exclude(
-            census.catalog, ORGANISM, _catalog.normalize(obs_filter)
+            census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
         )
         record["datasets"] = len(selected)
         record["stores_opened"] = len(serving_uris(selected, per_dataset))

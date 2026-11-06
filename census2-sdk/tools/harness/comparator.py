@@ -1,4 +1,4 @@
-"""The comparator (task 2.3): decide whether two canonical results are the same answer.
+"""The comparator: decide whether two canonical results are the same answer.
 
 Both sides are in the canonical form of `canonical.py`: rows ordered by identity,
 categoricals decoded, X in the sorted coordinate space. The comparator normalizes
@@ -14,15 +14,14 @@ The rules:
 2. Values are compared only where identities align. A mismatch names the first cell
    that differs: its identity, its column, and both values.
 3. Floats compare exactly, including the raw counts in X. The one exception is the
-   layers in `FLOAT_TOLERANT` (`normalized`), which compare within `rtol=1e-6`,
-   because the operation order of derived floating-point arithmetic can differ
-   between stacks.
+   layers in `FLOAT_TOLERANT` (`normalized`), which compare within `rtol=2**-15`,
+   because Census 1 rounds that layer to 15 mantissa bits and the SDK does not.
 4. A column present on one side only is a finding.
 5. Two integer columns compare exactly. A float column, or an int/float pair,
    compares NaN-aware (NaN equals NaN) in float64, and the dtype disagreement is
    tolerated when the values compare equal. The Census 1 SDK's dtype for a nullable
    integer column (the spatial `array_row`, `array_col`, `in_tissue`) depends on
-   whether the selected rows include a null (evidence 18.1). A kind disagreement
+   whether the selected rows include a null. A kind disagreement
    (string vs numeric) is a finding.
 6. An axis that neither side holds, such as `obs` in a presence result, is not
    compared. An axis that either side holds must carry its identity columns on both
@@ -37,7 +36,7 @@ import numpy as np
 
 from harness.canonical import Arrays, decode_strings
 
-FLOAT_TOLERANT = {"normalized": 1e-6}  # layer name -> rtol; everything else is exact
+FLOAT_TOLERANT = {"normalized": 2**-15}  # layer name -> rtol; everything else is exact
 
 
 @dataclass(frozen=True)

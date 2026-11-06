@@ -1,4 +1,4 @@
-"""Run the query corpus through the Census 2 SDK and compare with Census 1 (task 6.2).
+"""Run the query corpus through the Census 2 SDK and compare with Census 1.
 
 For each bound query, the driver loads the recorded Census 1 result, answers the query
 through `sdk_adapter`, and runs the comparator. It prints one status line for
@@ -12,8 +12,11 @@ Run from `census2-sdk/tools/` with the stores' credentials in the environment:
 
 The SDK's `var` is the whole pinned reference, and the Census 1 `var` is the genes of
 its build. The comparator compares no X value while the gene sets differ, so the driver
-restricts both sides to the shared genes. The genes that only the SDK holds are an
-expected finding. A Census 1 gene that the SDK does not hold fails the query.
+restricts both sides to the shared genes. A Census 1 gene that the SDK does not hold
+fails the query.
+
+A finding in the declared list of expected differences (`EXPECTED` and `FLOAT32_SUMS`)
+stays on record and does not fail the query. Census 1 is the left side.
 """
 
 import argparse
@@ -53,10 +56,10 @@ OWNERS: tuple[tuple[str, str, str], ...] = (
         "per-cell statistics that the writer computes",
     ),
     (r"^obs\.tissue_general", "4.5", "tissue_general, which the writer derives"),
-    (r"^X\.normalized$", "4.5", "the normalized layer that the writer computes"),
+    (r"^X\.normalized$", "4.13", "the normalized layer"),
     (
         r"^var\.(nnz|n_measured_obs)$",
-        "4.5",
+        "4.14",
         "corpus aggregates that the release builder sums from the per-dataset files",
     ),
     (
@@ -72,8 +75,91 @@ OWNERS: tuple[tuple[str, str, str], ...] = (
     (r"^obs\.", "4.4", "the obs columns that a store keeps"),
 )
 COLUMN_RULES = {r"^obs\."}  # these rules apply to column-set findings only
-# The SDK's var is the whole pinned reference, so its extra genes do not block a query.
-EXPECTED = "var genes, SDK only"
+SDK_ONLY_GENES = "var genes, SDK only"
+# The task that adds what an unsupported query needs: (reason pattern, task).
+UNSUPPORTED_OWNERS: tuple[tuple[str, str], ...] = (
+    (r"has no (get_obs|get_var|get_presence_matrix) accessor", "6.7"),
+    (r"takes equality and membership only", "6.7"),
+)
+
+# The declared expected differences: (kind, where pattern, detail pattern, reason).
+EXPECTED: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "row-set",
+        rf"^{SDK_ONLY_GENES}$",
+        "",
+        "the SDK's var is the whole pinned reference",
+    ),
+    (
+        "column-set",
+        r"^var\.feature_version$",
+        r"^present on right only$",
+        "the SDK's var keeps this column of the pinned reference",
+    ),
+    (
+        "column-set",
+        r"^var\.(nnz|n_measured_obs)$",
+        r"^present on left only$",
+        "the release builder does not add the corpus aggregates yet",
+    ),
+)
+# Census 1 asks scipy for a float64 sum, but scipy < 1.18 adds float32 counts in float32.
+# Census 1 thus rounds a row sum above 2**24 (largest relative difference 1.7e-7). The
+# ingest round-trip check verifies the SDK sum (README).
+FLOAT32_SUMS = {"obs.raw_sum", "obs.raw_mean_nnz"}
+FLOAT32_RTOL = 1e-6
+
+
+def _differ(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    """The cells where two numeric columns differ. NaN equals NaN."""
+    left, right = left.astype(np.float64), right.astype(np.float64)
+    same = (left == right) | (np.isnan(left) & np.isnan(right))
+    return np.asarray(~same, dtype=bool)
+
+
+def _float32_rounding(census1: Arrays, sdk: Arrays, column: str) -> bool:
+    """True if `column` differs only where Census 1 rounds the row sum (harness README)."""
+    needed = {"obs.raw_sum"} | ({"obs.nnz"} if column == "obs.raw_mean_nnz" else set())
+    if not needed <= census1.keys() & sdk.keys():
+        return False
+    differ = _differ(census1[column], sdk[column])
+    left, right = (side[column].astype(np.float64)[differ] for side in (census1, sdk))
+    sum1, sum2 = (
+        side["obs.raw_sum"].astype(np.float64)[differ] for side in (census1, sdk)
+    )
+    ok = (
+        np.all(_differ(sum1, sum2))
+        and np.all(sum2 > 2**24)
+        and np.allclose(left, right, rtol=FLOAT32_RTOL, atol=0)
+    )
+    if ok and column == "obs.raw_mean_nnz":
+        nnz1, nnz2 = (
+            side["obs.nnz"].astype(np.float64)[differ] for side in (census1, sdk)
+        )
+        ok = (
+            np.array_equal(nnz1, nnz2)
+            and np.allclose(left, sum1 / nnz1, rtol=1e-12, atol=0)
+            and np.allclose(right, sum2 / nnz2, rtol=1e-12, atol=0)
+        )
+    return bool(ok)
+
+
+def expected(finding: Finding, census1: Arrays, sdk: Arrays) -> str | None:
+    """The reason that `finding` is an expected difference, or None."""
+    for kind, where, detail, reason in EXPECTED:
+        if (
+            finding.kind == kind
+            and re.search(where, finding.where)
+            and re.search(detail, finding.detail)
+        ):
+            return reason
+    if (
+        finding.kind == "value"
+        and finding.where in FLOAT32_SUMS
+        and _float32_rounding(census1, sdk, finding.where)
+    ):
+        return "Census 1 rounds a float32 row sum above 2**24"
+    return None
 
 
 def owner(finding: Finding, row_columns: set[str]) -> tuple[str, str]:
@@ -143,15 +229,20 @@ def _row_columns(query: BoundQuery, pins: dict[str, Any]) -> set[str]:
     return set(sdk_adapter.translate(query.obs_filter, pins))
 
 
-def _finding_record(finding: Finding, row_columns: set[str]) -> dict[str, Any]:
+def _finding_record(
+    finding: Finding, row_columns: set[str], expected: str | None = None
+) -> dict[str, Any]:
     who, why = owner(finding, row_columns)
-    return {
+    record = {
         "kind": finding.kind,
         "where": finding.where,
         "detail": finding.detail,
         "owner": who,
         "reason": why,
     }
+    if expected:
+        record["expected"] = expected
+    return record
 
 
 def run_one(
@@ -182,7 +273,10 @@ def run_one(
     try:
         sdk, notes = sdk_adapter.answer(query, census, clamp, pins)
     except sdk_adapter.Unsupported as reason:
-        record.update(status="unsupported", reason=str(reason))
+        who = next(
+            (task for p, task in UNSUPPORTED_OWNERS if re.search(p, str(reason))), "6.2"
+        )
+        record.update(status="unsupported", reason=str(reason), owner=who)
         return record
     except sdk_adapter.NoCells as reason:
         rows = _obs_rows(load_result(result_dir))
@@ -207,7 +301,7 @@ def run_one(
     genes_sdk = set(_var_frame(sdk)["feature_id"])
     shared = genes_c1 & genes_sdk
     for where, genes in (
-        (EXPECTED, genes_sdk - genes_c1),
+        (SDK_ONLY_GENES, genes_sdk - genes_c1),
         ("var genes, Census 1 only", genes_c1 - genes_sdk),
     ):
         if genes:
@@ -218,8 +312,10 @@ def run_one(
     findings += compare(census1, sdk)
 
     row_columns = _row_columns(query, pins)
-    record["findings"] = [_finding_record(f, row_columns) for f in findings]
-    blocking = [f for f in record["findings"] if f["where"] != EXPECTED]
+    record["findings"] = [
+        _finding_record(f, row_columns, expected(f, census1, sdk)) for f in findings
+    ]
+    blocking = [f for f in record["findings"] if "expected" not in f]
     if record["cells"]["census1"] == 0 and record["cells"]["sdk"] == 0:
         record["status"] = "vacuous"  # no cell to compare; the findings stay on record
     else:
@@ -234,7 +330,8 @@ def summary(records: list[dict[str, Any]]) -> dict[str, Any]:
     )
     for record in records:
         for f in record.get("findings", []):
-            by_owner[f["owner"]][f"{f['kind']} {f['where']}"] += 1
+            tag = " (expected)" if "expected" in f else ""
+            by_owner[f["owner"]][f"{f['kind']} {f['where']}{tag}"] += 1
     return {
         "status": dict(status),
         "by_owner": {k: dict(sorted(v.items())) for k, v in sorted(by_owner.items())},
@@ -260,10 +357,13 @@ def main() -> int:
         line = f"{record['status']:<11} {query.label}"
         if record["status"] in {"skip", "unsupported"}:
             line += f": {record['reason']}"
+            if "owner" in record:
+                line += f"  (owner {record['owner']})"
         print(line)
         for f in record.get("findings", [])[:5]:
+            tag = ", expected" if "expected" in f else ""
             print(
-                f"    [{f['kind']}] {f['where']}: {f['detail']}  (owner {f['owner']})"
+                f"    [{f['kind']}] {f['where']}: {f['detail']}  (owner {f['owner']}{tag})"
             )
     catalog = {
         "file": pathlib.Path(args.catalog).name,

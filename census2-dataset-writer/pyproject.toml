@@ -21,13 +21,16 @@ dependencies = [
     "numcodecs>=0.15",
     "h5py>=3.11",
     "numpy>=1.26",
-    "scipy>=1.11",
+    # 1.18 applies sum(dtype=float64) before the sum (scipy#24496), so raw_sum is exact.
+    "scipy>=1.18",
     # obs and var are pandas DataFrames, so they appear in this package's own
     # annotations. anndata requires pandas regardless; this states the reliance.
     "pandas>=2.1",
     # read_elem_lazy returns a dask array of sparse blocks, which is how the
     # expression matrix stays out of memory.
     "dask>=2024.1",
+    # Census 1 pins this version. The tissue list and the ontologies ship with it.
+    "cellxgene-ontology-guide==1.9.0",
 ]
 
 [project.optional-dependencies]
@@ -49,12 +52,13 @@ strict = true
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-# h5py alone ships no type information, so an import of it is untyped rather
-# than wrong, and what reaches us through it is Any. Everything else here is
-# typed: dask, obstore, anndata and zarr ship py.typed, and scipy and pandas have
-# stub packages in the dev extra. Listing them would discard types we can have.
+# h5py and cellxgene-ontology-guide ship no type information, so an import of
+# them is untyped rather than wrong, and what reaches us through them is Any.
+# Everything else here is typed: dask, obstore, anndata and zarr ship py.typed,
+# and scipy and pandas have stub packages in the dev extra. Listing them would
+# discard types we can have.
 #
 # h5py-stubs exists on PyPI, but it is unaffiliated with h5py. Stubs that do not
 # match the library would cost more than Any, so the boundary stays narrow.
-module = ["h5py.*"]
+module = ["h5py.*", "cellxgene_ontology_guide.*"]
 ignore_missing_imports = true

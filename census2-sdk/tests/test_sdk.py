@@ -20,6 +20,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr
+from anndata.io import read_elem, write_elem
 
 import census2_sdk
 from census2_sdk import catalog
@@ -82,7 +83,10 @@ def make_store(
         },
         index=[f"cell{i}" for i in range(n_obs)],
     )
-    adata = anndata.AnnData(X=x, obs=obs, var=reference_var(var_ids))
+    var = reference_var(var_ids)
+    # The writer marks the dataset's assayed genes in var.
+    var["measured"] = np.isin(var_ids, measured)
+    adata = anndata.AnnData(X=x, obs=obs, var=var)
     adata.uns = {
         "schema_version": "7.1.0",
         "organism_ontology_term_id": "NCBITaxon:9606",
@@ -248,7 +252,7 @@ def test_result_shape_and_provenance(corpus: dict[str, Path]) -> None:
     assert result.uns["census2"]["sources"] == [str(corpus["catalog"])]
     assert result.obs.index.is_unique
     assert X(result).dtype == np.float32
-    # var is the stores' var, with its reference columns.
+    # var is the stores' var, with its reference columns and without `measured`.
     assert list(result.var.columns) == list(reference_var(REFERENCE_IDS).columns)
 
 
@@ -267,9 +271,11 @@ def test_concurrent_reads_match_one_at_a_time(
     done = {dataset_id: threading.Event() for dataset_id in order}
     finished: list[str] = []
 
-    def overlapping(opened: Any, read: Any, normalized: Any) -> anndata.AnnData:
+    def overlapping(
+        opened: Any, read: Any, canonical: Any, layers: Any = ()
+    ) -> anndata.AnnData:
         all_running.wait()
-        part = read_rows(opened, read, normalized)
+        part = read_rows(opened, read, canonical, layers)
         position = order.index(read.row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -396,7 +402,7 @@ def test_catalog_without_a_column_keeps_the_dataset(
 
     # The catalog keeps the store; its cells hold no lung, so the result is None.
     alone = census2_sdk.open_census([tmp_path / "no-tissue.parquet"])
-    lung = catalog.normalize({"tissue": "lung"})
+    lung = catalog.canonicalize({"tissue": "lung"})
     assert len(catalog.exclude(alone.catalog, "homo_sapiens", lung)) == 1
     assert alone.get_anndata("homo_sapiens", {"tissue": "lung"}) is None
 
@@ -427,12 +433,83 @@ def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
     same(result, expected(corpus, {"tissue": ["lung", "kidney"]}))
 
 
-def test_duplicate_cell_key_refused(corpus: dict[str, Path], tmp_path: Path) -> None:
-    adata = make_store("ds-d", 4, REFERENCE_IDS[:3], ["lung"], ["normal"], 3)
-    adata.obs["observation_joinid"] = pd.array(["k", "k", "l", "m"])
-    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-d")])
-    with pytest.raises(ValueError, match="not unique"):
-        census.get_anndata("homo_sapiens")
+def test_obs_index_is_not_read(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SDK decodes no source cell name, and no key of a dropped cell."""
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
+    # A read of the whole group would decode the index too.
+    assert "/obs/tissue" in names
+    assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
+
+
+@pytest.mark.parametrize(
+    ("encoding", "dtype"),
+    [
+        ("nullable-string-array", "string"),
+        ("nullable-string-array", pd.StringDtype(na_value=np.nan)),
+        ("categorical", "category"),
+    ],
+)
+def test_cell_key_checked_on_kept_cells(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    dtype: str | pd.StringDtype,
+) -> None:
+    """A bad key in a dropped cell passes. The writer checks every cell."""
+    adata = make_store("ds-d", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 3)
+    adata.obs["tissue"] = pd.Categorical(["kidney"] * 2 + ["lung"] * 2 + ["heart"] * 2)
+    catalog = one_store_catalog(tmp_path, adata, "ds-d")
+    # write_zarr makes a categorical of repeated strings, so write the key again.
+    store = tmp_path / "out" / "v-ds-d.zarr"
+    obs = zarr.open_group(store / "obs", mode="r+")
+    keys = pd.Series(["k", "k", "l", "m", None, "n"], dtype=dtype).array
+    write_elem(obs, "observation_joinid", keys)
+    zarr.consolidate_metadata(store)
+    node = obs["observation_joinid"]
+    assert node.attrs["encoding-type"] == encoding
+    column: Any = read_elem(node)
+    stored = column.dtype
+    if encoding == "nullable-string-array":
+        # An empty selection of a string column reads no key data.
+        monkeypatch.setattr(census2_sdk, "read_elem", None)
+    assert census2_sdk._read_column_rows(node, np.array([], dtype=int)).dtype == stored
+    monkeypatch.undo()
+    census = census2_sdk.open_census([catalog])
+    result = census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    assert result is not None
+    assert list(result.obs["observation_joinid"]) == ["l", "m"]
+    assert result.obs["observation_joinid"].dtype == stored
+    for tissue in ("kidney", "heart"):
+        with pytest.raises(ValueError, match="null or not unique"):
+            census.get_anndata("homo_sapiens", {"tissue": tissue})
+
+
+def test_malformed_store_refused(tmp_path: Path) -> None:
+    """A store node of the wrong kind raises a TypeError that names the node.
+
+    A full-gene assay without `feature_length` raises a ValueError.
+    """
+    root = zarr.open_group(tmp_path / "s.zarr", mode="w")
+    with pytest.raises(TypeError, match="/X must be an encoded sparse matrix"):
+        census2_sdk._rows(root.create_array("X", shape=(1,), dtype="i4"), np.array([0]))
+    key = root.create_group(
+        "key", attributes={"encoding-type": "nullable-string-array"}
+    )
+    key.create_group("values")
+    key.create_array("mask", shape=(1,), dtype="bool")
+    with pytest.raises(TypeError, match="/key must hold a values and a mask array"):
+        census2_sdk._read_column_rows(key, np.array([0]))
+    with pytest.raises(ValueError, match="needs feature_length"):
+        census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
 
 
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
@@ -476,7 +553,7 @@ def test_recorded_reference_must_match_the_pin(
     assert query(census, {"tissue": "lung"}).n_obs > 0
 
 
-# --- the cell counts and count_cells (tracker 5.9) -----------------------------
+# --- the cell counts and count_cells ------------------------------------------
 
 COUNT_FILTERS: list[dict[str, Any]] = [
     {},
@@ -534,6 +611,15 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
     # For an organism with no store, a query with a filter gives zero and None.
     assert census.count_cells("mus_musculus", {"tissue": "lung"}) == 0
     assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
+
+
+def test_count_cells_takes_tissue_general(tmp_path: Path) -> None:
+    adata = make_store("ds-t", 6, REFERENCE_IDS[:3], ["lung", "retina"], ["normal"], 7)
+    adata.obs["tissue_general"] = pd.Categorical(["lung"] * 4 + ["eye"] * 2)
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-t")])
+    assert census.count_cells("homo_sapiens", {"tissue_general": "eye"}) == 2
+    result = census.get_anndata("homo_sapiens", {"tissue_general": "eye"})
+    assert result is not None and result.n_obs == 2
 
 
 def test_count_cells_reads_the_catalog_that_open_census_read(
@@ -663,3 +749,97 @@ def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-m")])
     with pytest.raises(ValueError, match="holds \\['ds-other'\\].*names ds-m"):
         census.get_anndata("homo_sapiens")
+
+
+# --- the normalized layer -----------------------------------------------------
+
+
+def census1_normalized(
+    counts: sp.csr_matrix,
+    full_gene: np.ndarray,
+    length: np.ndarray,
+    rounded: bool = True,
+) -> sp.csr_matrix:
+    """The oracle: the steps of Census 1 `experiment_builder.py`, without numba.
+
+    `rounded=False` stops before the 15-bit rounding, which the SDK leaves out.
+    """
+    counts = counts.copy()
+    counts.eliminate_zeros()
+    coo = counts.tocoo()
+    i, j, d = coo.row, coo.col, coo.data.astype(np.float32)
+    norm = np.where(full_gene[i], d / length[j], d).astype(np.float32)
+    row_sum = np.zeros(counts.shape[0], dtype=np.float64)
+    for k in range(len(i)):
+        row_sum[i[k]] += norm[k]
+    for k in range(len(i)):
+        norm[k] = norm[k] / row_sum[i[k]]
+    if not rounded:
+        return sp.csr_matrix((norm, (i, j)), shape=counts.shape)
+    maskbits = 23 - 15  # _roundHalfToEven(keepbits=15)
+    mask = np.array((((1 << 32) - 1) >> maskbits) << maskbits, dtype=np.uint32)
+    b = norm.view(np.int32)
+    b += ((b >> maskbits) & 1) + ((1 << (maskbits - 1)) - 1)
+    b &= mask.view(np.int32)
+    norm[norm == 0] = np.finfo(np.float32).smallest_subnormal
+    return sp.csr_matrix((norm, (i, j)), shape=counts.shape)
+
+
+def test_normalized_is_census1_without_its_rounding() -> None:
+    rng = np.random.default_rng(0)
+    counts = sp.random(
+        40, 60, density=0.3, format="csr", random_state=1, dtype="float32"
+    )
+    counts.data = np.floor(counts.data * 200) + 1
+    counts.data[5] = 0  # a stored zero drops out, as in Census 1
+    counts.data[counts.indptr[2] : counts.indptr[3]] = 0  # a row of stored zeros
+    full_gene = rng.random(40) < 0.4
+    length = rng.integers(200, 20_000, 60)
+    got = census2_sdk.normalize.normalized(counts, full_gene, length)
+    exact = census1_normalized(counts, full_gene, length, rounded=False)
+    census1 = census1_normalized(counts, full_gene, length)
+    for want in (exact, census1):
+        assert np.array_equal(got.indptr, want.indptr)
+        assert np.array_equal(got.indices, want.indices)
+    assert got.data.dtype == np.float32
+    assert np.array_equal(got.data.view(np.uint32), exact.data.view(np.uint32))
+    assert not np.array_equal(got.data, census1.data)  # the SDK does not round
+    assert np.allclose(got.data, census1.data, rtol=2**-15, atol=0)
+    assert got.nnz == counts.count_nonzero() and not np.isnan(got.data).any()
+
+
+def test_get_anndata_adds_the_normalized_layer(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    result = census.get_anndata(
+        "homo_sapiens", {"tissue": "lung"}, layers=["normalized"]
+    )
+    assert result is not None
+    none = np.zeros(result.n_obs, dtype=bool)
+    want = census2_sdk.normalize.normalized(X(result), none, None)
+    assert np.array_equal(
+        sp.csr_matrix(result.layers["normalized"]).toarray(), want.toarray()
+    )
+    assert np.allclose(np.asarray(want.sum(axis=1)).ravel(), 1, rtol=1e-3)
+    assert "normalized" not in query(census, {"tissue": "lung"}).layers
+
+
+def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
+    adata = make_store("ds-s", 6, REFERENCE_IDS, ["lung"], ["normal"], 15)
+    adata.obs["assay_ontology_term_id"] = pd.Categorical(["EFO:0008931"] * adata.n_obs)
+    adata.var["feature_length"] = np.arange(1, len(REFERENCE_IDS) + 1) * 100
+    census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-s")])
+    result = census.get_anndata("homo_sapiens", layers=["normalized"])
+    assert result is not None
+    length = np.asarray(adata.var["feature_length"])
+    full_gene = np.ones(result.n_obs, dtype=bool)
+    want = census1_normalized(X(result), full_gene, length, rounded=False)
+    got = sp.csr_matrix(result.layers["normalized"])
+    assert np.array_equal(got.toarray(), want.toarray())
+
+
+def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
+        census.get_anndata("homo_sapiens", layers=["scaled"])

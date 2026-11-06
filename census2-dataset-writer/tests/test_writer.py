@@ -29,9 +29,9 @@ import zarr
 from anndata.io import read_elem
 
 TAXON = "NCBITaxon:9606"
-# dataset_id comes first. The writer adds it, and copies OBS_NAMES[1:] from the
-# source.
+# The writer adds dataset_id (first) and the other derived columns, and copies COPIED.
 OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
+COPIED = [n for n in OBS_NAMES if n not in census2_dataset_writer.DERIVED_OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
 # A Discover h5ad holds no identifiers, so every store needs these from its caller.
@@ -228,8 +228,9 @@ def test_round_trip(tmp_path: Path, dense: bool, raw: bool) -> None:
     # source's values.
     assert list(obs.columns) == OBS_NAMES
     assert set(obs["dataset_id"]) == {IDS["dataset_id"]}
-    for name in OBS_NAMES[1:]:
+    for name in COPIED:
         assert list(obs[name].astype(str)) == list(source.obs[name].astype(str))
+    assert set(obs["tissue_general"]) == {"lung"}
 
     # X is the counts on the reference genes, and sparse even from a dense source.
     x = stored_x(dest)
@@ -243,7 +244,10 @@ def test_the_store_holds_counts_on_the_reference(tmp_path: Path) -> None:
 
     var: Any = read_elem(store["var"])
     assert list(var.index) == REF_IDS
-    assert list(var.columns) == census2_dataset_writer.genes.COLUMNS
+    measured = census2_dataset_writer.MEASURED_COLUMN
+    assert list(var.columns) == [*census2_dataset_writer.genes.COLUMNS, measured]
+    # The assayed genes are the source genes, wherever they sit in the reference.
+    assert set(var.index[var[measured]]) == set(source.raw.var.index)
     assert result["gene_reference_version"] == "TEST v1"
     # raw.X holds the counts, and X the halved values: the store took raw.X.
     assert "raw" not in result["slots"]
@@ -484,8 +488,9 @@ def test_a_rejected_dataset_has_no_summary_record() -> None:
         "dataset_id": "d",
         "dataset_version_id": "v",
         "admitted": False,
-        "reason": "no cells on the assay allowlist",
+        "reason": "no cells pass the cell filters: assay (EFO:0030027)",
         "slots": [],
+        "dropped_cells": {},
         "dropped_obs_columns": [],
         "dropped_var_features": [],
         "gene_reference_version": None,
@@ -622,6 +627,7 @@ def test_not_admitted_writes_nothing(
         "admitted": False,
         "reason": "no thanks",
         "slots": [],
+        "dropped_cells": {},
         "dropped_obs_columns": [],
         "dropped_var_features": [],
         "gene_reference_version": None,
@@ -641,66 +647,6 @@ def test_an_organism_without_a_reference_is_rejected(tmp_path: Path) -> None:
     assert result["admitted"] is False
     assert "NCBITaxon:7955" in str(result["reason"])
     assert not dest.exists()
-
-
-# --- the assay allowlist --------------------------------------------------
-
-ON_LIST = "EFO:0009922"  # 10x 3' v3
-OFF_LIST = "EFO:0030027"  # snmC-Seq2, a DNA methylation assay
-
-
-def with_assay(adata: anndata.AnnData, *terms: str) -> anndata.AnnData:
-    """Give each cell an assay term, cycling through `terms`."""
-    n = adata.n_obs
-    adata.obs["assay_ontology_term_id"] = pd.Categorical(
-        [terms[i % len(terms)] for i in range(n)]
-    )
-    return adata
-
-
-def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
-    """The criterion that keeps dense methylation matrices out of the workflow."""
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    with_assay(dataset(), OFF_LIST).write_h5ad(source)
-
-    result = create(source, dest)
-
-    assert result["admitted"] is False
-    assert OFF_LIST in str(result["reason"])
-    assert not dest.exists()
-
-
-def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
-    """Census 1 masks the off-list cells. This does not; it takes them all."""
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    with_assay(dataset(), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
-
-    result = create(source, dest, refdata=tmp_path / "refdata")
-
-    assert result["admitted"] is True
-    assert zarr.open_consolidated(str(dest))["obs"] is not None
-
-
-def test_admit_ignores_a_missing_assay_column(refdata: Path) -> None:
-    """An AnnData without the column is not a Discover dataset, so the
-    criterion does not apply. The obs projection then refuses it."""
-    adata = dataset()
-    adata.obs = cast("pd.DataFrame", adata.obs).drop(columns="assay_ontology_term_id")
-    assert census2_dataset_writer.admit(adata, refdata=refdata) is None
-
-
-def test_empty_allowlist_turns_the_criterion_off(tmp_path: Path) -> None:
-    source = tmp_path / "source.h5ad"
-    dest = tmp_path / "store.zarr"
-    with_assay(dataset(), OFF_LIST).write_h5ad(source)
-
-    config = census2_dataset_writer.load_config()
-    config["assay_allowlist"] = []
-
-    result = create(source, dest, config=config, refdata=tmp_path / "refdata")
-    assert result["admitted"] is True
 
 
 # --- the obs projection ---------------------------------------------------
@@ -732,16 +678,17 @@ def test_project_obs_drops_the_author_columns() -> None:
     """Names with a `/` go with every other author column."""
     adata = with_obs_columns(dataset(), "leiden", *SLASH_COLS)
     kept = list(census2_dataset_writer.project_obs(adata).obs.columns)
-    assert kept == OBS_NAMES[1:]
+    assert kept == COPIED
 
 
 def test_harmonize_projects_obs_and_genes(refdata: Path) -> None:
-    """harmonize is the seam; project_obs, select_counts, and project_genes are
-    what it does."""
+    """harmonize is the seam; project_obs, add_tissue_general, select_counts,
+    and project_genes are what it does."""
     adata = with_obs_columns(dataset(), *SLASH_COLS)
     expected = projected(adata)
     harmonized = census2_dataset_writer.harmonize(adata, refdata=refdata)
     assert list(harmonized.obs.columns) == OBS_NAMES[1:]
+    assert set(harmonized.obs["tissue_general_ontology_term_id"]) == {"UBERON:0002048"}
     assert list(harmonized.var.index) == REF_IDS
     assert harmonized.raw is None
     x: Any = harmonized.X
@@ -785,6 +732,230 @@ def test_a_rejected_dataset_reports_no_dropped_columns(tmp_path: Path) -> None:
     assert result["dropped_obs_columns"] == []
 
 
+# --- the cell filters ----------------------------------------------------
+
+ON_LIST = "EFO:0009922"  # 10x 3' v3
+OFF_LIST = "EFO:0030027"  # snmC-Seq2, a DNA methylation assay
+
+
+def with_assay(adata: anndata.AnnData, *terms: str) -> anndata.AnnData:
+    """Give each cell an assay term, cycling through `terms`."""
+    n = adata.n_obs
+    adata.obs["assay_ontology_term_id"] = pd.Categorical(
+        [terms[i % len(terms)] for i in range(n)]
+    )
+    return adata
+
+
+def test_off_list_assay_is_rejected(tmp_path: Path) -> None:
+    """The assay filter keeps dense methylation matrices out of the workflow. The
+    reason names the filter and the assays, and holds no counts."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), OFF_LIST).write_h5ad(source)
+
+    result = create(source, dest)
+
+    assert result["admitted"] is False
+    assert result["reason"] == f"no cells pass the cell filters: assay ({OFF_LIST})"
+    assert result["dropped_cells"]["assay"] == 40
+    assert not dest.exists()
+
+
+def test_one_on_list_cell_admits_the_dataset(tmp_path: Path) -> None:
+    """One cell admits the dataset, and the store keeps only the on-list cells,
+    as Census 1 does."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(30), ON_LIST, OFF_LIST, OFF_LIST).write_h5ad(source)
+
+    result = create(source, dest, refdata=tmp_path / "refdata")
+
+    assert result["admitted"] is True
+    assert result["dropped_cells"]["assay"] == 20
+    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
+    assert set(obs["assay_ontology_term_id"]) == {ON_LIST}
+
+
+def test_admit_decides_no_assay(refdata: Path) -> None:
+    """`cell_mask` alone decides assays, so `admit` admits an off-list dataset."""
+    adata = with_assay(dataset(), OFF_LIST)
+    assert census2_dataset_writer.admit(adata, refdata=refdata) is None
+
+
+def test_empty_allowlist_turns_the_assay_filter_off(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    with_assay(dataset(), OFF_LIST).write_h5ad(source)
+
+    config = census2_dataset_writer.load_config()
+    config["assay_allowlist"] = []
+
+    result = create(source, dest, config=config, refdata=tmp_path / "refdata")
+    assert result["admitted"] is True
+    assert result["dropped_cells"]["assay"] == 0
+
+
+SPATIAL = "EFO:0022857"  # Visium Spatial Gene Expression
+
+
+def test_cell_mask_applies_the_census_1_filters() -> None:
+    """Each cell counts under the first filter that it fails."""
+    obs = pd.DataFrame(
+        {
+            "tissue_type": pd.Categorical(
+                ["tissue", "organoid", "cell culture", "primary cell culture"]
+                + ["tissue"] * 4
+            ),
+            "assay_ontology_term_id": pd.Categorical(
+                [ON_LIST, ON_LIST, OFF_LIST, ON_LIST, OFF_LIST]
+                + [SPATIAL, SPATIAL, ON_LIST]
+            ),
+            "is_primary_data": [True] * 5 + [True, False, False],
+        }
+    )
+
+    keep, dropped = census2_dataset_writer.cell_mask(obs)
+
+    assert keep.tolist() == [True, True, False, False, False, True, False, True]
+    assert dropped == {"tissue_type": 2, "assay": 1, "primary_data": 1}
+
+
+def test_cell_mask_refuses_an_obs_without_a_filter_column() -> None:
+    obs = pd.DataFrame({"tissue_type": ["tissue"], "is_primary_data": [True]})
+    with pytest.raises(ValueError, match="assay_ontology_term_id"):
+        census2_dataset_writer.cell_mask(obs)
+
+
+@pytest.mark.parametrize("all_slots", [False, True])
+def test_the_store_keeps_only_the_cells_that_pass(
+    tmp_path: Path, all_slots: bool
+) -> None:
+    """The subset keeps `obs`, `X`, and the optional slots aligned."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(40, extras=True)
+    culture = np.arange(40) % 4 == 0
+    adata.obs["tissue_type"] = pd.Categorical(
+        np.where(culture, "primary cell culture", "tissue")
+    )
+    adata.write_h5ad(source)
+    config = census2_dataset_writer.load_config()
+    config["all_slots"] = all_slots
+
+    result = create(source, dest, config=config, refdata=tmp_path / "refdata")
+
+    assert result["dropped_cells"] == {"tissue_type": 10, "assay": 0, "primary_data": 0}
+    root = zarr.open_consolidated(str(dest))
+    obs: Any = read_elem(root["obs"])
+    assert list(obs.index) == list(adata.obs_names[~culture])
+    assert list(obs["tissue_type"].cat.categories) == ["tissue"]
+    np.testing.assert_array_equal(stored_x(dest).toarray(), projected(adata)[~culture])
+    if all_slots:
+        obsm: Any = read_elem(root["obsm"])
+        pca = obsm["X_pca"]
+        np.testing.assert_array_equal(pca, adata.obsm["X_pca"][~culture])
+
+
+def test_a_dataset_with_no_cell_left_is_rejected(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(12)
+    adata.obs["tissue_type"] = pd.Categorical(["cell culture"] * 12)
+    adata.write_h5ad(source)
+
+    result = create(source, dest, refdata=tmp_path / "refdata")
+
+    assert result["admitted"] is False
+    assert result["reason"] == "no cells pass the cell filters: tissue_type"
+    assert result["dropped_cells"] == {"tissue_type": 12, "assay": 0, "primary_data": 0}
+    assert not dest.exists()
+
+
+# --- tissue_general --------------------------------------------------------
+
+
+def test_tissue_general_rolls_up_as_census_1_does() -> None:
+    assert census2_dataset_writer.tissues.tissue_general(
+        ["UBERON:0008952", "UBERON:0000966", "UBERON:0002048"]
+    ) == {
+        "UBERON:0008952": ("UBERON:0002048", "lung"),  # upper lobe of left lung
+        "UBERON:0000966": ("UBERON:0000970", "eye"),  # retina
+        "UBERON:0002048": ("UBERON:0002048", "lung"),
+    }
+
+
+def test_tissue_general_refuses_a_term_outside_the_ontology() -> None:
+    with pytest.raises(ValueError, match="UBERON:9999999"):
+        census2_dataset_writer.tissues.tissue_general(["UBERON:9999999"])
+
+
+def test_the_store_holds_tissue_general(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(20)
+    retina = np.arange(20) % 2 == 0
+    adata.obs["tissue_ontology_term_id"] = pd.Categorical(
+        np.where(retina, "UBERON:0000966", "UBERON:0002048")
+    )
+    adata.write_h5ad(source)
+
+    create(source, dest, refdata=tmp_path / "refdata")
+
+    obs: Any = read_elem(zarr.open_consolidated(str(dest))["obs"])
+    pair = ["tissue_general", "tissue_general_ontology_term_id"]
+    assert list(obs.columns[-7:-5]) == pair
+    assert list(obs["tissue_general"]) == list(np.where(retina, "eye", "lung"))
+    assert list(obs["tissue_general"].cat.categories) == ["eye", "lung"]
+
+
+# --- the statistics of the counts --------------------------------------------
+
+
+def test_row_stats_follow_census_1() -> None:
+    """Explicit zeros do not count, and a row with fewer than two values has a
+    variance of 0, as in Census 1."""
+    rows = [[0, 0, 0, 0], [5, 0, 0, 0], [1, 2, 0, 6], [3, 3, 0, 1]]
+    x = sp.csr_matrix(np.array(rows, dtype=np.float32))
+    x[1, 1] = 0  # an explicit zero
+    assert x.nnz == 8
+
+    stats = census2_dataset_writer._row_stats(x)
+
+    raw_sum, nnz, mean, variance = stats.T
+    assert raw_sum.tolist() == [0, 5, 9, 7]
+    assert nnz.tolist() == [0, 1, 3, 3]
+    assert mean.tolist() == [0, 5, 3, 7 / 3]
+    np.testing.assert_allclose(
+        variance, [0, 0, np.var([1, 2, 6], ddof=1), np.var([3, 3, 1], ddof=1)]
+    )
+
+
+def test_row_stats_merge_duplicates_and_keep_precision() -> None:
+    """A duplicate entry adds to its gene, and counts that float32 cannot hold
+    keep their precision."""
+    duplicates = sp.csr_matrix(
+        (np.array([1, 2, 3], dtype=np.float32), np.array([0, 0, 1]), np.array([0, 3])),
+        shape=(1, 2),
+    )
+    _, nnz, mean, variance = census2_dataset_writer._row_stats(duplicates)[0]
+    assert (nnz, mean, variance) == (2, 3, 0)
+
+    wide = sp.csr_matrix(np.array([[16777216, 16777217]], dtype=np.float64))
+    assert census2_dataset_writer._row_stats(wide)[0, 3] == 0.5
+
+
+def test_the_store_holds_the_count_statistics(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path, raw=True)
+    source: Any = anndata.read_h5ad(tmp_path / "source.h5ad")
+    obs: Any = read_elem(zarr.open_consolidated(dest, mode="r")["obs"])
+    x = projected(source)
+
+    np.testing.assert_array_equal(obs["raw_sum"], x.sum(axis=1, dtype=np.float64))
+    np.testing.assert_array_equal(obs["nnz"], np.count_nonzero(x, axis=1))
+    assert set(obs["n_measured_vars"]) == {source.raw.n_vars}
+
+
 def test_default_allowlist_holds_rna_and_spatial() -> None:
     """The default is Census 1's two lists, merged."""
     allowlist = set(census2_dataset_writer.DEFAULTS["assay_allowlist"])
@@ -809,6 +980,21 @@ def test_threads_bounds_the_write_and_restores_the_setting(tmp_path: Path) -> No
 
     result = create(source, dest, threads=2, refdata=tmp_path / "refdata")
     assert result["admitted"] is True
+    assert dask.config.get("num_workers", None) == before
+
+
+def test_a_failed_call_restores_the_thread_setting(tmp_path: Path) -> None:
+    """The bound applies when its block starts, so a call that fails before the
+    block leaves the setting as it was."""
+    import dask
+
+    before = dask.config.get("num_workers", None)
+    with pytest.raises(FileNotFoundError):
+        create(tmp_path / "missing.h5ad", tmp_path / "store.zarr", threads=2)
+    with pytest.raises(census2_dataset_writer.SummaryRecordError):
+        census2_dataset_writer.write(
+            dataset(), tmp_path / "store.zarr", summary=cast(Any, {}), threads=2
+        )
     assert dask.config.get("num_workers", None) == before
 
 
@@ -848,6 +1034,7 @@ def test_provenance_reports_the_code_that_wrote_a_store() -> None:
     assert p["census2_dataset_writer_version"] == version("census2-dataset-writer")
     assert p["anndata_version"] == version("anndata")
     assert p["zarr_version"] == version("zarr")
+    assert p["cellxgene_ontology_guide_version"] == version("cellxgene-ontology-guide")
 
 
 def test_provenance_follows_the_slot_policy() -> None:
@@ -980,6 +1167,10 @@ def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
             assert all(isinstance(c, str) for c in categories), name
         elif col_type is census2_dataset_writer.ColType.BOOL:
             assert column.dtype == bool, name
+        elif col_type is census2_dataset_writer.ColType.INT64:
+            assert column.dtype == np.int64, name
+        elif col_type is census2_dataset_writer.ColType.FLOAT64:
+            assert column.dtype == np.float64, name
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name
             assert all(isinstance(v, str) for v in column), name
@@ -1024,6 +1215,39 @@ def test_project_obs_refuses_a_malformed_source(change: str, message: str) -> No
         obs["observation_joinid"] = ["j0"] * adata.n_obs
     with pytest.raises(ValueError, match=message):
         census2_dataset_writer.project_obs(adata)
+
+
+def test_a_repeated_cell_key_fails_with_the_values_named(tmp_path: Path) -> None:
+    """Design 1.6: the build and a direct write both refuse a repeated
+    observation_joinid, and the error names the values."""
+    source = tmp_path / "source.h5ad"
+    dest = tmp_path / "store.zarr"
+    adata = dataset(12)
+    adata.obs["observation_joinid"] = ["j0", "j1", "j1", "j3", "j3", "j3"] + [
+        f"k{i}" for i in range(6)
+    ]
+    adata.write_h5ad(source)
+    with pytest.raises(ValueError, match="2 values repeat, such as j1, j3"):
+        create(source, dest, refdata=tmp_path / "refdata")
+    assert not dest.exists()
+
+    record = dict(GOOD_RECORD, dataset_id="dataset-1")
+    census2_dataset_writer.add_dataset_id(adata, "dataset-1")
+    with pytest.raises(ValueError, match="such as j1, j3"):
+        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+    assert not dest.exists()
+
+
+def test_a_write_refuses_a_null_cell_key(tmp_path: Path) -> None:
+    """One null is not a repeat, so the check looks for nulls first."""
+    dest = tmp_path / "store.zarr"
+    adata = dataset(6)
+    census2_dataset_writer.add_dataset_id(adata, "dataset-1")
+    adata.obs["observation_joinid"] = ["j0", "j1", None, "j3", "j4", "j5"]
+    record = dict(GOOD_RECORD, dataset_id="dataset-1")
+    with pytest.raises(ValueError, match="observation_joinid holds a null"):
+        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+    assert not dest.exists()
 
 
 def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:

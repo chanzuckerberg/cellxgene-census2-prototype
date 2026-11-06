@@ -9,7 +9,7 @@ Census 2 replaces the monolithic data structure with an S3 data lake. It also mo
 - **One store per dataset.** Each dataset that the Census admits becomes one Zarr store. The store goes into CELLxGENE Discover's asset storage, beside the dataset's other artifacts. Its address is the `dataset_version_id` and the `writer_version`.
 - **Independent writes.** We write the stores one dataset at a time. There is no corpus-wide data build. A store depends only on its dataset and the schema version.
 - **Harmonization without aggregation.** Cross-dataset queries need harmonized data. We apply some of Census 1's harmonization steps during Zarr ingestion (so a store is *not* merely the Discover h5ad saved in a different format). Ingestion reads only one dataset at a time, so steps that needed corpus-wide aggregates are redesigned or eliminated.
-- **Catalog and releases.** The Census owns both. The catalog holds one summary row per dataset, projected from Discover's curation API. A query uses these summaries to skip irrelevant stores without opening them. A release is a manifest and a catalog snapshot, which together pin the exact dataset versions. Because ingestion does not use corpus-wide aggregates, many releases can pin the same store.
+- **Catalog and releases.** The Census owns both. The catalog holds one summary row per dataset. A query uses these summaries to skip irrelevant stores without opening them. A release is a manifest and a catalog snapshot, which together pin the exact dataset versions. Because ingestion does not use corpus-wide aggregates, many releases can pin the same store.
 - **Query-time composition.** A query reads the catalog and opens only the stores that survive pruning. It combines those stores through stable cell and gene identity. One store is one access boundary. A private dataset therefore joins the same query as the public corpus as soon as its reader holds a grant, and the data does not move.
 
 ## Rough consensus and running code
@@ -68,5 +68,6 @@ This policy applies to all project documentation: markdown files, docstrings, an
 - Keep the whole sentence/section/document readable and coherent when you edit it. The smallest correct edit is not always the best edit to make.
 - State the current truth as if you knew it from the start. Avoid verbosely documenting the journey there; git retains that history.
 - AVOID sentence structures and rhetorical flourishes that intend to elicit human emotional reactions.
+- Do not cite or summarize internal documents (the plan, the tracker and its task numbers, the evidence, Notion pages). This rule also applies to the wiki. The repository and the wiki will be public. State the fact or the reason, and cite the design record when a source is necessary.
 
 Humility note: the scverse core team will review this project under a funded collaboration, and the project will eventually open for public consumption. What we write about the capabilities and the performance of scverse dependencies, TileDB-SOMA, and other related projects must be honest. It must also be sensitive to human social dynamics.

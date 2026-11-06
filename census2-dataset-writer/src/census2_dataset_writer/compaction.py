@@ -34,16 +34,20 @@ read efficient and the store usable on its own:
 - The `obs` index is the cell key, `<dataset_id>_<observation_joinid>`, which is
   unique across the corpus. The index of a per-dataset store is the author's
   cell name, which can occur in more than one dataset.
+- `var` is the gene reference without `MEASURED_COLUMN`, because that column
+  differs between datasets. `varm["measured"]` holds it instead: a boolean
+  matrix of genes x members, with column `k` for member `k` of the record. It is
+  the members' part of a presence matrix of genes and datasets.
 - `uns` holds the keys that all members share with one value. The compaction
   record holds the `uns` of each member.
 
 Compatibility
 -------------
 The members must compose as the SDK composes stores: one organism, one gene
-reference, and one `var`; one `obs` column order; the same `X` value type; all
-spatial or all non-spatial. `compact` refuses other members. One further rule is
-the caller's: the members must share one access grant, because the compacted
-store has one. Compact only public datasets for now.
+reference, and one `var` apart from `MEASURED_COLUMN`; one `obs` column order;
+the same `X` value type; all spatial or all non-spatial. `compact` refuses other
+members. One further rule is the caller's: the members must share one access
+grant, because the compacted store has one. Compact only public datasets for now.
 
 Memory
 ------
@@ -72,6 +76,7 @@ from .store_format import (
     COMPACTION_KEY,
     COMPACTION_VERSION,
     DATASET_ID_COLUMN,
+    MEASURED_COLUMN,
     SUMMARY_NAMESPACE,
     CompactedMember,
     CompactionRecord,
@@ -159,7 +164,9 @@ def _check_members(members: Sequence[_Member]) -> None:
     for m in members:
         if list(m.obs.columns) != columns:
             raise CompactionError(f"{m.uri}: obs columns differ from {first.uri}")
-        if not m.var.equals(first.var):
+        if MEASURED_COLUMN not in m.var.columns:
+            raise CompactionError(f"{m.uri}: var has no {MEASURED_COLUMN} column")
+        if not _reference(m.var).equals(_reference(first.var)):
             raise CompactionError(f"{m.uri}: var differs from {first.uri}")
         if JOINID_COLUMN not in m.obs.columns or DATASET_ID_COLUMN not in m.obs.columns:
             raise CompactionError(f"{m.uri}: obs lacks {JOINID_COLUMN} or dataset_id")
@@ -172,6 +179,11 @@ def _check_members(members: Sequence[_Member]) -> None:
     dtypes = {str(_x_part(m.group, "data").dtype) for m in members}
     if len(dtypes) > 1:
         raise CompactionError(f"X value types differ: {sorted(dtypes)}")
+
+
+def _reference(var: pd.DataFrame) -> pd.DataFrame:
+    """The part of a store's `var` that all stores of one organism share."""
+    return var.drop(columns=MEASURED_COLUMN, errors="ignore")
 
 
 def _spatial(obs: pd.DataFrame) -> bool:
@@ -356,10 +368,15 @@ def compact(
     with ThreadPoolExecutor(max_workers=threads or 8) as pool:
         members = list(pool.map(_open, uris))
     _check_members(members)
-    # The check found every `var` equal, so keep one: a group of many members
-    # otherwise holds one copy of the reference for each.
-    for m in members[1:]:
-        m.var = members[0].var
+    # The assayed genes of each member, one column each. The check found the rest
+    # of every `var` equal, so keep one copy: a group of many members otherwise
+    # holds one copy of the reference for each.
+    measured = np.column_stack(
+        [m.var[MEASURED_COLUMN].to_numpy(dtype=bool) for m in members]
+    )
+    var = _reference(members[0].var)
+    for m in members:
+        m.var = var
 
     record: CompactionRecord = {
         "version": COMPACTION_VERSION,
@@ -383,7 +400,6 @@ def compact(
     validate_compaction(record)
 
     obs = union_obs([m.obs for m in members])
-    var = members[0].var
     shared = {
         k: v
         for k, v in members[0].uns.items()
@@ -400,7 +416,14 @@ def compact(
             m.obs = m.obs.iloc[:0]
         write_elem(root, "var", var)
         write_elem(root, "uns", shared)
-        for name in ("layers", "obsm", "obsp", "varm", "varp"):
+        # One chunk: the matrix is small, and a reader of one member reads it whole.
+        write_elem(
+            root,
+            "varm",
+            {MEASURED_COLUMN: measured},
+            dataset_kwargs={"chunks": measured.shape},
+        )
+        for name in ("layers", "obsm", "obsp", "varp"):
             write_elem(root, name, {})
         _copy_x(members, root.create_group("X"), len(var))
         zarr.consolidate_metadata(store)
@@ -439,9 +462,11 @@ def verify(
 
     For each member, the compacted rows must hold the per-dataset store's `obs`
     values and its `X`, value for value: the same `indptr` steps, `indices`, and
-    `data`. A categorical value is compared as a string. An empty list means that
-    the stores agree. The check reads both copies whole, so it costs about as much
-    as the compaction.
+    `data`. A categorical value is compared as a string. The store's `var` must be
+    the member's `var` without `MEASURED_COLUMN`, and the member's column of
+    `varm["measured"]` must be that column. An empty list means that the stores
+    agree. The check reads both copies whole, so it costs about as much as the
+    compaction.
     """
     root = zarr.open_group(as_store(dest), mode="r")
     record = read_compaction(root)
@@ -451,8 +476,16 @@ def verify(
         return [f"{len(record['members'])} members, {len(sources)} sources"]
     failures: list[str] = []
     obs = cast("pd.DataFrame", read_elem(root["obs"]))
+    var = cast("pd.DataFrame", read_elem(root["var"]))
+    varm = cast("dict[str, Any]", read_elem(root["varm"]))
+    measured = np.asarray(varm.get(MEASURED_COLUMN, np.zeros((len(var), 0), bool)))
+    if measured.shape != (len(var), len(sources)) or measured.dtype != bool:
+        failures.append(
+            f"varm {MEASURED_COLUMN} is {measured.dtype} {measured.shape}; "
+            f"want bool {(len(var), len(sources))}"
+        )
     indptr = np.asarray(_x_part(root, "indptr")[:])
-    for member, source in zip(record["members"], sources, strict=True):
+    for k, (member, source) in enumerate(zip(record["members"], sources, strict=True)):
         if progress:
             progress(f"verify {member['dataset_version_id']}")
         name = member["dataset_version_id"]
@@ -462,6 +495,16 @@ def verify(
         if summary is None or summary["dataset_version_id"] != name:
             failures.append(f"{name}: {source} holds another dataset version")
             continue
+        want_var = cast("pd.DataFrame", read_elem(group["var"]))
+        if not _reference(want_var).equals(var):
+            failures.append(f"{name}: var differs")
+        assayed = want_var.get(MEASURED_COLUMN)
+        if (
+            assayed is None
+            or k >= measured.shape[1]
+            or not np.array_equal(assayed.to_numpy(dtype=bool), measured[:, k])
+        ):
+            failures.append(f"{name}: varm {MEASURED_COLUMN} differs")
         want = cast("pd.DataFrame", read_elem(group["obs"]))
         got = obs.iloc[start:stop]
         if len(want) != len(got) or list(want.columns) != list(got.columns):

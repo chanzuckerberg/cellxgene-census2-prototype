@@ -1,4 +1,4 @@
-"""Time the benchmark questions against Census 1, for comparison (task 6.4).
+"""Time the benchmark questions against Census 1, for comparison.
 
 The queries match the shapes of `bench.run` on the Census 2 stores:
 

@@ -21,3 +21,6 @@ ORGANISMS: dict[str, Organism] = {
     "mus_musculus": {"taxon": "NCBITaxon:10090", "version": "GENCODE M37"},
 }
 TAXON_TO_ORGANISM = {spec["taxon"]: name for name, spec in ORGANISMS.items()}
+
+# This is `store_format.MEASURED_COLUMN` of the writer, which the SDK does not import.
+MEASURED_COLUMN = "measured"

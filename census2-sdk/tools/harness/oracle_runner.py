@@ -1,4 +1,4 @@
-"""The oracle runner (task 2.2): record the answers of the pinned Census 1 stack.
+"""The oracle runner: record the answers of the pinned Census 1 stack.
 
 The runner executes each corpus query through the Census 1 SDK surface (`get_anndata`,
 `get_obs`, `get_var`, `get_presence_matrix`) against the pinned release, and it
@@ -7,12 +7,12 @@ against one release give the same `result_digest`. `--verify` checks that.
 
 The top-level SDK accessors do not reach the spatial experiments. A spatial
 `get_anndata` query runs through `experiment.axis_query` on the same census handle,
-the code path `get_anndata` reaches internally (evidence 11.2). Spatial `obs`, `var`,
+the code path `get_anndata` reaches internally. Spatial `obs`, `var`,
 and presence queries read the SOMA objects directly. Each result records which path ran.
 
 The snapshot is bounded. An obs-filtered query is clamped to the N smallest datasets
 of each experiment (`snapshot_manifest.json`, built once from each experiment's obs).
-Differential validation is meaningful at one to five datasets (evidence 11.1), and a
+Differential validation is meaningful at one to five datasets, and a
 full-corpus X read belongs to the benchmark rig. `var` and presence queries are small
 and run unclamped.
 
