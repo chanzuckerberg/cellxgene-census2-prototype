@@ -968,13 +968,14 @@ class Engine:
     def _http(self) -> tuple[dict[str, int], float]:
         """The HTTP requests since the last call, by method, and the MB of the GETs.
 
-        A GET of an S3 listing (`list-type=2`) counts as `LIST`.
+        A GET of an S3 listing counts as `LIST`. The log hides the query string of
+        a URL, so a listing is a GET whose path names no object (it ends with `/`).
         """
         if not self.options.count_requests:
             return {}, 0.0
         found = self.con.execute(
-            "SELECT CASE WHEN request.type = 'GET' AND contains(request.url, "
-            "'list-type=2') THEN 'LIST' ELSE request.type END, count(*), "
+            "SELECT CASE WHEN request.type = 'GET' AND ends_with(split_part("
+            "request.url, '?', 1), '/') THEN 'LIST' ELSE request.type END, count(*), "
             "sum(TRY_CAST(response.headers['Content-Length'] AS BIGINT)) "
             "FROM duckdb_logs_parsed('HTTP') GROUP BY ALL"
         ).fetchall()
