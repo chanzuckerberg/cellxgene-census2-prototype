@@ -1,13 +1,16 @@
 """Run one benchmark query through DuckDB over the obs fragments, and print one JSON line.
 
 This is the `sql` path of the benchmark (`census2_sdk.obs_sql`). The shapes, the
-arguments, and the record follow `bench.run`, and each run is a new process. The record
-also holds:
+arguments, and the record follow `bench.run`, and each run is a new process. The
+requests and the bytes of each kind of object are in the same fields as on the other
+paths (`counting.py`). The zarr reads of the stores and the catalog read come from the
+same counters; the fragment reads come from DuckDB's HTTP log, so they need no Python
+in the read path and do not slow it. The record also holds:
 
-- `sql_requests`: the HTTP requests of DuckDB by method, from its HTTP log, and
-  `sql_mb`, the MB of their GET responses. `requests` and `mb_payload` count the zarr
-  reads of the stores, as in `bench.run`, and `requests_total` adds the two.
-- `cpu_seconds`: the user and system CPU time of the process during the query.
+- `sql_requests`: DuckDB's requests by method (GET, HEAD), and `sql_seconds`, the time
+  from the query to the last Arrow batch, with the dictionary encoding of the labels.
+- `catalog_test_seconds`, the time of the catalog test in DuckDB, and
+  `pandas_seconds`, the time to build the pandas frame of `get_obs`.
 - The DuckDB settings of the run (`threads`, `memory_limit`, `files`).
 
 `--files` selects how DuckDB finds the fragments (`obs_sql.Options.files`). `--query`
@@ -21,35 +24,30 @@ import argparse
 import importlib.metadata
 import json
 import platform
-import resource
 import time
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Literal
 
 import anndata
 
 import census2_sdk
+from bench import counting
+from bench.counting import COUNTER
 from bench.run import (
-    COUNTER,
     ORGANISM,
+    cpu_seconds,
     final_record,
+    get_anndata,
     guard_memory,
     io_read_mb,
-    open_counted,
     peak_rss_mb,
     pick_cell_type,
     publish,
     source_rows,
 )
-from census2_sdk import catalog as _catalog
 from census2_sdk import obs_sql
 
-SHAPES = ("single", "cell_type", "query", "count_donor", "corpus_obs")
-
-
-def cpu_seconds() -> float:
-    usage = resource.getrusage(resource.RUSAGE_SELF)
-    return usage.ru_utime + usage.ru_stime
+SHAPES = ("single", "cell_type", "query", "count", "corpus_obs")
 
 
 def sql_stats(stats: list[dict[str, Any]]) -> dict[str, Any]:
@@ -60,9 +58,7 @@ def sql_stats(stats: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "sql_requests": s.get("requests", {}),
         "sql_mb": s.get("mb_requested", 0.0),
-        "sql_seconds": round(
-            s.get("scan_seconds", 0.0) + s.get("arrow_seconds", 0.0), 3
-        ),
+        "sql_seconds": round(s.get("scan_seconds", 0) + s.get("arrow_seconds", 0), 3),
         "catalog_test_seconds": s.get("catalog_seconds", 0.0),
         "pandas_seconds": s.get("pandas_seconds"),
         "files_read": s.get("files", 0),
@@ -78,13 +74,17 @@ def run(
     options: obs_sql.Options,
     *,
     query: Any = None,
+    by: Sequence[str] = ("donor_id",),
+    arrow_obs: bool = False,
 ) -> dict[str, Any]:
     before = io_read_mb()
+    c0 = cpu_seconds()
     t0 = time.monotonic()
     census = census2_sdk.open_census([catalog], obs_engine=options)
     rows = census.catalog[census.catalog["organism"] == ORGANISM]
     t1 = time.monotonic()
-    cpu0 = cpu_seconds()
+    c1 = cpu_seconds()
+    opened = COUNTER.snapshot()
     record: dict[str, Any] = {
         "catalog": catalog,
         "catalog_stores": len(rows),
@@ -97,6 +97,10 @@ def run(
         "files": options.files,
         "union_by_name": options.union_by_name,
     }
+
+    def default_filter() -> dict[str, Any]:
+        return {"cell_type": cell_type or pick_cell_type(source_rows(rows))}
+
     stats: list[dict[str, Any]] = []
     if shape in ("single", "cell_type", "query"):
         if shape == "single":
@@ -105,67 +109,67 @@ def run(
             if query is None:
                 raise ValueError("the query shape needs --query")
             obs_filter = query
-            record["query"] = query
         else:
-            cell_type = cell_type or pick_cell_type(source_rows(rows))
-            obs_filter = {"cell_type": cell_type}
-            record["cell_type"] = cell_type
-        # The SDK looks up open_store by name, so patch both names, and restore them.
-        original = _catalog.open_store
-        census2_sdk.__dict__["open_store"] = open_counted
-        _catalog.open_store = open_counted
-        try:
-            adata = census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
-        finally:
-            census2_sdk.__dict__["open_store"] = original
-            _catalog.open_store = original
+            obs_filter = default_filter()
+            record["cell_type"] = obs_filter["cell_type"]
+        record["query"] = obs_filter
+        adata = get_anndata(census, obs_filter, workers)
         t2 = time.monotonic()
         stats = census.last_scan
-        record["catalog_candidates"] = (
-            stats[0].get("catalog_candidates") if stats else 0
-        )
+        record["catalog_candidates"] = stats[0]["catalog_candidates"] if stats else 0
         if isinstance(adata, anndata.AnnData):
             record["stores_opened"] = adata.uns["census2"]["stores_opened"]
             record["cells"] = int(adata.n_obs)
         else:
             record.update(stores_opened=0, cells=0)
-    elif shape == "count_donor":
-        obs_filter = (
-            query
-            if query is not None
-            else {"cell_type": cell_type or pick_cell_type(source_rows(rows))}
-        )
-        record["query"] = obs_filter
-        frame = census.count_obs(ORGANISM, obs_filter, by=["donor_id"])
+    elif shape == "count":
+        obs_filter = query if query is not None else default_filter()
+        record.update(query=obs_filter, by=list(by))
+        frame = census.count_obs(ORGANISM, obs_filter, by=list(by))
         t2 = time.monotonic()
         stats = frame.attrs["census2"]["obs_sql"]
         record.update(stores_opened=0, groups=len(frame))
         record["cells"] = int(frame["n_cells"].sum())
         record["catalog_candidates"] = frame.attrs["census2"]["catalog_candidates"]
     elif shape == "corpus_obs":
-        frame = census.get_obs(ORGANISM)
+        backend: Literal["numpy", "pyarrow"] = "pyarrow" if arrow_obs else "numpy"
+        frame = census.get_obs(ORGANISM, dtype_backend=backend)
         t2 = time.monotonic()
         stats = frame.attrs["census2"]["obs_sql"]
-        record.update(stores_opened=0, cells=len(frame))
+        record.update(stores_opened=0, cells=len(frame), dtype_backend=backend)
         record["catalog_candidates"] = frame.attrs["census2"]["catalog_candidates"]
     else:
         raise ValueError(f"no shape {shape!r} on the sql path")
-    cpu1 = cpu_seconds()
+    c2 = cpu_seconds()
+    done = COUNTER.snapshot()
 
     record.update(sql_stats(stats))
-    sql_requests = sum(int(n) for n in record.get("sql_requests", {}).values())
+    # The fragment reads are DuckDB's, from its HTTP log; the rest are the counters'.
+    requests = dict(done["requests_by_kind"])
+    heads = dict(done["heads_by_kind"])
+    mb = dict(done["mb_by_kind"])
+    sql_requests = record.get("sql_requests", {})
+    requests["fragment"] = requests.get("fragment", 0) + sum(sql_requests.values())
+    heads["fragment"] = heads.get("fragment", 0) + int(sql_requests.get("HEAD", 0))
+    mb["fragment"] = round(mb.get("fragment", 0.0) + record.get("sql_mb", 0.0), 3)
     record.update(
         catalog_seconds=round(t1 - t0, 3),
         query_seconds=round(t2 - t1, 3),
-        cpu_seconds=round(cpu1 - cpu0, 2),
-        requests=COUNTER.requests,
-        mb_payload=round(COUNTER.nbytes / 2**20, 2),
-        requests_total=COUNTER.requests + sql_requests,
+        cpu_open_seconds=round(sum(c1) - sum(c0), 3),
+        cpu_seconds=round(sum(c2) - sum(c1), 3),
+        cpu_user_seconds=round(c2[0] - c1[0], 3),
+        cpu_sys_seconds=round(c2[1] - c1[1], 3),
+        requests_open=opened["requests"],
+        requests=sum(requests.values()) - opened["requests"],
+        requests_by_kind=requests,
+        heads_by_kind=heads,
+        mb_by_kind=mb,
+        mb_payload=round(sum(mb.values()), 2),
         peak_rss_mb=peak_rss_mb(),
         machine=platform.machine(),
         versions={
             m: importlib.metadata.version(m)
-            for m in ("anndata", "zarr", "pyarrow", "duckdb")
+            for m in ("anndata", "zarr", "pyarrow", "duckdb", "pandas")
         },
         status="ok",
     )
@@ -183,7 +187,9 @@ def main() -> int:
     p.add_argument("--cell-type", default=None)
     p.add_argument("--max-rss-gb", type=float, default=None)
     p.add_argument("--query", default=None, help="a mapping or a SQL string, as JSON")
+    p.add_argument("--by", default="donor_id", help="the count columns, joined by +")
     p.add_argument("--label", default=None, help="a name for the query")
+    p.add_argument("--arrow-obs", action="store_true")
     p.add_argument("--threads", type=int, default=None, help="DuckDB's threads")
     p.add_argument("--memory-limit", default=None, help="DuckDB's memory_limit")
     p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
@@ -193,6 +199,7 @@ def main() -> int:
     p.add_argument("--no-count-requests", action="store_true")
     p.add_argument("--credentials", default="auto")
     args = p.parse_args()
+    counting.install_read_counting()
     options = obs_sql.Options(
         threads=args.threads,
         memory_limit=args.memory_limit,
@@ -211,7 +218,14 @@ def main() -> int:
     if query is not None and not isinstance(query, (str, Mapping)):
         p.error("--query takes a JSON object or a JSON string")
     record = run(
-        args.catalog, args.shape, args.workers, args.cell_type, options, query=query
+        args.catalog,
+        args.shape,
+        args.workers,
+        args.cell_type,
+        options,
+        query=query,
+        by=args.by.split("+"),
+        arrow_obs=args.arrow_obs,
     )
     if args.label is not None:
         record["label"] = args.label

@@ -1213,10 +1213,19 @@ def get_obs(
     organism: str,
     obs_filter: object,
     columns: Sequence[str] | None,
+    dtype_backend: str = "numpy",
 ) -> pd.DataFrame:
-    """`Census.get_obs` through DuckDB. The SDK opens no store."""
+    """`Census.get_obs` through DuckDB. The SDK opens no store.
+
+    `dtype_backend` is as for `Census.get_obs`: `"pyarrow"` gives `pd.ArrowDtype`
+    columns over DuckDB's Arrow data, without the categoricals.
+    """
     import census2_sdk as sdk
 
+    if dtype_backend not in ("numpy", "pyarrow"):
+        raise ValueError(
+            f"dtype_backend is 'numpy' or 'pyarrow', not {dtype_backend!r}"
+        )
     engine = census.sql_engine
     pred = engine.predicate(obs_filter)
     rows, catalog_seconds = engine.candidates(organism, pred)
@@ -1226,7 +1235,10 @@ def get_obs(
     frame = pd.DataFrame()
     if arrow.num_rows:
         arrow = arrow.unify_dictionaries()
-        frame = sdk._obs_frame(arrow, keep_rows=True)
+        if dtype_backend == "pyarrow":
+            frame = cast("pd.DataFrame", arrow.to_pandas(types_mapper=pd.ArrowDtype))
+        else:
+            frame = sdk._obs_frame(arrow, keep_rows=True)
         key = pc.binary_join_element_wise(
             pc.cast(arrow.column("dataset_id"), pa.string()),
             arrow.column("observation_joinid"),

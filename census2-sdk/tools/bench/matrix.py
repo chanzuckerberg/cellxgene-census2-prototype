@@ -10,18 +10,19 @@ so a stopped matrix keeps its finished runs.
         --shapes single,cell_type,open,corpus_obs --workers 1,32 --repeats 3 \\
         --where laptop --out results/bench-laptop.jsonl
 
-`--queries` names a JSON file of named mapping filters; a shape `query:<name>` runs
-one of them, and `count_donor:<name>` counts its cells by donor. `--obs-table` gives
-the `obs` table of each catalog, with `{size}` in place of the size, and `--vias`
-selects `stores`, `table`, `sql`, or more than one. `--x-from-indptr` and
-`--scan-workers` pass through to each run.
+`--queries` names a JSON file of named filters: a mapping filter, or an expression
+string, which only the table path runs. A shape `query:<name>` runs one of them.
+`count:<name>:<columns>` counts its cells by the columns, joined by `+`, and
+`count_donor:<name>` counts them by donor. `--obs-table` gives the `obs` table of each
+catalog, with `{size}` in place of the size, and `--vias` selects `stores`, `table`, or
+more. `--x-from-indptr`, `--scan-workers`, `--count-arrow`, `--narrow`, and
+`--arrow-obs` pass through to each run.
 
-A query can also give one form for each via: `{"mapping": {...}, "iceberg": "...",
-"sql": "..."}`. A via without a form skips the query, for example the store path for
-a numeric range. The `sql` via runs `bench.sql` (DuckDB over the fragments), with
-`--duckdb-threads`, `--duckdb-memory-limit`, `--files`, and `--glob`. The other vias
-run `bench.counted`, which adds the CPU time to the record of `bench.run`;
-`--count-arrow-requests` also counts the S3 requests of pyarrow on those runs.
+The via `sql` runs `bench.sql`: DuckDB over the fragments (`census2_sdk.obs_sql`), with
+`--duckdb-threads` (a list: one run each), `--duckdb-memory-limit`, `--files`, and
+`--glob`. A named query can give one form for each via: `{"mapping": {...},
+"iceberg": "...", "sql": "..."}`. A via without a form skips the query, and the
+`mapping` form serves a via without its own.
 """
 
 import argparse
@@ -45,7 +46,7 @@ def one(
     max_rss_gb: float | None = None,
     extra: list[str] | None = None,
 ) -> dict[str, Any]:
-    module = "bench.counted"
+    module = "bench.run"
     if extra and "--sql-via" in extra:
         module = "bench.sql"
         extra = [a for a in extra if a != "--sql-via"]
@@ -74,11 +75,11 @@ def one(
     return dict(json.loads(done.stdout.strip().splitlines()[-1]))
 
 
-def query_form(query: dict[str, Any], via: str) -> Any:
+def query_form(query: Any, via: str) -> Any:
     """The form of a named query for one via, or None when the via has none."""
     forms = {"mapping", "iceberg", "sql"}
-    if not set(query) <= forms:
-        return query  # a mapping filter, for every via
+    if not isinstance(query, dict) or not query or not set(query) <= forms:
+        return query
     key = {"stores": "mapping", "table": "iceberg", "sql": "sql"}[via]
     return query.get(key, query.get("mapping"))
 
@@ -103,11 +104,13 @@ def main() -> int:
     p.add_argument("--x-from-indptr", action="store_true")
     p.add_argument("--key-first", action="store_true")
     p.add_argument("--scan-workers", type=int, default=None)
+    p.add_argument("--count-arrow", action="store_true")
+    p.add_argument("--narrow", action="store_true")
+    p.add_argument("--arrow-obs", action="store_true")
     p.add_argument("--duckdb-threads", default="", help="a list: one run each")
     p.add_argument("--duckdb-memory-limit", default=None)
     p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
     p.add_argument("--glob", default=None, help="with {size} for the size")
-    p.add_argument("--count-arrow-requests", action="store_true")
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
@@ -121,7 +124,10 @@ def main() -> int:
     for size in sizes:
         catalog = args.catalogs / f"catalog-{size}.parquet"
         for name in args.shapes.split(","):
-            shape, _, label = name.partition(":")
+            shape, _, rest = name.partition(":")
+            label, _, by = rest.partition(":")
+            if shape == "count_donor":
+                shape, by = "count", "donor_id"
             for via in args.vias.split(","):
                 extra = []
                 if label:
@@ -129,14 +135,20 @@ def main() -> int:
                     if form is None:
                         continue
                     extra += ["--query", json.dumps(form), "--label", label]
+                if by:
+                    extra += ["--by", by]
+                if args.arrow_obs:
+                    extra.append("--arrow-obs")
                 if via == "sql":
                     extra += ["--sql-via", "--files", args.files]
                     if args.duckdb_memory_limit is not None:
                         extra += ["--memory-limit", args.duckdb_memory_limit]
                     if args.glob is not None:
                         extra += ["--glob", args.glob.format(size=size)]
-                elif args.count_arrow_requests:
-                    extra.append("--count-arrow-requests")
+                if via != "sql" and args.count_arrow:
+                    extra.append("--count-arrow")
+                if via != "sql" and args.narrow:
+                    extra.append("--narrow")
                 if via == "table":
                     if args.obs_table is None:
                         p.error("the table via needs --obs-table")
@@ -147,11 +159,11 @@ def main() -> int:
                         extra.append("--key-first")
                     if args.scan_workers is not None:
                         extra += ["--scan-workers", str(args.scan_workers)]
-                threads = args.duckdb_threads.split(",") if via == "sql" else [""]
+                threads = [t for t in args.duckdb_threads.split(",") if t]
                 runs = [
                     (int(w), t)
                     for w in args.workers.split(",")
-                    for t in (threads if any(threads) else [""])
+                    for t in (threads if via == "sql" and threads else [""])
                 ]
                 for workers, thread in runs:
                     for repeat in range(args.repeats):
