@@ -1,0 +1,6 @@
+duckdb R 2.0.0 
+connect + extensions 0.2995276 secs 
+compound : candidates 5 donors 187 cells 207185 in 0.2740784 secs 
+membership : candidates 1 donors 1 cells 125530 in 0.0568676 secs 
+all cells, file list from SET VARIABLE: 13316710 in 0.2006485 secs 
+
