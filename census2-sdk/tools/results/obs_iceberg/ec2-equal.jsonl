@@ -1,0 +1,6 @@
+{"query": "single", "cells": 3799, "obs_names": true, "obs_columns": true, "obs_values": true, "var": true, "X": true, "normalized": true, "stores_opened": [1, 1], "seconds": 4.1}
+{"query": "cell_type", "cells": 35795, "obs_names": true, "obs_columns": true, "obs_values": true, "var": true, "X": true, "normalized": true, "stores_opened": [14, 14], "seconds": 16.6}
+{"query": "compound", "cells": 207185, "obs_names": true, "obs_columns": true, "obs_values": true, "var": true, "X": true, "normalized": true, "stores_opened": [5, 5], "seconds": 72.7}
+{"query": "fp_none", "equal": true}
+{"query": "fp_some", "cells": 111, "obs_names": true, "obs_columns": true, "obs_values": true, "var": true, "X": true, "normalized": true, "stores_opened": [4, 2], "seconds": 6.8}
+{"query": "tissue_general", "cells": 12815, "obs_names": true, "obs_columns": true, "obs_values": true, "var": true, "X": true, "normalized": true, "stores_opened": [3, 3], "seconds": 9.3}

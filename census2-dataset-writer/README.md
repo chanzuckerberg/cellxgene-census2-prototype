@@ -170,7 +170,8 @@ read the fragments of many stores as one table and select cells without a store 
   a cell's values without `X/indptr`.
 - The fragment uses zstd compression and row groups of 65,536 rows. The row columns are
   delta-encoded. For the 103 datasets of the prototyping manifests, the fragments hold 13.3
-  million cells in 187.5 MiB, about 15 bytes per cell, or 0.3 percent of the stores.
+  million cells in 476.9 MiB, about 37.5 bytes per cell, or 0.84 percent of the stores. The
+  float statistics `raw_mean_nnz` and `raw_variance_nnz` are about half of those bytes.
 
 `write` writes the fragment after anndata finishes, from `adata.obs` and the `X/indptr` that anndata
 wrote, and then adds a fragment record beside the summary record:

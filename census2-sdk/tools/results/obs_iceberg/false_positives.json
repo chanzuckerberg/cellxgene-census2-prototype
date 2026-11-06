@@ -1,0 +1,84 @@
+{
+ "pairs": 10852,
+ "pairs_without_a_cell": 6500,
+ "passing": 12569,
+ "false_positive": 6944,
+ "false_positive_share": 0.552,
+ "held_pairs": 4352,
+ "held_passing": 5886,
+ "held_false_positive": 261,
+ "held_false_positive_share": 0.044,
+ "median_false_positive_share_of_held_pairs": 0.0,
+ "worst": [
+  {
+   "tissue": "mesenteric lymph node",
+   "cell_type": "megakaryocyte",
+   "passing": 4,
+   "joint": 0,
+   "false_positive": 4
+  },
+  {
+   "tissue": "duodenum",
+   "cell_type": "basal cell",
+   "passing": 3,
+   "joint": 0,
+   "false_positive": 3
+  },
+  {
+   "tissue": "stomach",
+   "cell_type": "basal cell",
+   "passing": 3,
+   "joint": 0,
+   "false_positive": 3
+  },
+  {
+   "tissue": "jejunum",
+   "cell_type": "basal cell",
+   "passing": 3,
+   "joint": 0,
+   "false_positive": 3
+  },
+  {
+   "tissue": "liver",
+   "cell_type": "mesothelial cell",
+   "passing": 4,
+   "joint": 2,
+   "false_positive": 2
+  },
+  {
+   "tissue": "blood",
+   "cell_type": "mast cell",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "colon",
+   "cell_type": "unknown",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "buccal mucosa",
+   "cell_type": "acinar cell of salivary gland",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "buccal mucosa",
+   "cell_type": "myoepithelial cell",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  },
+  {
+   "tissue": "parotid gland",
+   "cell_type": "endothelial cell of lymphatic vessel",
+   "passing": 3,
+   "joint": 1,
+   "false_positive": 2
+  }
+ ]
+}
