@@ -199,6 +199,7 @@ next to its catalog. The same SQL runs in any DuckDB client that has the table.
 | `all` | `read_parquet` of every fragment of the organism; only the Parquet statistics prune |
 | `glob` | `read_parquet('<prefix>/*.obs.parquet')` and `filename IN (<the catalog's fragments>)` |
 | `iceberg` | `iceberg_scan('<metadata.json>')` of #33's table and `dataset_id IN (<the kept datasets>)` |
+| `iceberg_all` | `iceberg_scan('<metadata.json>')` with no catalog test: the manifests alone prune |
 
 `tools/bench/variants.py` writes a variant of each fragment with DuckDB, under another prefix, and
 a catalog whose `obs_fragment_uri` points at the variants. `bloom` keeps the row order and adds
@@ -411,6 +412,68 @@ in 0.27 s; COVID-19 membership in lung, 1 candidate and 125,530 cells, in 0.06 s
 13,316,710 cells, with the catalog's file list in a SQL variable, in 0.20 s; the connection with
 its extensions in 0.30 s. The counts equal the Python counts.
 
+### 3.8 File-level planning at scale
+
+Can the engine plan the files, with no catalog test? Four ways for DuckDB to find the fragments of
+an `obs`-only query (`get_obs`, or `count_obs` for the count), at N = 103, 500, 1,000, and 2,060
+catalog rows (#33's fragment copies, catalogs, and tables):
+
+- **catalog**: the catalog test, then `read_parquet` of the kept fragments (the default).
+- **footers**: `read_parquet` of all N fragments, no catalog test. DuckDB reads each footer and
+  prunes row groups by their statistics. This is with `union_by_name = false`, the faster
+  setting: with `union_by_name`, DuckDB reads every footer before the scan, and the same queries
+  took 2 to 4 times as long (`ec2-plan-footers-union.jsonl`).
+- **iceberg**: `iceberg_scan` of #33's table of N fragments, no catalog test; DuckDB prunes files by
+  the manifest bounds. No pyiceberg in the client.
+- **sorted footers**: as footers, over copies of the `sorted` variant (section 3.4) at each N.
+
+The queries: (d1), (d2), a rare cell type (`motor neuron`, which one source dataset holds, 2,955
+cells), the numeric query, the membership query, and (b) counted by donor. In-region, 8 workers,
+median of 3 (`ec2-plan-*.jsonl`). Seconds and requests at N = 2,060:
+
+| Query | catalog | footers | iceberg | sorted footers |
+|---|---|---|---|---|
+| (d1) | **2.10 s**, 1,920 | 4.33 s, 7,240 | 2.38 s, 3,385 | 8.22 s, 6,340 |
+| (d2) | **2.46 s**, 1,720 | 5.09 s, 7,897 | 3.03 s, 4,120 | 8.97 s, 6,430 |
+| rare cell type | **1.50 s**, 1,017 | 5.48 s, 8,347 | 5.26 s, 5,675 | 5.94 s, 4,800 |
+| numeric | **4.13 s**, 3,275 | 7.84 s, 12,598 | 6.42 s, 9,824 | 4.89 s, 4,959 |
+| membership | **1.15 s**, 370 | 3.98 s, 6,589 | 3.27 s, 3,857 | 5.02 s, 4,822 |
+| count (b) by donor | **2.27 s**, 2,270 | 5.57 s, 8,744 | 4.31 s, 6,010 | 5.30 s, 4,820 |
+
+The laptop, 2 runs, at N = 103 / 500 / 1,000 / 2,060 (`laptop-plan-*.jsonl`); seconds:
+
+| Query | catalog | footers | iceberg |
+|---|---|---|---|
+| (d1) | **1.9 / 4.9 / 6.7 / 13.7** | 5.6 / 17.2 / 49.7 / 93.4 | 3.8 / 7.8 / 14.9 / 30.7 |
+| rare cell type | **4.1 / 14.8 / 31.4 / 54.6** | 12.3 / 41.2 / 80.1 / 149.8 | 11.9 / 37.1 / 55.5 / 151.5 |
+| count (b) by donor | **2.4 / 8.9 / 14.5 / 27.6** | 7.2 / 27.8 / 53.4 / 110.5 | 12.1 / 17.5 / 41.0 / 85.4 |
+
+**A cost model.** The least-squares slope of the seconds and of the requests against N, per 1,000
+catalog rows, with the median over the queries (`tools/bench/plan_cost.py`):
+
+| | catalog | footers | iceberg | sorted footers |
+|---|---|---|---|---|
+| in-region | 0.78 s, 880 requests | 2.29 s, 3,940 | 1.59 s, 2,370 | 2.60 s, 2,380 |
+| laptop | 12.6 s, 930 requests | 52.8 s, 4,050 | 39.1 s, 2,750 | |
+
+- **The catalog test still earns its place.** At 2,060 rows, which is more than the 1,258 stores
+  of Census 1 LTS, the footer plan took 2 to 4 times as long in-region and 3 to 7 times as long on
+  the laptop, with 4 to 18 times the requests and up to 24 times the bytes. Each fragment that the
+  catalog can exclude still costs a HEAD, a footer GET or two, and, for a fragment below about
+  2 MiB, a whole-file read.
+- **Iceberg's manifests are a middle ground.** They save the HEAD and the footer of each file that
+  the bounds exclude, so `iceberg_scan` came within 1.1 to 1.2 times of the catalog for the false
+  positives (d1) and (d2) in-region. But label bounds are lexicographic ranges, so for a rare cell
+  type, membership, and the count the plan kept most files: 1.9 to 3.5 times the catalog's time
+  in-region, and 2.2 to 3.1 times on the laptop at 2,060.
+- **Sorting the fragments made the footer plan cheaper only where the filter is on a sort column
+  and few datasets match**: the numeric query (on `cell_type`) took 4.9 s against 7.8 s. For (d1)
+  and (d2) the sorted copies were slower in this session (8.2 s against 4.3 s), with fewer
+  requests; the copies are new objects under a new prefix, and the spike did not find the cause.
+- **CPU and memory follow the files read**: at 2,060, (d1) used 2.6 CPU-seconds and 0.6 GiB through
+  the catalog, 8.4 and 1.7 GiB through footers, and 3.9 and 0.9 GiB through `iceberg_scan`.
+- The catalog's only gap is numeric terms; there DuckDB's footers or the manifests must prune.
+
 ## 4. Findings
 
 1. **For a selection with `X`, the two `obs` engines tie.** In-region, the DuckDB path and the
@@ -454,6 +517,13 @@ its extensions in 0.30 s. The counts equal the Python counts.
 9. **The access boundary holds.** A fragment read uses the grant of its store, and the only shared
    structure is the catalog, as on `main`. The Iceberg table's manifests disclose every fragment's
    column bounds to every reader (#33, section 7, item 6).
+10. **File-level planning cannot yet be left to the engine.** Without the catalog test, DuckDB's
+    footers took 2 to 4 times the catalog plan's time in-region and 3 to 7 times on the laptop at
+    2,060 rows, and Iceberg's manifests through `iceberg_scan` 1.1 to 3.5 times and 2.2 to 3.1
+    times (section 3.8). Per 1,000 catalog rows, the laptop pays 12.6 s through the catalog,
+    39 s through the manifests, and 53 s through the footers. The catalog's per-dataset value
+    sets exclude a dataset with no request at all; an engine must still touch each file or each
+    manifest entry, and its label bounds are weak.
 
 ## 5. The filter language
 
@@ -604,8 +674,10 @@ it.
   `get_anndata` still needs a selection interface (the design record notes this). A Census-owned
   grammar that renders to SQL and to Iceberg expressions would keep the contract independent of one
   engine.
-- **Numeric ranges in the catalog.** Five per-dataset min and max columns for the count statistics
-  would let the catalog exclude datasets for range terms, as manifest bounds exclude files.
+- **Numeric ranges in the catalog, or not.** Numeric terms prove nothing at the catalog today;
+  DuckDB's footers or Iceberg's manifests prune those files. Section 3.8 suggests that the
+  catalog's value sets should stay for the label terms; whether five numeric ranges join them is
+  a separate choice.
 - **Fragment layout.** Which columns to sort by, and whether the writer or a backfill sorts. The
   sort helps both engine paths.
 - **Mixed vintages** (section 8, item 5).
@@ -646,6 +718,12 @@ python -m bench.catalog_test catalogs/catalog-{103,500,1000,2060}.parquet --quer
 python ../tools/build_descendants.py descendants.parquet
 python -m harness.filter_language_sql --catalog catalogs/catalog-103.parquet \
     --descendants descendants.parquet --out results/obs_duckdb/filter_language.json
+# File-level planning at each N (section 3.8), and its cost model.
+python -m bench.matrix --catalogs catalogs --sizes 103,500,1000,2060 \
+    --shapes obs:fp_none,obs:fp_some,obs:rare,obs:numeric,obs:membership,count_donor:cell_type \
+    --vias sql --workers 8 --queries results/obs_duckdb/queries.json --files all --no-union-by-name
+python -m bench.matrix <as above> --files iceberg_all --iceberg 's3://my-bucket/spike/tables/obs-{size}'
+python -m bench.plan_cost catalog=ec2-plan-catalog.jsonl footers=ec2-plan-footers.jsonl iceberg=ec2-plan-iceberg.jsonl
 # R.
 Rscript bench/obs_sql_check.R s3://my-bucket/spike/catalogs/catalog-103.parquet queries-sql.json
 ```
