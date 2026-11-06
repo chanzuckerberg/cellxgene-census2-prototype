@@ -69,12 +69,13 @@ dataset (from 458 to 60,606), so its bounds are exact for each file.
 
 **Size.** 103 datasets, 13,316,710 cells: 476.9 MiB of fragments, 37.5 bytes per cell, 0.84
 percent of the 55.4 GiB of stores. That is 2.5 times the 14.8 bytes per cell of round 1, before
-the statistics. Two derived statistics are about half of the bytes: per cell,
-`observation_joinid` 10.6 B, `raw_variance_nnz` 9.4 B, `raw_mean_nnz` 9.1 B, `raw_sum` 2.6 B, `nnz`
-1.8 B, `x_start` and `x_end` 1.5 B each, and all 21 label columns together less than 1 B. A scan
-reads only the columns that it selects and filters, so the statistics cost bytes only in a scan
-of all columns and in storage. `BYTE_STREAM_SPLIT` on the three float columns makes the fragments
-about 14 percent smaller (32.4 B per cell); the writer does not use it yet.
+the statistics. Two derived statistics are about half of the bytes. Per cell, in 92 of the
+fragments (4.4 million cells): `observation_joinid` 10.6 B, `raw_variance_nnz` 9.4 B,
+`raw_mean_nnz` 9.1 B, `raw_sum` 2.6 B, `nnz` 1.8 B, `x_start` and `x_end` 1.5 B each, and all 21
+label columns together less than 1 B. A scan reads only the columns that it selects and filters,
+so the statistics cost bytes only in a scan of all columns and in storage. `BYTE_STREAM_SPLIT` on
+the three float columns makes those fragments about 14 percent smaller (32.4 B per cell); the
+writer does not use it yet.
 
 ### 2.2 The table
 
