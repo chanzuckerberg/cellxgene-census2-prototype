@@ -1,4 +1,4 @@
-"""Run one benchmark query in this process and print one JSON line (task 6.4).
+"""Run one benchmark query in this process and print one JSON line.
 
 Each run is a new process, so no connection or metadata cache carries over from
 an earlier run. The shapes are:
@@ -302,12 +302,12 @@ def count_from_stores(
 
     Return the number of donor groups, the number of stores read, and the cells.
     """
-    normalized = _catalog.normalize(obs_filter)
-    rows = _catalog.exclude(census.catalog, ORGANISM, normalized)
+    canonical = _catalog.canonicalize(obs_filter)
+    rows = _catalog.exclude(census.catalog, ORGANISM, canonical)
 
     def one(uri: str) -> pd.Series:
         obs = cast("pd.DataFrame", read_elem(open_counted(uri)["obs"]))
-        kept = obs[census2_sdk._mask(obs, normalized)]
+        kept = obs[census2_sdk._mask(obs, canonical)]
         return kept.groupby("donor_id", observed=True).size()
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -368,7 +368,9 @@ def run(
             _catalog.open_store = original
         t2 = time.monotonic()
         candidates = len(
-            _catalog.exclude(census.catalog, ORGANISM, _catalog.normalize(obs_filter))
+            _catalog.exclude(
+                census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
+            )
         )
         record["catalog_candidates"] = candidates
         record["stores_opened"] = candidates
@@ -398,7 +400,9 @@ def run(
             record["cells"] = int(frame["n_cells"].sum())
             record.update(table_stats(frame.attrs["census2"]["obs_table"]))
         record["catalog_candidates"] = len(
-            _catalog.exclude(census.catalog, ORGANISM, _catalog.normalize(obs_filter))
+            _catalog.exclude(
+                census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
+            )
         )
     elif shape == "corpus_obs" and obs_table is not None:
         frame = census.get_obs(ORGANISM)

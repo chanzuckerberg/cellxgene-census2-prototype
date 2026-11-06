@@ -26,11 +26,15 @@ from census2_sdk import catalog, expressions, obs_table
 REFERENCE_IDS = [f"ENSG{j:011d}" for j in range(20)]
 
 STORES = {
-    # dataset_id: (n_obs, tissues, cell types, diseases)
-    "ds-a": (30, ["lung", "liver"], ["macrophage", "T cell"], ["normal"]),
-    "ds-b": (25, ["lung"], ["macrophage", "B cell"], ["normal ||  flu", "flu"]),
-    "ds-c": (20, ["kidney"], ["T cell"], ["normal"]),
-}
+    # dataset_id: (n_obs, tissues, cell types, diseases, assay)
+    "ds-a": (30, ["lung", "liver"], ["macrophage", "T cell"], ["normal"], "EFO:0009922"),
+    "ds-b": (25, ["lung"], ["macrophage", "B cell"], ["normal ||  flu", "flu"], "EFO:0009922"),
+    # Smart-seq2, a full-gene assay: the normalized layer divides by the gene length.
+    "ds-c": (20, ["kidney"], ["T cell"], ["normal"], "EFO:0008931"),
+}  # fmt: skip
+
+# The tissue_general of each tissue, as the writer rolls them up.
+GENERAL = {"lung": "respiratory system", "liver": "liver", "kidney": "kidney"}
 
 
 def reference_var(ids: list[str]) -> pd.DataFrame:
@@ -39,7 +43,7 @@ def reference_var(ids: list[str]) -> pd.DataFrame:
             "feature_id": ids,
             "feature_name": [f"GENE{j}" for j in range(len(ids))],
             "feature_version": ["1"] * len(ids),
-            "feature_length": [1000] * len(ids),
+            "feature_length": [100 * (j + 1) for j in range(len(ids))],
             "feature_type": ["gene"] * len(ids),
         },
         index=ids,
@@ -52,6 +56,7 @@ def make_store(
     tissues: list[str],
     cell_types: list[str],
     diseases: list[str],
+    assay: str,
     seed: int,
 ) -> anndata.AnnData:
     rng = np.random.default_rng(seed)
@@ -64,22 +69,28 @@ def make_store(
     def labels(values: list[str]) -> Any:
         return pd.Categorical(rng.choice(values, n_obs))
 
+    tissue = labels(tissues)
     obs = pd.DataFrame(
         {
             "dataset_id": pd.Categorical([dataset_id] * n_obs),
-            "tissue": labels(tissues),
+            "tissue": tissue,
             "cell_type": labels(cell_types),
             "disease": labels(diseases),
             "donor_id": labels([f"{dataset_id}-d1", f"{dataset_id}-d2"]),
-            "assay_ontology_term_id": pd.Categorical(["EFO:0009922"] * n_obs),
+            "assay_ontology_term_id": pd.Categorical([assay] * n_obs),
             "is_primary_data": rng.random(n_obs) < 0.7,
             "observation_joinid": [f"j{i}" for i in range(n_obs)],
+            "tissue_general": tissue.map(GENERAL),
+            # Two of the count statistics, a float64 and an int64 column.
+            "raw_sum": np.asarray(x.sum(axis=1), dtype=np.float64).ravel(),
+            "nnz": np.diff(x.indptr).astype(np.int64),
         },
         index=[f"cell{i}" for i in range(n_obs)],
     )
-    adata = anndata.AnnData(
-        X=sp.csr_matrix(x), obs=obs, var=reference_var(REFERENCE_IDS)
-    )
+    var = reference_var(REFERENCE_IDS)
+    # The writer marks the dataset's assayed genes; here every gene.
+    var["measured"] = np.ones(len(var), dtype=bool)
+    adata = anndata.AnnData(X=sp.csr_matrix(x), obs=obs, var=var)
     adata.uns = {
         "schema_version": "7.1.0",
         "organism_ontology_term_id": "NCBITaxon:9606",
@@ -129,6 +140,12 @@ def table(corpus: dict[str, Path]) -> census2_sdk.Census:
     )
 
 
+def layer_names(adata: anndata.AnnData) -> list[str]:
+    """The names of the layers. anndata 0.13 also lists `X`, as the layer None."""
+    layers = cast("dict[str | None, Any]", adata.layers)
+    return sorted(k for k in layers if k is not None)
+
+
 def assert_same(a: anndata.AnnData | None, b: anndata.AnnData | None) -> None:
     """Equal results, value for value. The categories can differ; see the SDK."""
     assert (a is None) == (b is None)
@@ -140,10 +157,16 @@ def assert_same(a: anndata.AnnData | None, b: anndata.AnnData | None) -> None:
         assert np.array_equal(
             a.obs[column].astype(str).to_numpy(), b.obs[column].astype(str).to_numpy()
         ), column
+        assert a.obs[column].dtype.kind == b.obs[column].dtype.kind, column
     assert cast("pd.DataFrame", a.var).equals(cast("pd.DataFrame", b.var))
-    x_a, x_b = sp.csr_matrix(cast("Any", a.X)), sp.csr_matrix(cast("Any", b.X))
-    assert x_a.shape == x_b.shape and cast("Any", x_a != x_b).nnz == 0
-    assert x_a.dtype == x_b.dtype
+    assert "measured" not in a.var.columns
+    names = layer_names(a)
+    assert names == layer_names(b)
+    pairs = [(a.X, b.X), *((a.layers[k], b.layers[k]) for k in names)]
+    for one, other in pairs:
+        x_a, x_b = sp.csr_matrix(cast("Any", one)), sp.csr_matrix(cast("Any", other))
+        assert x_a.shape == x_b.shape and cast("Any", x_a != x_b).nnz == 0
+        assert x_a.dtype == x_b.dtype
 
 
 MAPPINGS: list[dict[str, Any] | None] = [
@@ -167,6 +190,26 @@ def test_the_table_gives_the_result_of_the_stores(
         stores.get_anndata("homo_sapiens", obs_filter),
         table.get_anndata("homo_sapiens", obs_filter, max_workers=3),
     )
+
+
+@pytest.mark.parametrize("obs_filter", [None, {"tissue": "lung"}, {"tissue": "kidney"}])
+def test_the_table_gives_the_normalized_layer_of_the_stores(
+    stores: census2_sdk.Census,
+    table: census2_sdk.Census,
+    obs_filter: dict[str, Any] | None,
+) -> None:
+    """The layer is calculated on read on both paths; ds-c is a full-gene assay."""
+    want = stores.get_anndata("homo_sapiens", obs_filter, layers=["normalized"])
+    got = table.get_anndata(
+        "homo_sapiens", obs_filter, layers=["normalized"], max_workers=3
+    )
+    assert got is not None and "normalized" in got.layers
+    assert_same(want, got)
+
+
+def test_a_layer_that_does_not_exist_is_refused(table: census2_sdk.Census) -> None:
+    with pytest.raises(ValueError, match="no layer"):
+        table.get_anndata("homo_sapiens", layers=["log1p"])
 
 
 def test_x_from_the_ranges_equals_x_from_indptr(
@@ -239,6 +282,10 @@ EXPRESSIONS: list[tuple[str, Any]] = [
     ("disease != 'flu'", lambda o: o.disease.astype(str).map(lambda v: "flu" not in members_of(v))),
     ("disease IN ('normal')", lambda o: o.disease.astype(str).map(lambda v: "normal" in members_of(v))),
     ("disease NOT IN ('normal', 'flu')", lambda o: o.disease.astype(str).map(lambda v: not members_of(v) & {"normal", "flu"})),
+    ("tissue_general = 'respiratory system'", lambda o: o.tissue_general == "respiratory system"),
+    ("nnz >= 9", lambda o: o.nnz >= 9),
+    ("raw_sum > 40.5 AND nnz < 12", lambda o: (o.raw_sum > 40.5) & (o.nnz < 12)),
+    ("tissue_general = 'kidney' OR nnz <= 4", lambda o: (o.tissue_general == "kidney") | (o.nnz <= 4)),
 ]  # fmt: skip
 
 

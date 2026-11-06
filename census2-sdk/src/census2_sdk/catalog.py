@@ -1,15 +1,15 @@
 """The SDK's side of the catalog: load it, and exclude the datasets that cannot match.
 
 The catalog is a Parquet table with one row for each store (design section 2). The
-Census 2 team publishes it; `tools/build_catalog.py` is the Iteration 1 stand-in for
+Census 2 team publishes it; `tools/build_catalog.py` is the prototype stand-in for
 that builder. `exclude` applies the one correctness rule of design 2.2. A query
 excludes a dataset only when the catalog proves that no cell of the dataset can match.
 An absent column or an unknown value keeps the dataset.
 
-Each catalog row holds the cell counts of its store in the `cell_counts` column
-(tracker 5.9). The column has one entry for each combination of the `COUNTED` values
-and `is_primary_data`, with the number of cells in `n_cells`. `load` reads the catalog
-without this column, and `load_counts` reads only the entries.
+Each catalog row holds the cell counts of its store in the `cell_counts` column. The
+column has one entry for each combination of the `COUNTED` values and `is_primary_data`,
+with the number of cells in `n_cells`. `load` reads the catalog without this column, and
+`load_counts` reads only the entries.
 """
 
 import io
@@ -40,8 +40,8 @@ def _require_obstore() -> None:
 
 
 Filter = Mapping[str, str | bool | Iterable[str] | Iterable[bool]]
-# A filter after `normalize`: one set of accepted values for each column.
-Normalized = dict[str, frozenset[str]]
+# A filter after `canonicalize`: one set of accepted values for each column.
+CanonicalFilter = dict[str, frozenset[str]]
 
 # Design 2.2: the 18 indexed columns.
 PAIRS = (
@@ -58,11 +58,11 @@ INDEXED = tuple(c for p in PAIRS for c in (p, f"{p}_ontology_term_id")) + (
     "suspension_type",
     "tissue_type",
 )
-# The catalog column of cell counts and the columns that it counts (tracker 5.9).
+# The catalog column of cell counts and the columns that it counts.
 COUNTS = "cell_counts"
 COUNTED = tuple(
     c
-    for p in ("assay", "cell_type", "disease", "sex", "tissue")
+    for p in ("assay", "cell_type", "disease", "sex", "tissue", "tissue_general")
     for c in (p, f"{p}_ontology_term_id")
 )
 # Schema 2.4.0 made these two columns multi-valued. Equality is membership.
@@ -103,13 +103,13 @@ PRIMARY_VALUES = {
 }
 
 
-def normalize(obs_filter: Filter | None) -> Normalized:
+def canonicalize(obs_filter: Filter | None) -> CanonicalFilter:
     """One set of accepted values for each column. Refuse a column that is not indexed.
 
     `is_primary_data` takes a boolean, a list of booleans, or their names, and its
     values are `"True"` and `"False"`.
     """
-    normalized: Normalized = {}
+    canonical: CanonicalFilter = {}
     for column, value in (obs_filter or {}).items():
         if column == PRIMARY:
             single = isinstance(value, (bool, str))
@@ -118,7 +118,7 @@ def normalize(obs_filter: Filter | None) -> Normalized:
             }
             if not flags <= {"True", "False"}:
                 raise ValueError(f"{PRIMARY} takes True or False")
-            normalized[column] = frozenset(flags)
+            canonical[column] = frozenset(flags)
             continue
         if column != "dataset_id" and column not in INDEXED:
             raise ValueError(
@@ -127,8 +127,8 @@ def normalize(obs_filter: Filter | None) -> Normalized:
         if isinstance(value, bool):
             raise TypeError(f"{column} takes strings, not {value!r}")
         wanted = {value} if isinstance(value, str) else {str(v) for v in value}
-        normalized[column] = frozenset(wanted)
-    return normalized
+        canonical[column] = frozenset(wanted)
+    return canonical
 
 
 Source = str | os.PathLike[str] | io.BytesIO
@@ -197,7 +197,7 @@ def unrecorded(value: Any) -> bool:
     return value is None or (np.ndim(value) == 0 and bool(pd.isna(value)))
 
 
-def excludes(row: Mapping[str, Any], obs_filter: Normalized) -> bool:
+def excludes(row: Mapping[str, Any], obs_filter: CanonicalFilter) -> bool:
     """True when the row proves that no cell of the dataset matches `obs_filter`.
 
     The proof is the design 2.2 rule. The row records the value set of each
@@ -233,10 +233,10 @@ def exclude(
 ) -> pd.DataFrame:
     """The catalog rows that can hold a matching cell."""
     scoped = catalog[catalog["organism"] == organism]
-    normalized = normalize(obs_filter)
-    if not normalized:
+    canonical = canonicalize(obs_filter)
+    if not canonical:
         return scoped
     records = cast("list[dict[str, Any]]", scoped.to_dict("records"))
-    keep = [not excludes(row, normalized) for row in records]
+    keep = [not excludes(row, canonical) for row in records]
     # pandas reads an empty Python list as a column selection.
     return scoped[np.array(keep, dtype=bool)]

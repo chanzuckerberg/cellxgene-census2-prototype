@@ -1,4 +1,4 @@
-"""Catalogs of N stores for the store-count benchmark (task 6.4).
+"""Catalogs of N stores for the store-count benchmark.
 
 The source catalog has one row for each store under a source prefix. The copies
 of those stores are under `<copies>/c01/` to `<copies>/cNN/`, with the same store

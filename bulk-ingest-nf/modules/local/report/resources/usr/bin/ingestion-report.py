@@ -51,7 +51,12 @@ def main() -> int:
         ),
         "source_bytes": sum(r["source_filesize"] for r in receipts),
         "output_bytes": sum(r.get("output_bytes") or 0 for r in admitted),
-        "cells": sum(r.get("cell_count") or 0 for r in admitted),
+        # cell_count is the source count from the manifest, so subtract the drops.
+        "cells": sum(
+            r["cell_count"] - sum(r.get("dropped_cells", {}).values())
+            for r in admitted
+            if r.get("cell_count") is not None
+        ),
         "elapsed_sec": round(sum(r.get("elapsed_sec") or 0 for r in receipts), 1),
         "slot_policy": sorted(
             {r["slot_policy"] for r in admitted if "slot_policy" in r}
@@ -68,6 +73,13 @@ def main() -> int:
         # schema, so most datasets drop some. The report gives the count; each
         # receipt names its dataset's columns.
         "datasets_with_dropped_obs_columns": len(dropped),
+        # Unlike `cells`, this total includes the rejected datasets.
+        "dropped_cells": {
+            name: sum(r.get("dropped_cells", {}).get(name, 0) for r in receipts)
+            for name in sorted(
+                {k for r in receipts for k in r.get("dropped_cells", {})}
+            )
+        },
         # More than one value means the stores do not concatenate by position.
         "gene_reference_version": sorted(
             {str(r["summary"]["gene_reference_version"]) for r in admitted}

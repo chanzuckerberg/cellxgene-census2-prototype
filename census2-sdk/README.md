@@ -2,11 +2,10 @@
 
 Query Census 2 stores through a catalog and return one AnnData.
 
-The SDK is the skeleton of plan Phase 6, tracker 6.1. It runs one query end to end over the
-stores that `census2-dataset-writer` writes. The catalog excludes the datasets that cannot match.
-The SDK opens the remaining stores, reads the selected cells, and concatenates them by gene
-position. The result is one AnnData. The filter grammar, the per-chunk index, and private sources
-are later work.
+The SDK runs one query end to end over the stores that `census2-dataset-writer` writes. The
+catalog excludes the datasets that cannot match. The SDK opens the remaining stores, reads the
+selected cells, and concatenates them by gene position. The result is one AnnData. The filter
+grammar, the per-chunk index, and private sources are later work.
 
 ## Install
 
@@ -20,7 +19,7 @@ zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only
 ## Build the catalog
 
 The catalog is a Parquet table with one row for each store. The Census 2 team publishes it, and the
-SDK only reads it. `tools/build_catalog.py` is the Iteration 1 stand-in for the catalog builder.
+SDK only reads it. `tools/build_catalog.py` is the prototype stand-in for the catalog builder.
 It reads a prefix that holds `<dataset_version_id>.zarr` stores. It reads no receipt.
 
 ```bash
@@ -37,10 +36,10 @@ that has no summary record.
 
 Each row also holds the cell counts of its store, in the `cell_counts` column. The column has one
 entry for each combination of the counted values, with the number of cells in `n_cells`. The counted
-values are assay, cell type, disease, sex, and tissue (each as the label and the ontology term), and
-`is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
-For the 1,258 stores of the Census 1 LTS `2025-11-08` run, the column holds 117,740 entries, and the
-catalog is 925 KiB.
+values are assay, cell type, disease, sex, tissue, and `tissue_general` (each as the label and the
+ontology term), and `is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
+For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
+117,712 entries, and the catalog is 1,014 KiB.
 
 ## Query
 
@@ -58,6 +57,9 @@ column holds one of its values. The columns are the 18 indexed columns and `data
 The result holds:
 
 - `X`, the counts
+- `layers["normalized"]`, with `layers=["normalized"]`: the Census 1 normalized values, which the
+  SDK calculates from the counts on read. The SDK does not round them to 15 mantissa bits as
+  Census 1 does, so they differ from Census 1 by less than 2^-15 relative.
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
@@ -85,8 +87,9 @@ On a laptop, `open_census` and the first count take about 40 ms together, and a 
 15 ms.
 
 The writer projects each store onto the gene reference of its organism. Thus every store of one
-organism has the same `var`, in the same order. The SDK takes `var` from the stores and downloads
-no reference.
+organism has the same genes in `var`, in the same order. The SDK takes `var` from the stores and
+downloads no reference. A store's `var` also marks the dataset's assayed genes in `measured`, and
+the result leaves that column out.
 
 ## The obs table
 
@@ -139,15 +142,15 @@ values when a check fails:
 - one organism, given by the query
 - every row records a `gene_reference_version`, and it equals the version the SDK pins for the
   organism
-- every opened store has the same `var`; the SDK checks this when it reads the stores
+- every opened store has the same genes in `var`; the SDK checks this when it reads the stores
 - no spatial store together with a non-spatial store
 - a `dataset_id` in one source only, checked when the sources open
 
 ## Compare with Census 1
 
 `tools/compare_census1.py` runs one query through the SDK and through Census 1 release 2025-11-08.
-It compares the cell sets, the gene sets, and the values on the intersection. The Iteration 1
-stores come from re-curated dataset versions, so a cell-set difference is a finding to record.
+It compares the cell sets, the gene sets, and the values on the intersection. A store written from a
+re-curated dataset version can hold other cells, so a cell-set difference is a finding to record.
 
 ```bash
 uv run --python 3.12 --with cellxgene-census==1.18.0 --with './census2-sdk[s3]' \
@@ -159,11 +162,11 @@ uv run --python 3.12 --with cellxgene-census==1.18.0 --with './census2-sdk[s3]' 
 
 ## Validation harness
 
-`tools/harness/` holds the pieces of the Phase 2 validation harness that the SDK's
+`tools/harness/` holds the pieces of the validation harness that the SDK's
 differential run needs. They are the fixed query corpus, the canonical result form, the
 comparator, and the oracle runner that records Census 1's answers.
-`tools/harness/README.md` has the pins and the steps. The SDK's adapter to the harness
-is tracker task 6.2.
+`tools/harness/README.md` has the pins and the steps. `tools/harness/sdk_adapter.py` is the
+SDK's adapter to the harness.
 
 ## Develop
 

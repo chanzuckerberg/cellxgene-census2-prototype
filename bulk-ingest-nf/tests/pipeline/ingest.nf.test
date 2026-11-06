@@ -33,12 +33,11 @@ nextflow_pipeline {
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
                 assert rec.admitted
                 assert rec.check.passed          : "round trip failed for ${rec.dataset_version_id}"
-                // A pass means nothing unless the check compared the matrices,
-                // the obs schema and values, and the summary record.
-                assert rec.check.compared.contains("obs")
-                assert rec.check.compared.contains("X")
-                assert rec.check.compared.contains("var")
-                assert rec.check.compared.contains("summary")
+                // The check fails on a slot that the store holds and the check
+                // did not compare, unless the slot is in not_compared.
+                assert rec.check.not_compared == ["uns"]
+                // The fragment is not a slot of the store, so the audit does not
+                // require it; the check compares it all the same.
                 assert rec.check.compared.contains("fragment")
                 assert rec.obs_fragment.rows > 0
                 assert rec.fragment.endsWith("${rec.dataset_version_id}.obs.parquet")
@@ -46,7 +45,7 @@ nextflow_pipeline {
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
                 assert rec.published_by == "workflow"
-                assert rec.recipe == "v1"
+                assert rec.recipe == "v2"
                 // The default slot policy is the Census set, not every slot.
                 assert rec.slot_policy == "census"
                 assert rec.slots_written.contains("X")
@@ -76,6 +75,8 @@ nextflow_pipeline {
                 assert rec.slot_policy == "all"
                 assert rec.config_effective.all_slots == true
                 assert rec.check.passed
+                // The optional slots are carried and not compared yet.
+                assert rec.check.not_compared == ["obsm", "uns"]
                 rec.slots_written.size()
             }
             // Every pinned dataset carries more than the Census set.

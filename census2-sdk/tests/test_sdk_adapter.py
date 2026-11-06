@@ -1,6 +1,7 @@
-"""The 6.2 adapter's filter translation and the driver's gene restriction and owners."""
+"""The SDK adapter's filter translation and the driver's gene restriction and owners."""
 
 import pathlib
+from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any, cast
 
@@ -16,7 +17,7 @@ from harness.canonical import (
     write_result,
 )
 from harness.comparator import Finding
-from harness.compare_stacks import owner, restrict_genes, run_one
+from harness.compare_stacks import expected, owner, restrict_genes, run_one
 from harness.corpus import BoundQuery
 from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
@@ -90,7 +91,7 @@ def test_owner_names_the_task_that_removes_a_finding() -> None:
     )
     assert (
         owner(Finding("column-set", "X.normalized", "present on left only"), set())[0]
-        == "4.5"
+        == "4.13"
     )
     tissue = Finding("strict-subset", "obs", "right is a strict subset")
     assert owner(tissue, {"tissue_general_ontology_term_id", "dataset_id"})[0] == "4.5"
@@ -134,13 +135,17 @@ QUERY = BoundQuery(
 
 
 class Empty:
-    def get_anndata(self, organism: str, obs_filter: object) -> None:
+    def get_anndata(
+        self, organism: str, obs_filter: object, layers: object = ()
+    ) -> None:
         return None
 
 
 def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
     class Broken:
-        def get_anndata(self, organism: str, obs_filter: object) -> None:
+        def get_anndata(
+            self, organism: str, obs_filter: object, layers: object = ()
+        ) -> None:
             raise SourceConflict("the cell key is not unique across the result")
 
     with pytest.raises(SourceConflict):
@@ -196,9 +201,118 @@ def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
     tmp_path: pathlib.Path, sdk_genes: list[str], status: str
 ) -> None:
     class Stores:
-        def get_anndata(self, organism: str, obs_filter: object) -> ad.AnnData:
+        def get_anndata(
+            self, organism: str, obs_filter: object, layers: object = ()
+        ) -> ad.AnnData:
             return _adata(sdk_genes)
 
     census1 = canonicalize_anndata(_adata(["g1", "g2"]))
     record = _run_one(tmp_path, QUERY, Stores(), census1)
     assert record["status"] == status
+
+
+@pytest.mark.parametrize(
+    ("layers", "asked"), [(("raw",), []), (("raw", "normalized"), ["normalized"])]
+)
+def test_answer_asks_the_sdk_for_the_query_layers(
+    layers: tuple[str, ...], asked: list[str]
+) -> None:
+    """The adapter asks for every layer but `raw`, and the layer reaches the arrays."""
+    seen: list[list[str]] = []
+
+    class Stores:
+        def get_anndata(
+            self, organism: str, obs_filter: object, layers: Sequence[str] = ()
+        ) -> ad.AnnData:
+            seen.append(list(layers))
+            adata = _adata(["g1", "g2"])
+            for name in layers:
+                adata.layers[name] = sparse.csr_matrix(np.full((2, 2), 0.5, np.float32))
+            return adata
+
+    query = replace(QUERY, layers=layers)
+    arrays, _ = answer(query, cast("census2_sdk.Census", Stores()), ["d1"], PINS)
+    assert seen == [asked]
+    if asked:
+        assert np.array_equal(arrays["X.normalized.data"], np.full(4, 0.5))
+    else:
+        assert "X.normalized.data" not in arrays
+
+
+def test_an_expected_difference_holds_in_its_declared_direction() -> None:
+    def why(finding: Finding) -> str | None:
+        return expected(finding, {}, {})
+
+    assert why(Finding("column-set", "var.feature_version", "present on right only"))
+    assert not why(Finding("column-set", "var.feature_version", "present on left only"))
+    assert why(Finding("column-set", "var.nnz", "present on left only"))
+    assert not why(Finding("column-set", "var.nnz", "present on right only"))
+    assert not why(Finding("column-set", "X.normalized", "present on left only"))
+
+
+S, M, N = "raw_sum", "raw_mean_nnz", "nnz"
+
+
+@pytest.mark.parametrize(
+    ("census1_obs", "sdk_obs", "status"),
+    [
+        ({S: 16_777_216.0}, {S: 16_777_217.0}, "pass"),  # Census 1 rounds the sum
+        ({S: 1_000.0}, {S: 1_001.0}, "fail"),  # below 2**24, float32 sums are exact
+        ({S: 16_777_216.0}, {S: 16_800_000.0}, "fail"),  # too large for a rounding
+        (
+            {S: 2.0**24, M: 2.0**23, N: 2},
+            {S: 2.0**24 + 1, M: 2.0**23 + 0.5, N: 2},
+            "pass",
+        ),
+        ({S: 2.0**25, M: 2.0**24, N: 2}, {S: 2.0**25, M: 2.0**24 + 1, N: 2}, "fail"),
+        (
+            {S: 2.0**24, M: 2.0**23, N: 2},
+            {M: 2.0**23 + 0.5, N: 2},
+            "fail",
+        ),  # no raw_sum
+        # the SDK mean does not follow from the SDK sum
+        (
+            {S: 2.0**24, M: 2.0**23, N: 2},
+            {S: 2.0**24 + 1, M: 2.0**23 - 0.5, N: 2},
+            "fail",
+        ),
+        # a later cell differs below 2**24
+        ({S: [2.0**24, 5.0]}, {S: [2.0**24 + 1, 6.0]}, "fail"),
+        # a later mean differs at an equal sum
+        (
+            {S: [2.0**24, 10.0], M: [2.0**23, 5.0], N: [2, 2]},
+            {S: [2.0**24 + 1, 10.0], M: [2.0**23 + 0.5, 6.0], N: [2, 2]},
+            "fail",
+        ),
+    ],
+)
+def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
+    tmp_path: pathlib.Path,
+    census1_obs: dict[str, float | list[float]],
+    sdk_obs: dict[str, float | list[float]],
+    status: str,
+) -> None:
+    def cells(values: dict[str, float | list[float]]) -> ad.AnnData:
+        """Two cells. A single value is the first cell's, and the second cell holds 5."""
+        adata = _adata(["g1"])
+        for column, value in values.items():
+            adata.obs[column] = value if isinstance(value, list) else [value, 5.0]
+        return adata
+
+    class Stores:
+        def get_anndata(
+            self, organism: str, obs_filter: object, layers: object = ()
+        ) -> ad.AnnData:
+            return cells(sdk_obs)
+
+    census1 = canonicalize_anndata(cells(census1_obs))
+    record = _run_one(tmp_path, QUERY, Stores(), census1)
+    assert record["status"] == status
+
+
+def test_run_one_names_the_task_that_adds_an_unsupported_accessor(
+    tmp_path: pathlib.Path,
+) -> None:
+    query = replace(QUERY, accessor="get_obs")
+    record = _run_one(tmp_path, query, Empty(), {})
+    assert (record["status"], record["owner"]) == ("unsupported", "6.7")

@@ -19,8 +19,10 @@ dependencies = [
     "zarr>=3.1,<4",
     "numpy>=1.26",
     "scipy>=1.11",
-    # 2.2 adds the Arrow list and struct accessors that catalog.load_counts uses.
-    "pandas>=2.2",
+    # 2.3 adds `StringDtype(na_value=...)`, which the read of the cell key uses.
+    # anndata 0.13 also requires 2.3. The Arrow accessors of catalog.load_counts
+    # came in 2.2.
+    "pandas>=2.3",
     # The catalog is Parquet. pandas reads and writes it through pyarrow.
     "pyarrow>=15",
 ]
@@ -53,7 +55,7 @@ packages = ["src/census2_sdk"]
 src = ["src"]
 
 [tool.pytest.ini_options]
-# The tests import tools/build_catalog.py, the Iteration 1 catalog builder, and the
+# The tests import tools/build_catalog.py, the prototype catalog builder, and the
 # tools/harness package.
 pythonpath = ["tools"]
 

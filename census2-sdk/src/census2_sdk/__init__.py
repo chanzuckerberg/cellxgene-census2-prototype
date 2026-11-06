@@ -30,12 +30,17 @@ number of catalog rows for the organism, and the number of stores opened. The ce
 key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
 `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
+The stores hold only the counts. `layers=["normalized"]` adds the Census 1
+normalized values in `layers["normalized"]`, calculated on read.
+
 The writer projects each store onto the reference. Thus every selected store has
-the same `var`. The SDK checks that every store has the same gene identifiers in the
-same order, and concatenates by position.
+the same genes in `var`. The SDK checks that every store has the same gene identifiers
+in the same order, and concatenates by position. A store's `var` also marks the
+dataset's assayed genes in a `measured` column, and the result leaves that column out,
+because the result spans datasets.
 
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
-that each catalog row holds (tracker 5.9). Its filter takes the columns of
+that each catalog row holds. Its filter takes the columns of
 `catalog.COUNTED` and `dataset_id`.
 
     n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
@@ -57,8 +62,9 @@ import zarr
 from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
-from census2_sdk.catalog import Filter, Normalized, members, open_store, unrecorded
-from census2_sdk.gene_reference import ORGANISMS
+from census2_sdk import normalize as _normalize
+from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
+from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
 if TYPE_CHECKING:  # pyiceberg is the optional `iceberg` extra
     from pyiceberg.expressions import BooleanExpression
@@ -133,12 +139,17 @@ class Census:
         organism: str,
         obs_filter: "AnyFilter | None" = None,
         *,
+        layers: Sequence[str] = (),
         max_workers: int = 1,
     ) -> anndata.AnnData | None:
         """Return the selected cells of `organism` as one AnnData.
 
         Return None when no cell matches, whether or not the catalog excluded
         every store.
+
+        `layers` names the layers to add next to the counts. The one layer is
+        `normalized`, which the SDK calculates from the counts with the Census 1
+        algorithm, without its rounding (`census2_sdk.normalize`).
 
         `max_workers` is the largest number of stores that the SDK reads at the
         same time, and it must be a positive integer. The result is the same for
@@ -147,18 +158,25 @@ class Census:
         When the census has an `obs` table, the query goes through it; see
         `_get_anndata_from_tables`. The filter can then be an Iceberg expression.
         """
+        unknown = sorted(set(layers) - {"normalized"})
+        if unknown:
+            raise ValueError(f"no layer {unknown}; the one layer is 'normalized'")
         if self._tables:
-            return self._get_anndata_from_tables(organism, obs_filter, max_workers)
+            return self._get_anndata_from_tables(
+                organism, obs_filter, layers, max_workers
+            )
         if obs_filter is not None and not isinstance(obs_filter, Mapping):
             raise ValueError("an expression filter needs an obs table")
-        normalized = _catalog.normalize(obs_filter)
-        rows = _catalog.exclude(self.catalog, organism, normalized)
+        canonical = _catalog.canonicalize(obs_filter)
+        rows = _catalog.exclude(self.catalog, organism, canonical)
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        # ponytail: serial by default; raise the default from the 6.4 results.
+        # ponytail: serial by default; raise the default after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            parts = list(pool.map(lambda row: _read_store(row, normalized), records))
+            parts = list(
+                pool.map(lambda row: _read_store(row, canonical, layers), records)
+            )
         uris = list(rows["store_uri"].astype(str))
         _check_var(parts, uris)
         if not sum(part.n_obs for part in parts):
@@ -169,8 +187,10 @@ class Census:
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
-        # version and one index, so the first store supplies the var columns.
-        result.var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        # version and one index, so the first store supplies the var columns,
+        # except the assayed genes of its own dataset.
+        var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
@@ -269,7 +289,11 @@ class Census:
         return cells, stats
 
     def _get_anndata_from_tables(
-        self, organism: str, obs_filter: "AnyFilter | None", max_workers: int
+        self,
+        organism: str,
+        obs_filter: "AnyFilter | None",
+        layers: Sequence[str],
+        max_workers: int,
     ) -> anndata.AnnData | None:
         """`get_anndata` through the `obs` tables.
 
@@ -290,21 +314,21 @@ class Census:
         rows = self._candidates(organism, expr)
         _check_composition(rows, ORGANISMS[organism]["version"])
         plain = rows[~rows["source"].isin(list(self._tables))]
-        normalized: Normalized = {}
+        canonical: CanonicalFilter = {}
         if len(plain):
             if obs_filter is not None and not isinstance(obs_filter, Mapping):
                 raise ValueError(
                     "an expression filter needs an obs table for every source"
                 )
-            normalized = _catalog.normalize(obs_filter)
+            canonical = _catalog.canonicalize(obs_filter)
         cells, stats = self._scan(rows, expr, None)
         self.last_scan = stats
 
         def part(row: dict[str, Any]) -> anndata.AnnData | None:
             if row["source"] not in self._tables:
-                return _read_store(row, normalized)
+                return _read_store(row, canonical, layers)
             selected = cells.get(str(row["dataset_id"]))
-            return None if selected is None else _read_cells(row, selected)
+            return None if selected is None else _read_cells(row, selected, layers)
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -312,13 +336,25 @@ class Census:
         opened = [(p, r) for p, r in zip(found, records, strict=True) if p is not None]
         parts = [p for p, _ in opened]
         uris = [str(r["store_uri"]) for _, r in opened]
-        _check_var(parts, uris)
         if not sum(part.n_obs for part in parts):
             return None
+        # The first opened store supplies var. A part from the table holds gene
+        # positions only, so give it the reference genes when the number agrees.
+        var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        for (p, r), uri in zip(opened, uris, strict=True):
+            if r["source"] not in self._tables:
+                continue
+            if p.n_vars != len(var):
+                raise SourceConflict(
+                    f"{uri}: X has {p.n_vars} genes, and {uris[0]} has {len(var)}; "
+                    "the stores are not on one gene reference"
+                )
+            p.var_names = cast("Sequence[str]", var.index)
+        _check_var(parts, uris)
         result = anndata.concat(parts, join="inner")
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
-        result.var = cast("pd.DataFrame", read_elem(open_store(uris[0])["var"]))
+        result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
@@ -439,21 +475,21 @@ class Census:
         includes only the cells whose `is_primary_data` is true. A catalog without
         the `cell_counts` column raises ValueError.
         """
-        normalized = _catalog.normalize(obs_filter)
+        canonical = _catalog.canonicalize(obs_filter)
         uncounted = sorted(
-            set(normalized) - {"dataset_id", _catalog.PRIMARY, *_catalog.COUNTED}
+            set(canonical) - {"dataset_id", _catalog.PRIMARY, *_catalog.COUNTED}
         )
         if uncounted:
             raise ValueError(f"the catalog counts no {uncounted}; use get_anndata")
         counts = self._cell_counts()
-        candidates = _catalog.exclude(self.catalog, organism, normalized)
+        candidates = _catalog.exclude(self.catalog, organism, canonical)
         rows = counts[
             counts["dataset_version_id"].isin(candidates["dataset_version_id"])
         ]
         if primary_only:
             rows = rows[rows["is_primary_data"].astype(bool)]
         keep = np.ones(len(rows), dtype=bool)
-        for column, wanted in normalized.items():
+        for column, wanted in canonical.items():
             if column == "dataset_id":
                 continue  # the catalog answered it
             # Test each distinct value once; a null's code -1 indexes the last False.
@@ -530,7 +566,7 @@ def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
     return [None if unrecorded(v) else v for v in rows[column]]
 
 
-def _mask(obs: pd.DataFrame, obs_filter: Normalized) -> np.ndarray:
+def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
     """The cells of one store that match `obs_filter`, by the same rule as the catalog."""
     mask = np.ones(len(obs), dtype=bool)
     for column, wanted in obs_filter.items():
@@ -557,27 +593,52 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
     return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
-def _read_store(row: dict[str, Any], obs_filter: Normalized) -> anndata.AnnData:
+def _read_store(
+    row: dict[str, Any], obs_filter: CanonicalFilter, layers: Sequence[str] = ()
+) -> anndata.AnnData:
     """The selected cells of one store. `X` holds the counts on the reference genes.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
-    compares. `get_anndata` reads the var columns from one store.
+    compares. `get_anndata` reads the var columns from one store. `layers` names
+    the layers to calculate from the counts.
     """
     group = open_store(row["store_uri"])
-    obs = cast("pd.DataFrame", read_elem(group["obs"]))
-    _check_cell_key(obs, str(row["store_uri"]))
+    obs_group = group["obs"]
+    if not isinstance(obs_group, zarr.Group):
+        raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")
+    # To read obs faster, the SDK decodes the two per-cell string columns only
+    # where the result needs them. It does not read the index (the source cell
+    # names), because the result replaces the index with the cell key. It reads
+    # the cell key after the filter, for the kept cells only.
+    columns = cast("list[str]", obs_group.attrs["column-order"])
+    key = "observation_joinid"
+    obs = pd.DataFrame(
+        {name: read_elem(obs_group[name]) for name in columns if name != key}
+    )
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
+    if key in columns:
+        obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
+    _check_cell_key(obs, str(row["store_uri"]))
     var_group = group["var"]
-    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
+    if not isinstance(var_group, zarr.Group):
+        raise TypeError(f"{row['store_uri']}: var must be an encoded dataframe")
     index = read_elem(var_group[str(var_group.attrs["_index"])])
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _rows(group["X"], keep)
+    computed = {}
+    if "normalized" in layers:
+        assay = obs["assay_ontology_term_id"].astype(str)
+        full_gene = assay.isin(_normalize.FULL_GENE_ASSAYS).to_numpy()
+        length = None
+        if full_gene.any():
+            length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
+        computed["normalized"] = _normalize.normalized(x, full_gene, length)
 
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
-    return anndata.AnnData(X=x, obs=obs, var=var)
+    return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
 
 
 # Read the X values of the selected cells from the ranges in the obs table. False reads
@@ -591,19 +652,28 @@ X_FROM_RANGES = True
 SCAN_KEY_FIRST = False
 
 
-def _read_cells(row: dict[str, Any], cells: Any) -> anndata.AnnData:
+def _read_cells(
+    row: dict[str, Any], cells: Any, layers: Sequence[str] = ()
+) -> anndata.AnnData:
     """The selected cells of one store, from their rows in the `obs` table.
 
     `cells` is an Arrow table of the store's selected rows, in store row order. The
     result `obs` comes from it, so the SDK does not read the store's `obs`. `X` holds
     the values of the selected rows, from their ranges in `X/data` and `X/indices`.
+    `layers` names the layers to calculate from the counts.
+
+    The SDK does not read the store's `var` index. The catalog row records the
+    pinned `gene_reference_version`, and the writer projects every store onto that
+    reference, so `var` holds positions only: `_get_anndata_from_tables` puts the
+    reference genes in after it checks the number of genes.
     """
     from census2_sdk import obs_table
 
     store_uri = str(row["store_uri"])
     group = open_store(store_uri)
     x = group["X"]
-    assert isinstance(x, zarr.Group), "X must be an encoded sparse matrix"
+    if not isinstance(x, zarr.Group):
+        raise TypeError(f"{store_uri}: X must be an encoded sparse matrix")
     shape = tuple(int(n) for n in cast("list[int]", x.attrs["shape"]))
     n_obs = row.get("n_obs")
     if not unrecorded(n_obs) and shape[0] != int(cast("int", n_obs)):
@@ -612,20 +682,28 @@ def _read_cells(row: dict[str, Any], cells: Any) -> anndata.AnnData:
         )
     obs = _obs_frame(cells)
     _check_cell_key(obs, store_uri)
-    var_group = group["var"]
-    assert isinstance(var_group, zarr.Group), "var must be an encoded dataframe"
-    index = read_elem(var_group[str(var_group.attrs["_index"])])
-    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     if X_FROM_RANGES:
         starts = cells.column(obs_table.X_START).to_numpy()
         ends = cells.column(obs_table.X_END).to_numpy()
         matrix = _rows_by_range(x, starts, ends, shape[1])
     else:
         matrix = _rows(x, cells.column(obs_table.STORE_ROW).to_numpy())
+    computed = {}
+    if "normalized" in layers:
+        assay = obs["assay_ontology_term_id"].astype(str)
+        full_gene = assay.isin(_normalize.FULL_GENE_ASSAYS).to_numpy()
+        length = None
+        if full_gene.any():
+            var_group = group["var"]
+            if not isinstance(var_group, zarr.Group):
+                raise TypeError(f"{store_uri}: var must be an encoded dataframe")
+            length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
+        computed["normalized"] = _normalize.normalized(matrix, full_gene, length)
     obs.index = pd.Index(
         str(row["dataset_id"]) + "_" + obs["observation_joinid"].astype(str)
     )
-    return anndata.AnnData(X=matrix, obs=obs, var=var)
+    var = pd.DataFrame(index=pd.RangeIndex(shape[1]).astype(str))
+    return anndata.AnnData(X=matrix, obs=obs, var=var, layers=computed)
 
 
 def _obs_frame(cells: Any, *, keep_rows: bool = False) -> pd.DataFrame:
@@ -715,8 +793,33 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
         )
 
 
+def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
+    """The values of one `obs` column at the row positions `rows`.
+
+    For a nullable string column, the SDK makes strings for these rows only. The
+    dtype is the one that `anndata` reads for the same column.
+    """
+    if node.attrs.get("encoding-type") != "nullable-string-array":
+        return pd.array(cast("Any", read_elem(node)))[rows]
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path} must be an encoded group")
+    na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
+    dtype = pd.StringDtype(na_value=na_value)
+    if not rows.size:
+        return pd.array([], dtype=dtype)
+    values, mask = node["values"], node["mask"]
+    if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
+        raise TypeError(f"{node.store_path} must hold a values and a mask array")
+    result: Any = pd.array(np.asarray(values.oindex[rows]), dtype=dtype)
+    result[np.asarray(mask.oindex[rows])] = pd.NA
+    return result
+
+
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
-    """Design 1.6: `observation_joinid` is present, non-null, and unique in a store."""
+    """Design 1.6: the kept cells' `observation_joinid` is present, non-null, and unique.
+
+    The writer checks every cell of the store.
+    """
     if "observation_joinid" not in obs.columns:
         raise ValueError(f"{store_uri}: obs has no observation_joinid column")
     joinid = obs["observation_joinid"]
@@ -739,7 +842,8 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
 
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
     """The selected rows of a CSR matrix, read without loading the rest."""
-    assert isinstance(node, zarr.Group), "X must be an encoded sparse matrix"
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
     dataset = sparse_dataset(node)
     if not len(keep):
         return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)

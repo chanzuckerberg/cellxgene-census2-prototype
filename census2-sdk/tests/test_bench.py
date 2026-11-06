@@ -1,4 +1,4 @@
-"""Tests for the store-count benchmark tools (task 6.4). No network, no AWS."""
+"""Tests for the store-count benchmark tools. No network, no AWS."""
 
 import asyncio
 import os

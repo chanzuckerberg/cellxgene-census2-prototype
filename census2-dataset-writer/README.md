@@ -54,7 +54,8 @@ first; `AWS_PROFILE` alone does not work.
 
 | Decision | State | Where |
 |---|---|---|
-| Admission — does the dataset belong in Census 2 | Minimal stub: the `assay_allowlist`, and an organism with a gene reference | `admit` |
+| Admission — does the dataset belong in Census 2 | Minimal stub: an organism with a gene reference | `admit` |
+| Cell filters — which cells of an admitted dataset a store keeps | Decided: the Census 1 filters on tissue type, assay, and primary data on a spatial assay | `cell_mask` |
 | Slot policy — which AnnData slots a store carries | Decided: the Census set, or `all_slots`; the carried `uns` keys come from the `uns_keys` config | `build` |
 | Harmonization — what makes stores queryable together | Partly made: the `obs` schema, the counts matrix, and the gene projection | `harmonize` |
 
@@ -62,18 +63,27 @@ A store holds the dataset's cells, with the counts on the organism's pinned gene
 
 - `X` holds the counts: `raw.X` when the source has `raw`, else `X`. The store has no `raw`.
 - `var` is the reference (GENCODE v48 for human, 78,894 rows; GENCODE M37 for mouse), in reference
-  order. Every store of one organism has the same `var`, so a reader concatenates stores by
-  position. A gene that the dataset did not measure is a zero column.
+  order. Every store of one organism has the same genes in `var`, so a reader concatenates stores
+  by position. A gene that the dataset did not measure is a zero column. The `measured` column of
+  `var` marks the genes that the dataset measured, because a zero column cannot show that.
 - The writer drops the features that are not genes of the organism, such as ERCC spike-ins. A
   gene that is not in the reference fails the dataset. The writer does not map genes across
   reference versions.
 - The result reports the reference version and the dropped features. The store's summary record
   holds the reference version.
 
-The assay criterion rejects a dataset with no cell on the assay allowlist, which defaults to the
-Census 1 assay list; see `census2_dataset_writer.assays`. It is there to keep the bulk ingestion
-workflow away from modalities a Census is unlikely to carry, not to settle what Census 2 admits.
 The organism criterion rejects a dataset whose organism has no gene reference.
+
+The cell filters then drop the cells that Census 1 drops. A store keeps a cell when its
+`tissue_type` is tissue or organoid and its assay is on the allowlist. On a spatial assay, the cell
+must also be primary data (`is_primary_data`). The configuration holds the values (`tissue_types`,
+`assay_allowlist`, `primary_data_assays`); the allowlist is the Census 1 assay list, from
+`census2_dataset_writer.assays`. The result counts the cells that each filter drops. A dataset with
+no cell left is rejected. The reason names the filters and, for the assay filter, the assays
+present. The assay filter thus also keeps the bulk ingestion workflow away from modalities a Census
+is unlikely to carry. On Census 1 LTS `2025-11-08`, the filters drop 32,069 cells from 6 of 1,258
+datasets. They drop cell culture cells from 3 human datasets and Patch-seq cells from 3 mouse
+datasets.
 
 A rejection is a normal outcome, not an error: `build` returns no AnnData and a reason, and the
 caller records that and succeeds.
@@ -84,20 +94,33 @@ reuse one store.
 
 ## obs schema
 
-A store's `obs` holds a fixed set of columns in a fixed order: `dataset_id`, then the 19 columns
-that the CxG schema requires in every dataset and that Census 1 copies. `store_format.OBS_COLUMNS`
-lists them, each with its `ColType`.
+A store's `obs` holds a fixed set of columns in a fixed order. These are `dataset_id`, the 19 CxG
+columns that Census 1 copies, the `tissue_general` pair, and five statistics of the counts.
+`store_format.OBS_COLUMNS` lists them, each with its `ColType`.
 
-- Each column has a fixed type. `is_primary_data` is `bool`, `observation_joinid` is plain
-  strings, and every other column is a categorical whose categories are the observed values,
-  sorted, as strings.
+- Each column has a fixed type. `is_primary_data` is `bool`, and `observation_joinid` is plain
+  strings. `nnz` and `n_measured_vars` are `int64`, and `raw_sum`, `raw_mean_nnz`, and
+  `raw_variance_nnz` are `float64`. Every other column is a categorical whose categories are the
+  observed values, sorted, as strings.
 - No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
   not boolean, or has an `observation_joinid` that is not unique fails the build.
+- `dataset_id` and `observation_joinid` are the cell key (design 1.6). `write` checks the key on
+  every write, and the error names the repeated values. No configuration turns the check off.
 - A store does not yet hold any other source column. The result names each one that it drops,
   in `dropped_obs_columns`.
-- Census 1 also holds `tissue_general`, `tissue_general_ontology_term_id`, and five statistics of
-  the counts, which a store does not hold yet. It also holds `soma_joinid`, a corpus-wide number
-  that a store for one dataset cannot assign.
+- `tissue_general` and `tissue_general_ontology_term_id` are the Census 1 roll-up of
+  `tissue_ontology_term_id` to a high-level tissue, through `cellxgene-ontology-guide` at the
+  version that Census 1 pins. The package holds its ontologies and reads no network. The receipt
+  records its version.
+- `raw_sum`, `nnz`, `raw_mean_nnz`, `raw_variance_nnz`, and `n_measured_vars` are the Census 1
+  statistics of the counts. The writer computes them as Census 1 does, before the gene projection.
+  `n_measured_vars` is the number of genes in `measured`. The writer reads `X` once for the
+  statistics and once more for the write. The values are bit-identical to Census 1 LTS
+  `2025-11-08`, except `raw_sum` and `raw_mean_nnz` in 385 cells whose row sum is above 2^24.
+  The writer keeps the exact sum of those cells, and Census 1 holds a float32 rounding of it
+  ([expected differences](../census2-sdk/tools/harness/README.md#expected-differences)).
+- Census 1 also holds `soma_joinid`, a corpus-wide number that a store for one dataset cannot
+  assign.
 
 ## Summary record
 
@@ -179,9 +202,9 @@ receipt.
 
 ```python
 census2_dataset_writer.provenance()
-# {'recipe': 'v1', 'slot_policy': 'census', 'zarr_format': 3,
+# {'recipe': 'v2', 'slot_policy': 'census', 'zarr_format': 3,
 #  'census2_dataset_writer_version': ..., 'anndata_version': ...,
-#  'zarr_version': ...}
+#  'zarr_version': ..., 'cellxgene_ontology_guide_version': ...}
 ```
 
 ## Develop

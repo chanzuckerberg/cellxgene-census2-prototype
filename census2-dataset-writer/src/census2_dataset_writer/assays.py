@@ -1,14 +1,14 @@
-"""Assay ontology terms that Census 2 admits.
+"""Assay ontology terms whose cells a Census 2 store keeps.
 
 The default is the CELLxGENE Census 1 list. It merges `RNA_SEQ` and
 `ALLOWED_SPATIAL_ASSAYS` from the `chanzuckerberg/cellxgene-census` repository,
 at `tools/cellxgene_census_builder/src/cellxgene_census_builder/build_soma/globals.py`.
 Census 1 keeps the two apart because it writes them to separate experiments.
-Census 2 admits a dataset from either, so this module merges them.
+A Census 2 store holds cells from either, so this module merges them.
 
-The list is a starting point, not a decision. It is what Census 1 covers today,
-which keeps the two corpora comparable while Census 2 is a prototype. Each term
-carries its label, so a reader does not need a second lookup.
+The list is the Census 1 list, so that a store holds the cells that Census 1
+holds (design 1.3). Each term carries its label, so a reader does not need a
+second lookup.
 """
 
 from __future__ import annotations
@@ -141,6 +141,6 @@ SPATIAL: frozenset[str] = frozenset(
     }
 )
 
-# The default `assay_allowlist`. A dataset is admitted when it holds at least
-# one cell on a term in this set. See `census2_dataset_writer.admit`.
+# The default `assay_allowlist`. A store keeps the cells on a term in this set.
+# See `census2_dataset_writer.cell_mask`.
 DEFAULT_ALLOWLIST: frozenset[str] = RNA_SEQ | SPATIAL

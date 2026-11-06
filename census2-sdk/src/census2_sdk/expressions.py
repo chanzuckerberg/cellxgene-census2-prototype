@@ -64,8 +64,8 @@ from census2_sdk.catalog import (
     MULTIVALUE_SEP,
     MULTIVALUED,
     Filter,
+    canonicalize,
     members,
-    normalize,
     unrecorded,
 )
 from census2_sdk.catalog import PRIMARY as PRIMARY_COLUMN
@@ -81,7 +81,7 @@ def from_filter(obs_filter: AnyFilter | None) -> BooleanExpression:
     """The filter as an unbound Iceberg expression.
 
     A mapping gives one `IN` term for each column, joined with `AND`. It takes the
-    columns that `catalog.normalize` takes.
+    columns that `catalog.canonicalize` takes.
     """
     if obs_filter is None:
         return AlwaysTrue()
@@ -90,7 +90,7 @@ def from_filter(obs_filter: AnyFilter | None) -> BooleanExpression:
     if isinstance(obs_filter, str):
         return _parser.parse(obs_filter)
     terms: list[BooleanExpression] = []
-    for column, wanted in normalize(obs_filter).items():
+    for column, wanted in canonicalize(obs_filter).items():
         if column == PRIMARY_COLUMN:
             terms.append(is_in(column, sorted(w == "True" for w in wanted)))
         else:
