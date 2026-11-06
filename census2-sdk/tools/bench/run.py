@@ -11,23 +11,35 @@ an earlier run. The shapes are:
 - `corpus_obs`: open every store and read its whole `obs`.
 - `corpus_x`: open every store and read all of `X`, one shard at a time, and keep
   nothing. This measures the time of a full read of `X` without a result in memory.
-- `query`: `get_anndata` for the mapping filter in `--query`, a JSON object.
-- `count_donor`: the number of cells of each `donor_id` for the filter in `--query`.
+- `query`: `get_anndata` for the filter in `--query`: a mapping filter as a JSON
+  object, or an expression as a JSON string (the table path only).
+- `count`: the number of cells of each group of the `--by` columns (default
+  `donor_id`) for the filter in `--query`, or for the `cell_type` shape's filter.
 
 `--workers` is the largest number of stores read at the same time. The record
-holds the elapsed time of the catalog read and of the query. It also holds the
-number of stores and cells, the reads and the payload, and the peak memory.
+holds the elapsed time and the CPU time (user and system, of all threads) of the
+catalog read and of the query. It also holds the number of stores and cells, the
+requests and the bytes of each kind of object (`counting.py`), and the peak memory.
 
 `--obs-table` names the `obs` table of the catalog. The query shapes then go through
 the table (`census2_sdk.obs_table`): one scan selects the cells, and the SDK opens only
-the stores that hold one. `corpus_obs` reads the table and no store, and `count_donor`
-counts from the table. The record then also holds the plan and scan times, the data
-files that the plan kept, and the estimated bytes of the scan. The store reads stay
-counted at the zarr store interface; the table reads go through pyarrow and are not.
-`--x-from-indptr` reads the whole `X/indptr` of each store, as the read without the
-table does, instead of the ranges in the table. `--scan-workers` sets pyiceberg's
-thread pool. On Linux, the record holds the bytes that the process read
-(`/proc/self/io`), which counts both kinds of read.
+the stores that hold one. `corpus_obs` reads the table and no store (`--arrow-obs`
+returns Arrow-backed columns), and `count` counts from the table. The record then
+also holds the plan and scan times, the data files that the plan kept, and the
+estimated bytes of the scan. `--x-from-indptr` reads the whole `X/indptr` of each
+store, as the read without the table does, instead of the ranges in the table.
+`--scan-workers` sets pyiceberg's thread pool. On Linux, the record holds the bytes
+that the process read (`/proc/self/io`), which counts every kind of read.
+
+The store reads are always counted. `--count-arrow` also counts the reads of the
+table metadata and of the fragments, through a Python file system that can slow the
+scan; see `counting.py`.
+
+Without a table, `count` reads the `obs` of each store that the catalog keeps, as
+`get_anndata` reads it (every column), and selects and groups the cells in pandas.
+`--narrow` reads only the columns of the filter and of `--by`. An expression filter
+then goes through the same catalog test as on the table path
+(`expressions.can_match`), and `evaluate` applies it to each store's `obs`.
 
 A catalog of copies (`catalogs.py`) gives each copy a new `dataset_id`. The run then
 accepts a store whose `obs` names the source dataset of its copy.
@@ -49,19 +61,20 @@ import resource
 import sys
 import threading
 import time
-from collections.abc import AsyncIterator, Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import anndata
+import numpy as np
 import pandas as pd
 import zarr
 import zarr.storage
 from anndata.io import read_elem
-from zarr.abc.store import ByteRequest, Store
-from zarr.core.buffer import Buffer, BufferPrototype
+from zarr.abc.store import Store
 
 import census2_sdk
+from bench.counting import COUNTER, CountingStore
 from census2_sdk import catalog as _catalog
 
 SHAPES = (
@@ -71,83 +84,10 @@ SHAPES = (
     "corpus_obs",
     "corpus_x",
     "query",
-    "count_donor",
+    "count",
 )
 ORGANISM = "homo_sapiens"
 MEMORY_LIMIT_EXIT = 3
-
-
-class Counter:
-    """The reads and the data of every counting store in this process."""
-
-    def __init__(self) -> None:
-        self.lock = threading.Lock()
-        self.requests = 0
-        self.nbytes = 0
-
-    def add(
-        self, buffers: Iterable[Buffer | None], requests: int | None = None
-    ) -> None:
-        """Count the data of `buffers`, and one request each unless `requests` is given."""
-        sizes = [len(b) if b is not None else 0 for b in buffers]
-        with self.lock:
-            self.requests += len(sizes) if requests is None else requests
-            self.nbytes += sum(sizes)
-
-
-COUNTER = Counter()
-
-
-class CountingStore(zarr.storage.WrapperStore[Store]):
-    """A store that counts each read and its data in `COUNTER`.
-
-    The count is at the zarr store interface. A sharded array reads parts of a
-    shard through `get_ranges`. The wrapped store fetches each group of ranges
-    together, so one group counts as one request. The payload is the data that
-    zarr keeps. A group fetch also reads the gaps between its ranges, and the
-    payload does not include those gaps.
-    """
-
-    async def get(
-        self,
-        key: str,
-        prototype: BufferPrototype,
-        byte_range: ByteRequest | None = None,
-    ) -> Buffer | None:
-        buffer = await self._store.get(key, prototype, byte_range)
-        COUNTER.add([buffer])
-        return buffer
-
-    async def get_partial_values(
-        self,
-        prototype: BufferPrototype,
-        key_ranges: Iterable[tuple[str, ByteRequest | None]],
-    ) -> list[Buffer | None]:
-        buffers = await self._store.get_partial_values(prototype, key_ranges)
-        COUNTER.add(buffers)
-        return buffers
-
-    async def get_ranges(
-        self,
-        key: str,
-        byte_ranges: Sequence[ByteRequest | None],
-        *,
-        prototype: BufferPrototype,
-        max_concurrency: int | None = None,
-        max_gap_bytes: int | None = None,
-        max_coalesced_bytes: int | None = None,
-    ) -> AsyncIterator[Sequence[tuple[int, Buffer | None]]]:
-        groups = super().get_ranges(
-            key,
-            byte_ranges,
-            prototype=prototype,
-            max_concurrency=max_concurrency,
-            max_gap_bytes=max_gap_bytes,
-            max_coalesced_bytes=max_coalesced_bytes,
-        )
-        async for group in groups:
-            COUNTER.add((buffer for _, buffer in group), requests=1)
-            yield group
 
 
 def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
@@ -163,9 +103,16 @@ def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
     return zarr.open_group(CountingStore(base), mode="r")
 
 
-def read_obs(uri: str) -> int:
-    """Open a store, read its whole `obs`, and return the number of cells."""
-    return len(cast("pd.DataFrame", read_elem(open_counted(uri)["obs"])))
+def read_obs(uri: str, columns: Sequence[str] | None = None) -> pd.DataFrame:
+    """A store's `obs`, column by column, without the index, as `get_anndata` reads it.
+
+    `columns` names the columns to read; None reads every column.
+    """
+    group = open_counted(uri)["obs"]
+    assert isinstance(group, zarr.Group), "obs must be an encoded dataframe"
+    names = cast("list[str]", group.attrs["column-order"])
+    wanted = names if columns is None else [n for n in names if n in set(columns)]
+    return pd.DataFrame({name: read_elem(group[name]) for name in wanted})
 
 
 def read_x(uri: str) -> int:
@@ -209,6 +156,12 @@ def peak_rss_mb() -> float:
     """The peak resident memory of this process. macOS reports bytes, Linux KiB."""
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     return round(peak / (2**20 if sys.platform == "darwin" else 2**10), 1)
+
+
+def cpu_seconds() -> tuple[float, float]:
+    """The user and the system CPU time of this process so far, all threads."""
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    return usage.ru_utime, usage.ru_stime
 
 
 PUBLISH_LOCK = threading.Lock()
@@ -288,32 +241,119 @@ def io_read_mb() -> float | None:
 def table_stats(stats: list[dict[str, Any]]) -> dict[str, Any]:
     """The scan statistics of all sources, summed."""
     keys = ["plan_seconds", "scan_seconds", "files_total", "files_planned"]
-    keys += ["rows", "metadata_bytes", "manifests", "data_bytes"]
+    keys += ["files_after_bounds", "rows", "data_bytes"]
     out = {k: sum(s.get(k, 0) for s in stats) for k in keys}
     out["mb_scan_estimate"] = round((out.pop("data_bytes")) / 2**20, 2)
-    out["mb_manifests"] = round(out.pop("metadata_bytes") / 2**20, 3)
     return out
 
 
-def count_from_stores(
-    census: census2_sdk.Census, obs_filter: dict[str, Any], workers: int
-) -> tuple[int, int, int]:
-    """The `count_donor` shape without a table: read the `obs` of each candidate store.
+def evaluate(expr: Any, obs: pd.DataFrame) -> np.ndarray:
+    """The cells of one store's `obs` that satisfy an unbound Iceberg expression.
 
-    Return the number of donor groups, the number of stores read, and the cells.
+    Apply `expressions.with_members` first: this tests strings as strings. A term on a
+    column that `obs` does not hold selects no cell, as on the store path.
     """
-    canonical = _catalog.canonicalize(obs_filter)
-    rows = _catalog.exclude(census.catalog, ORGANISM, canonical)
+    from pyiceberg import expressions as ex
 
-    def one(uri: str) -> pd.Series:
-        obs = cast("pd.DataFrame", read_elem(open_counted(uri)["obs"]))
-        kept = obs[census2_sdk._mask(obs, canonical)]
-        return kept.groupby("donor_id", observed=True).size()
+    n = len(obs)
+    if isinstance(expr, ex.AlwaysTrue):
+        return np.ones(n, dtype=bool)
+    if isinstance(expr, ex.AlwaysFalse):
+        return np.zeros(n, dtype=bool)
+    if isinstance(expr, ex.And):
+        return np.asarray(evaluate(expr.left, obs) & evaluate(expr.right, obs))
+    if isinstance(expr, ex.Or):
+        return np.asarray(evaluate(expr.left, obs) | evaluate(expr.right, obs))
+    if isinstance(expr, ex.Not):
+        return np.asarray(~evaluate(expr.child, obs))
+    name = str(expr.term.name)
+    if name not in obs.columns:
+        return np.zeros(n, dtype=bool)
+    column = obs[name]
+    present = column.notna().to_numpy()
+    if isinstance(expr, ex.IsNull):
+        return ~present
+    if isinstance(expr, ex.NotNull):
+        return present
+    if isinstance(expr, (ex.In, ex.NotIn)):
+        values = [v.value for v in expr.literals]
+        hit = column.isin(values).to_numpy()
+        return hit if isinstance(expr, ex.In) else ~hit & present
+    value = expr.literal.value
+    if isinstance(expr, (ex.StartsWith, ex.NotStartsWith)):
+        hit = column.astype(str).str.startswith(value).to_numpy() & present
+        return hit if isinstance(expr, ex.StartsWith) else ~hit & present
+    compare: dict[type, Callable[[Any, Any], Any]] = {
+        ex.EqualTo: lambda a, b: a == b,
+        ex.NotEqualTo: lambda a, b: a != b,
+        ex.LessThan: lambda a, b: a < b,
+        ex.LessThanOrEqual: lambda a, b: a <= b,
+        ex.GreaterThan: lambda a, b: a > b,
+        ex.GreaterThanOrEqual: lambda a, b: a >= b,
+    }
+    labels: Any = column
+    if isinstance(column.dtype, pd.CategoricalDtype):
+        labels = column.astype(str)
+    return np.asarray(compare[type(expr)](labels, value), dtype=bool) & present
 
+
+def count_from_stores(
+    census: census2_sdk.Census,
+    obs_filter: Any,
+    by: Sequence[str],
+    workers: int,
+    *,
+    narrow: bool = False,
+) -> tuple[int, int, int]:
+    """The `count` shape without a table: read the `obs` of each candidate store.
+
+    Return the number of groups, the number of stores read, and the cells.
+    """
+    if isinstance(obs_filter, dict):
+        canonical = _catalog.canonicalize(obs_filter)
+        rows = _catalog.exclude(census.catalog, ORGANISM, canonical)
+        needed = {*canonical, *by} - {"dataset_id"}
+
+        def select(obs: pd.DataFrame, row: dict[str, Any]) -> np.ndarray:
+            return census2_sdk._mask(obs, canonical)
+
+    else:
+        from census2_sdk import expressions
+
+        expr = expressions.from_filter(obs_filter)
+        rows = census._candidates(ORGANISM, expr)
+        needed = {*expressions.columns(expr), *by}
+
+        def select(obs: pd.DataFrame, row: dict[str, Any]) -> np.ndarray:
+            return evaluate(expressions.with_members(expr, [row]), obs)
+
+    def one(row: dict[str, Any]) -> pd.Series:
+        obs = read_obs(str(row["store_uri"]), sorted(needed) if narrow else None)
+        kept = obs[select(obs, row)]
+        return kept.groupby(list(by), observed=True).size()
+
+    records = cast("list[dict[str, Any]]", rows.to_dict("records"))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        parts = list(pool.map(one, [str(u) for u in rows["store_uri"]]))
-    groups = sum(len(p) for p in parts)
+        parts = list(pool.map(one, records))
+    groups = 0
+    if parts:
+        groups = len(pd.concat(parts).groupby(level=list(range(len(by)))).sum())
     return groups, len(rows), int(sum(p.sum() for p in parts))
+
+
+def get_anndata(
+    census: census2_sdk.Census, obs_filter: Any, workers: int
+) -> anndata.AnnData | None:
+    """`Census.get_anndata` with every store open counted."""
+    # The SDK imports open_store by name, so patch both names, and restore them.
+    original = _catalog.open_store
+    census2_sdk.__dict__["open_store"] = open_counted
+    _catalog.open_store = open_counted
+    try:
+        return census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
+    finally:
+        census2_sdk.__dict__["open_store"] = original
+        _catalog.open_store = original
 
 
 def run(
@@ -322,16 +362,22 @@ def run(
     workers: int,
     cell_type: str | None,
     *,
-    query: dict[str, Any] | None = None,
+    query: Any = None,
     obs_table: str | None = None,
+    by: Sequence[str] = ("donor_id",),
+    narrow: bool = False,
+    arrow_obs: bool = False,
 ) -> dict[str, Any]:
     before = io_read_mb()
+    c0 = cpu_seconds()
     t0 = time.monotonic()
     census = census2_sdk.open_census(
         [catalog], obs_tables=None if obs_table is None else [obs_table]
     )
     rows = census.catalog[census.catalog["organism"] == ORGANISM]
     t1 = time.monotonic()
+    c1 = cpu_seconds()
+    opened = COUNTER.snapshot()
     record: dict[str, Any] = {
         "catalog": catalog,
         "catalog_stores": len(rows),
@@ -345,100 +391,112 @@ def run(
     if "copy" in rows.columns:
         accept_copies()
 
+    def default_filter() -> dict[str, Any]:
+        return {"cell_type": cell_type or pick_cell_type(source_rows(rows))}
+
     if shape in ("single", "cell_type", "query"):
         if shape == "single":
-            obs_filter: dict[str, Any] = {"dataset_id": str(rows["dataset_id"].iloc[0])}
+            obs_filter: Any = {"dataset_id": str(rows["dataset_id"].iloc[0])}
         elif shape == "query":
             if query is None:
                 raise ValueError("the query shape needs --query")
             obs_filter = query
-            record["query"] = query
         else:
-            cell_type = cell_type or pick_cell_type(source_rows(rows))
-            obs_filter = {"cell_type": cell_type}
-            record["cell_type"] = cell_type
-        # The SDK imports open_store by name, so patch both names, and restore them.
-        original = _catalog.open_store
-        census2_sdk.__dict__["open_store"] = open_counted
-        _catalog.open_store = open_counted
-        try:
-            adata = census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
-        finally:
-            census2_sdk.__dict__["open_store"] = original
-            _catalog.open_store = original
+            obs_filter = default_filter()
+            record["cell_type"] = obs_filter["cell_type"]
+        record["query"] = obs_filter
+        adata = get_anndata(census, obs_filter, workers)
         t2 = time.monotonic()
-        candidates = len(
-            _catalog.exclude(
+        if obs_table is not None:
+            record["catalog_candidates"] = len(
+                census._candidates(ORGANISM, _expression(obs_filter))
+            )
+            uns = adata.uns["census2"] if isinstance(adata, anndata.AnnData) else {}
+            record["stores_opened"] = uns.get("stores_opened", 0)
+            record.update(table_stats(uns.get("obs_table", census.last_scan)))
+        else:
+            candidates = _catalog.exclude(
                 census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
             )
-        )
-        record["catalog_candidates"] = candidates
-        record["stores_opened"] = candidates
-        if isinstance(adata, anndata.AnnData) and obs_table is not None:
-            uns = adata.uns["census2"]
-            record["stores_opened"] = uns["stores_opened"]
-            record.update(table_stats(uns["obs_table"]))
-        elif adata is None and obs_table is not None:
-            record["stores_opened"] = 0
-            record.update(table_stats(census.last_scan))
+            record["catalog_candidates"] = record["stores_opened"] = len(candidates)
         record["cells"] = int(adata.n_obs) if isinstance(adata, anndata.AnnData) else 0
-    elif shape == "count_donor":
-        obs_filter = (
-            query
-            if query is not None
-            else {"cell_type": cell_type or pick_cell_type(source_rows(rows))}
-        )
-        record["query"] = obs_filter
+    elif shape == "count":
+        obs_filter = query if query is not None else default_filter()
+        record.update(query=obs_filter, by=list(by))
         if obs_table is None:
-            groups, opened, cells = count_from_stores(census, obs_filter, workers)
+            groups, read, cells = count_from_stores(
+                census, obs_filter, by, workers, narrow=narrow
+            )
             t2 = time.monotonic()
-            record.update(stores_opened=opened, groups=groups, cells=cells)
+            record.update(stores_opened=read, groups=groups, cells=cells)
+            record.update(catalog_candidates=read, narrow=narrow)
         else:
-            frame = census.count_obs(ORGANISM, obs_filter, by=["donor_id"])
+            frame = census.count_obs(ORGANISM, obs_filter, by=list(by))
             t2 = time.monotonic()
             record.update(stores_opened=0, groups=len(frame))
             record["cells"] = int(frame["n_cells"].sum())
+            record["catalog_candidates"] = frame.attrs["census2"]["catalog_candidates"]
             record.update(table_stats(frame.attrs["census2"]["obs_table"]))
-        record["catalog_candidates"] = len(
-            _catalog.exclude(
-                census.catalog, ORGANISM, _catalog.canonicalize(obs_filter)
-            )
-        )
     elif shape == "corpus_obs" and obs_table is not None:
-        frame = census.get_obs(ORGANISM)
+        backend: Literal["numpy", "pyarrow"] = "pyarrow" if arrow_obs else "numpy"
+        frame = census.get_obs(ORGANISM, dtype_backend=backend)
         t2 = time.monotonic()
-        record.update(stores_opened=0, cells=len(frame))
-        record.update(table_stats(frame.attrs["census2"]["obs_table"]))
+        attrs = frame.attrs["census2"]
+        record.update(stores_opened=0, cells=len(frame), dtype_backend=backend)
+        record.update(table_stats(attrs["obs_table"]))
+        record.update(
+            table_seconds=attrs["table_seconds"], build_seconds=attrs["build_seconds"]
+        )
     else:
-        read: Callable[[str], int] = {
+        reader: Callable[[str], int] = {
             "open": open_only,
-            "corpus_obs": read_obs,
+            "corpus_obs": lambda uri: len(read_obs(uri)),
             "corpus_x": read_x,
         }[shape]
         uris = [str(u) for u in rows["store_uri"]]
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            cells = sum(pool.map(read, uris))
+            cells = sum(pool.map(reader, uris))
         t2 = time.monotonic()
         record["stores_opened"] = len(uris)
         record["cells"] = cells
 
+    c2 = cpu_seconds()
+    done = COUNTER.snapshot()
     record.update(
         catalog_seconds=round(t1 - t0, 3),
         query_seconds=round(t2 - t1, 3),
-        requests=COUNTER.requests,
-        mb_payload=round(COUNTER.nbytes / 2**20, 2),
+        cpu_open_seconds=round(sum(c1) - sum(c0), 3),
+        cpu_seconds=round(sum(c2) - sum(c1), 3),
+        cpu_user_seconds=round(c2[0] - c1[0], 3),
+        cpu_sys_seconds=round(c2[1] - c1[1], 3),
+        requests_open=opened["requests"],
+        requests=done["requests"] - opened["requests"],
+        requests_by_kind=done["requests_by_kind"],
+        heads_by_kind=done["heads_by_kind"],
+        mb_by_kind=done["mb_by_kind"],
+        mb_payload=round(sum(done["mb_by_kind"].values()), 2),
         peak_rss_mb=peak_rss_mb(),
         machine=platform.machine(),
         versions={
             m: importlib.metadata.version(m)
-            for m in ("anndata", "zarr", "pyarrow", "pyiceberg")
+            for m in ("anndata", "zarr", "pyarrow", "pyiceberg", "pandas")
         },
         status="ok",
     )
+    for table in census._tables.values():
+        from census2_sdk import obs_table as _obs_table
+
+        record.update(_obs_table.manifest_stats(table))
     after = io_read_mb()
     if before is not None and after is not None:
         record["mb_read_process"] = round(after - before, 2)
     return record
+
+
+def _expression(obs_filter: Any) -> Any:
+    from census2_sdk import expressions
+
+    return expressions.from_filter(obs_filter)
 
 
 def main() -> int:
@@ -448,27 +506,36 @@ def main() -> int:
     p.add_argument("--workers", type=int, default=1)
     p.add_argument("--cell-type", default=None)
     p.add_argument("--max-rss-gb", type=float, default=None)
-    p.add_argument("--query", default=None, help="a mapping filter, as JSON")
+    p.add_argument("--query", default=None, help="a filter, as JSON")
+    p.add_argument("--by", default="donor_id", help="the count columns, joined by +")
     p.add_argument("--label", default=None, help="a name for the query")
     p.add_argument("--obs-table", default=None)
     p.add_argument("--x-from-indptr", action="store_true")
     p.add_argument("--key-first", action="store_true")
     p.add_argument("--scan-workers", type=int, default=None)
+    p.add_argument("--count-arrow", action="store_true")
+    p.add_argument("--narrow", action="store_true")
+    p.add_argument("--arrow-obs", action="store_true")
     args = p.parse_args()
+    from bench import counting
+
+    counting.install_read_counting()
+    if args.count_arrow:
+        counting.install_arrow_counting()
     if args.scan_workers is not None:
         os.environ["PYICEBERG_MAX_WORKERS"] = str(args.scan_workers)
     if args.x_from_indptr:
         census2_sdk.__dict__["X_FROM_RANGES"] = False
     if args.key_first:
         census2_sdk.__dict__["SCAN_KEY_FIRST"] = True
-    if args.obs_table is not None:
+    if args.obs_table is not None or args.query is not None:
         # Import the table modules before the timed part.
         from census2_sdk import expressions, obs_table  # noqa: F401
     limit_mb = None if args.max_rss_gb is None else args.max_rss_gb * 1024
     if limit_mb is not None:
         base = {"catalog": args.catalog, "shape": args.shape, "workers": args.workers}
         guard_memory(limit_mb, base)
-    query = None if args.query is None else dict(json.loads(args.query))
+    query = None if args.query is None else json.loads(args.query)
     record = run(
         args.catalog,
         args.shape,
@@ -476,7 +543,11 @@ def main() -> int:
         args.cell_type,
         query=query,
         obs_table=args.obs_table,
+        by=args.by.split("+"),
+        narrow=args.narrow,
+        arrow_obs=args.arrow_obs,
     )
+    record["count_arrow"] = args.count_arrow
     if args.label is not None:
         record["label"] = args.label
     if args.scan_workers is not None:

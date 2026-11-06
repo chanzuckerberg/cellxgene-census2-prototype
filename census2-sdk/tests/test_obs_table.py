@@ -461,3 +461,22 @@ def test_a_value_filter_translates_to_an_expression(
 def test_a_value_filter_without_an_iceberg_term_is_refused(value_filter: str) -> None:
     with pytest.raises(ValueError, match="Iceberg|column|list"):
         expressions.from_value_filter(value_filter)
+
+
+def test_get_obs_with_arrow_columns_gives_the_same_values(
+    table: census2_sdk.Census,
+) -> None:
+    query = "tissue = 'lung' AND nnz >= 6"
+    numpy_frame = table.get_obs("homo_sapiens", query)
+    arrow_frame = table.get_obs("homo_sapiens", query, dtype_backend="pyarrow")
+    assert len(numpy_frame) and list(arrow_frame.index) == list(numpy_frame.index)
+    assert list(arrow_frame.columns) == list(numpy_frame.columns)
+    for column in numpy_frame.columns:
+        assert isinstance(arrow_frame[column].dtype, pd.ArrowDtype), column
+        assert list(arrow_frame[column].astype(str)) == list(
+            numpy_frame[column].astype(str)
+        ), column
+    timing = arrow_frame.attrs["census2"]
+    assert timing["table_seconds"] >= 0 and timing["build_seconds"] >= 0
+    with pytest.raises(ValueError, match="dtype_backend"):
+        table.get_obs("homo_sapiens", query, dtype_backend=cast("Any", "polars"))

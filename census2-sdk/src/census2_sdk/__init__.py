@@ -52,7 +52,7 @@ store whose `dataset_id` differs from the dataset of its catalog row.
 import os
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import anndata
 import numpy as np
@@ -370,32 +370,53 @@ class Census:
         obs_filter: "AnyFilter | None" = None,
         *,
         columns: Sequence[str] | None = None,
+        dtype_backend: Literal["numpy", "pyarrow"] = "numpy",
     ) -> pd.DataFrame:
         """The `obs` of the selected cells of `organism`, from the `obs` tables alone.
 
         The SDK opens no store. `columns` names the `obs` columns to return; None
         returns all. The frame always holds the cell key and the row columns of
         `obs_table.ROW_COLUMNS`, and the columns keep the order of the table schema.
-        Its index is `<dataset_id>_<observation_joinid>`. `frame.attrs["census2"]`
-        holds the statistics of the scan. Every source needs an `obs` table.
+        Its index is `<dataset_id>_<observation_joinid>`. Every source needs an `obs`
+        table.
+
+        With `dtype_backend="numpy"`, a label column is a categorical of the labels
+        that the result uses, sorted, as in `get_anndata`. With `"pyarrow"`, each
+        column is a `pd.ArrowDtype` column over the scan's Arrow data, which pandas
+        does not copy: a label column is then an Arrow dictionary column.
+
+        `frame.attrs["census2"]` holds the statistics of the scan, and the seconds
+        of the scan (`table_seconds`) and of the frame (`build_seconds`).
         """
+        import time
+
+        import pyarrow as pa
+        import pyarrow.compute as pc
+
         from census2_sdk import expressions
 
         if set(self.sources) - set(self._tables):
             raise ValueError("get_obs needs an obs table for every source")
+        if dtype_backend not in ("numpy", "pyarrow"):
+            raise ValueError(
+                f"dtype_backend is 'numpy' or 'pyarrow', not {dtype_backend!r}"
+            )
+        t0 = time.monotonic()
         expr = expressions.from_filter(obs_filter)
         rows = self._candidates(organism, expr)
         cells, stats = self._scan(rows, expr, columns)
-        import pyarrow as pa
-
         order = [cells[str(d)] for d in rows["dataset_id"] if str(d) in cells]
-        import pyarrow.compute as pc
-
+        t1 = time.monotonic()
         # One Arrow table first, so that each categorical has one set of labels.
         frame = pd.DataFrame()
         if order:
             arrow = pa.concat_tables(order).unify_dictionaries()
-            frame = _obs_frame(arrow, keep_rows=True)
+            if dtype_backend == "pyarrow":
+                frame = cast(
+                    "pd.DataFrame", arrow.to_pandas(types_mapper=pd.ArrowDtype)
+                )
+            else:
+                frame = _obs_frame(arrow, keep_rows=True)
             # The cell key, joined in Arrow rather than one Python string at a time.
             key = pc.binary_join_element_wise(
                 pc.cast(arrow.column("dataset_id"), pa.string()),
@@ -403,7 +424,12 @@ class Census:
                 "_",
             )
             frame.index = pd.Index(key.to_pandas())
-        frame.attrs["census2"] = {"catalog_candidates": len(rows), "obs_table": stats}
+        frame.attrs["census2"] = {
+            "catalog_candidates": len(rows),
+            "obs_table": stats,
+            "table_seconds": round(t1 - t0, 3),
+            "build_seconds": round(time.monotonic() - t1, 3),
+        }
         return frame
 
     def count_obs(
@@ -745,8 +771,10 @@ def _categorical(array: Any) -> pd.Categorical:
     if array.null_count:
         codes[array.is_null().to_numpy(zero_copy_only=False)] = -1
     categories = pd.Index([labels[i] for i in order])
+    # The codes are valid by construction, so pandas need not check each one.
     return cast(
-        "pd.Categorical", pd.Categorical.from_codes(cast("Any", codes), categories)
+        "pd.Categorical",
+        pd.Categorical.from_codes(cast("Any", codes), categories, validate=False),
     )
 
 

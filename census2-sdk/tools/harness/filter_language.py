@@ -4,16 +4,19 @@ For each of the bound queries of `corpus.expand()`, this script translates the C
 `value_filter` with `census2_sdk.expressions.from_value_filter`, binds the expression to
 the schema of the obs fragments, and records one status:
 
-- `expressible`: the expression binds to the columns that a store holds now.
+- `expressible`: the expression binds to the columns of a store's `obs`.
 - `expressible, membership`: as above, and a term is on a multi-valued column. The SDK
   rewrites it (`expressions.with_members`); Iceberg has no membership term.
-- `expressible, later column`: the expression needs a column that the store does not
-  hold yet, such as `tissue_general` or `nnz`.
 - `var axis`: the query filters genes only, which is outside the obs table.
 - `no obs filter`: the accessor reads no cells (`get_var`, `get_presence_matrix`).
 
-It also records whether the mapping filter of the SDK expresses the query, through the
-harness adapter's `translate`.
+The schema is the fragment schema: the columns of
+`census2_dataset_writer.OBS_COLUMNS`, with the Iceberg type of each column type. The
+script also records the columns of the expression that the catalog does not index
+(`table_only_columns`). Only the table tests a term on such a column, for example a
+range on `nnz`; the catalog keeps every dataset for it. And it records whether the
+mapping filter of the SDK expresses the query, through the harness adapter's
+`translate`.
 
     python -m harness.filter_language --out results/filter_language.json
 """
@@ -24,57 +27,33 @@ import json
 import pathlib
 from typing import Any
 
+import census2_dataset_writer
 import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 from pyiceberg.catalog import Catalog
 from pyiceberg.expressions.visitors import bind
 from pyiceberg.schema import assign_fresh_schema_ids
 
 from census2_sdk import expressions
-from census2_sdk.catalog import MULTIVALUED
+from census2_sdk.catalog import INDEXED, MULTIVALUED, PRIMARY
 from harness.corpus import BoundQuery, expand, load_values
 from harness.sdk_adapter import Unsupported, translate
 
-# The obs columns of a store now, as in census2_dataset_writer.store_format.OBS_COLUMNS.
-STORE_COLUMNS: dict[str, Any] = {
-    name: pa.bool_() if name == "is_primary_data" else pa.string()
-    for name in [
-        "dataset_id",
-        "assay",
-        "assay_ontology_term_id",
-        "cell_type",
-        "cell_type_ontology_term_id",
-        "development_stage",
-        "development_stage_ontology_term_id",
-        "disease",
-        "disease_ontology_term_id",
-        "donor_id",
-        "is_primary_data",
-        "observation_joinid",
-        "self_reported_ethnicity",
-        "self_reported_ethnicity_ontology_term_id",
-        "sex",
-        "sex_ontology_term_id",
-        "suspension_type",
-        "tissue",
-        "tissue_ontology_term_id",
-        "tissue_type",
-    ]
+# The Arrow type of each store column type, as the fragment holds it.
+ARROW_TYPES: dict[census2_dataset_writer.ColType, Any] = {
+    census2_dataset_writer.ColType.CATEGORY: pa.string(),
+    census2_dataset_writer.ColType.STRING: pa.string(),
+    census2_dataset_writer.ColType.BOOL: pa.bool_(),
+    census2_dataset_writer.ColType.INT64: pa.int64(),
+    census2_dataset_writer.ColType.FLOAT64: pa.float64(),
 }
-# The columns that Census 1 also holds and that a store does not hold yet.
-LATER_COLUMNS: dict[str, Any] = {
-    "tissue_general": pa.string(),
-    "tissue_general_ontology_term_id": pa.string(),
-    "raw_sum": pa.float64(),
-    "nnz": pa.int64(),
-    "raw_mean_nnz": pa.float64(),
-    "raw_variance_nnz": pa.float64(),
-    "n_measured_vars": pa.int64(),
+STORE_COLUMNS: dict[str, Any] = {
+    name: ARROW_TYPES[col_type] for name, col_type in census2_dataset_writer.OBS_COLUMNS
 }
 
 
 def schema() -> Any:
-    """The Iceberg schema of a fragment with the later columns."""
-    fields = [pa.field(n, t) for n, t in {**STORE_COLUMNS, **LATER_COLUMNS}.items()]
+    """The Iceberg schema of the `obs` columns of a fragment."""
+    fields = [pa.field(n, t) for n, t in STORE_COLUMNS.items()]
     return assign_fresh_schema_ids(Catalog._convert_schema_if_needed(pa.schema(fields)))
 
 
@@ -94,13 +73,11 @@ def classify(query: BoundQuery, pins: dict[str, Any], table: Any) -> dict[str, A
         out["iceberg"] = expressions.to_text(expr)
         bind(table, expr, case_sensitive=True)  # raises on a column or type error
         named = expressions.columns(expr)
-        if named & set(LATER_COLUMNS):
-            out["status"] = "expressible, later column"
-            out["later_columns"] = sorted(named & set(LATER_COLUMNS))
-        elif named & MULTIVALUED:
-            out["status"] = "expressible, membership"
-        else:
-            out["status"] = "expressible"
+        out["status"] = (
+            "expressible, membership" if named & MULTIVALUED else "expressible"
+        )
+        catalog_columns = {*INDEXED, "dataset_id", PRIMARY}
+        out["table_only_columns"] = sorted(named - catalog_columns)
     if query.obs_filter:
         try:
             out["sdk_mapping"] = translate(query.obs_filter, pins)
@@ -125,6 +102,10 @@ def main() -> int:
     with_filter = sum(1 for r in rows if "sdk_mapping" in r)
     print(f"{len(rows)} bound queries: {dict(by_status)}")
     print(f"SDK mapping filter: {mapping} of {with_filter} queries with an obs filter")
+    table_only = collections.Counter(
+        c for r in rows for c in r.get("table_only_columns", [])
+    )
+    print(f"terms that only the table tests, by column: {dict(table_only)}")
     print("| key | queries | status | Iceberg expression (first) | SDK mapping |")
     print("|---|---|---|---|---|")
     for key in dict.fromkeys(r["key"] for r in rows):

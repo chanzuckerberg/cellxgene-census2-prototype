@@ -10,11 +10,13 @@ so a stopped matrix keeps its finished runs.
         --shapes single,cell_type,open,corpus_obs --workers 1,32 --repeats 3 \\
         --where laptop --out results/bench-laptop.jsonl
 
-`--queries` names a JSON file of named mapping filters; a shape `query:<name>` runs
-one of them, and `count_donor:<name>` counts its cells by donor. `--obs-table` gives
-the `obs` table of each catalog, with `{size}` in place of the size, and `--vias`
-selects `stores`, `table`, or both. `--x-from-indptr` and `--scan-workers` pass
-through to each run.
+`--queries` names a JSON file of named filters: a mapping filter, or an expression
+string, which only the table path runs. A shape `query:<name>` runs one of them.
+`count:<name>:<columns>` counts its cells by the columns, joined by `+`, and
+`count_donor:<name>` counts them by donor. `--obs-table` gives the `obs` table of each
+catalog, with `{size}` in place of the size, and `--vias` selects `stores`, `table`, or
+both. `--x-from-indptr`, `--scan-workers`, `--count-arrow`, `--narrow`, and
+`--arrow-obs` pass through to each run.
 """
 
 import argparse
@@ -83,6 +85,9 @@ def main() -> int:
     p.add_argument("--x-from-indptr", action="store_true")
     p.add_argument("--key-first", action="store_true")
     p.add_argument("--scan-workers", type=int, default=None)
+    p.add_argument("--count-arrow", action="store_true")
+    p.add_argument("--narrow", action="store_true")
+    p.add_argument("--arrow-obs", action="store_true")
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
@@ -96,11 +101,22 @@ def main() -> int:
     for size in sizes:
         catalog = args.catalogs / f"catalog-{size}.parquet"
         for name in args.shapes.split(","):
-            shape, _, label = name.partition(":")
+            shape, _, rest = name.partition(":")
+            label, _, by = rest.partition(":")
+            if shape == "count_donor":
+                shape, by = "count", "donor_id"
             for via in args.vias.split(","):
                 extra = []
                 if label:
                     extra += ["--query", json.dumps(queries[label]), "--label", label]
+                if by:
+                    extra += ["--by", by]
+                if args.count_arrow:
+                    extra.append("--count-arrow")
+                if args.narrow:
+                    extra.append("--narrow")
+                if args.arrow_obs:
+                    extra.append("--arrow-obs")
                 if via == "table":
                     if args.obs_table is None:
                         p.error("the table via needs --obs-table")

@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 import zarr.storage
-from bench import catalogs, matrix, run
+from bench import catalogs, counting, matrix, run
 from zarr.abc.store import RangeByteRequest
 from zarr.core.buffer import default_buffer_prototype
 
@@ -55,8 +55,12 @@ def test_cell_type_share_counts_the_source_rows_only() -> None:
     assert run.pick_cell_type(run.source_rows(uneven), share=0.5) == "B cell"
 
 
+def reset_counter() -> None:
+    counting.COUNTER.__init__()  # type: ignore[misc]
+
+
 def test_get_ranges_is_counted() -> None:
-    store = run.CountingStore(zarr.storage.MemoryStore())
+    store = counting.CountingStore(zarr.storage.MemoryStore())
     buffer = default_buffer_prototype().buffer.from_bytes(bytes(range(100)))
 
     async def ranges() -> list[Any]:
@@ -65,10 +69,10 @@ def test_get_ranges_is_counted() -> None:
         prototype = default_buffer_prototype()
         return [g async for g in store.get_ranges("k", requests, prototype=prototype)]
 
-    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    reset_counter()
     groups = asyncio.run(ranges())
-    assert run.COUNTER.requests == len(groups) >= 1
-    assert run.COUNTER.nbytes == 30
+    assert counting.COUNTER.requests["zarr"] == len(groups) >= 1
+    assert counting.COUNTER.nbytes["zarr"] == 30
 
 
 @pytest.fixture(scope="module")
@@ -108,8 +112,8 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.mark.parametrize("shape", run.SHAPES)
 @pytest.mark.parametrize("workers", [1, 2])
 def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> None:
-    run.COUNTER.requests = run.COUNTER.nbytes = 0
-    query = {"cell_type": "T cell"} if shape == "query" else None
+    reset_counter()
+    query = {"cell_type": "T cell"} if shape in ("query", "count") else None
     catalog = str(stores / "catalog.parquet")
     record = run.run(catalog, shape, workers, None, query=query)
     assert record["status"] == "ok"
@@ -118,6 +122,7 @@ def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> 
     assert (record["stores_opened"], record["cells"]) == expected
     assert record["requests"] > 0
     assert record["mb_payload"] > 0
+    assert record["cpu_seconds"] >= 0 and record["cpu_open_seconds"] >= 0
 
 
 def test_memory_limit_stops_the_run(
@@ -197,12 +202,12 @@ def table(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 @pytest.mark.parametrize(
     ("shape", "expected"),
-    [("query", (2, 25)), ("count_donor", (0, 25)), ("corpus_obs", (0, 50))],
+    [("query", (2, 25)), ("count", (0, 25)), ("corpus_obs", (0, 50))],
 )
 def test_the_table_shapes_run(
     table: Path, shape: str, expected: tuple[int, int]
 ) -> None:
-    run.COUNTER.requests = run.COUNTER.nbytes = 0
+    reset_counter()
     record = run.run(
         str(table / "catalog.parquet"),
         shape,
@@ -215,3 +220,71 @@ def test_the_table_shapes_run(
     assert (record["stores_opened"], record["cells"]) == expected
     assert record["files_planned"] == 2
     assert record["files_total"] == 2
+    assert record["manifests"] == 1
+
+
+def test_pruning_reports_the_files_and_row_groups_that_can_match(table: Path) -> None:
+    from bench import pruning
+
+    from census2_sdk import catalog, obs_table
+
+    frame = catalog.load(catalog.read(table / "catalog.parquet"))
+    opened = obs_table.open_table(str(table / "obs"))
+    out = pruning.prune(frame, opened, "cell_type = 'B cell'")
+    assert (out["files"], out["files_after_bounds"], out["rows"]) == (2, 2, 25)
+    assert out["row_groups"] == out["row_groups_after_stats"] == 2
+    # A label outside the bounds of both files: no file, no row group.
+    out = pruning.prune(frame, opened, "cell_type = 'Z cell'")
+    assert (out["files_after_bounds"], out["row_groups"], out["rows"]) == (0, 0, 0)
+
+
+def test_arrow_counting_counts_the_table_reads(
+    table: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every file that pyiceberg opens is one HEAD, and each read of it one GET."""
+    from pyiceberg.io.pyarrow import PyArrowFileIO
+
+    monkeypatch.setattr(PyArrowFileIO, "_initialize_fs", PyArrowFileIO._initialize_fs)
+    counting.install_arrow_counting()
+    reset_counter()
+    record = run.run(
+        str(table / "catalog.parquet"),
+        "count",
+        2,
+        None,
+        query="cell_type = 'B cell'",
+        obs_table=str(table / "obs"),
+    )
+    assert record["cells"] == 25
+    requests, heads = record["requests_by_kind"], record["heads_by_kind"]
+    # Two fragments: one HEAD and at least one GET each.
+    assert heads["fragment"] == 2 and requests["fragment"] >= 4
+    # The metadata file, the manifest list, and one manifest, with the same rule.
+    assert heads["table_metadata"] >= 3 and requests["table_metadata"] >= 6
+    assert record["mb_by_kind"]["fragment"] > 0
+
+
+@pytest.mark.parametrize(
+    ("query", "by", "narrow"),
+    [
+        ({"cell_type": "T cell"}, ["donor_id"], False),
+        ("cell_type != 'B cell' AND donor_id IN ('donor-1')", ["cell_type"], True),
+    ],
+)
+def test_a_count_from_the_stores_equals_the_count_from_the_table(
+    table: Path, query: Any, by: list[str], narrow: bool
+) -> None:
+    catalog = str(table / "catalog.parquet")
+    with_table = run.run(
+        catalog, "count", 2, None, query=query, obs_table=str(table / "obs"), by=by
+    )
+    if isinstance(query, str):
+        # The store path takes an expression for a count, with its own catalog test.
+        import census2_sdk
+
+        census = census2_sdk.open_census([catalog])
+        groups, _, cells = run.count_from_stores(census, query, by, 2, narrow=narrow)
+    else:
+        record = run.run(catalog, "count", 2, None, query=query, by=by, narrow=narrow)
+        groups, cells = record["groups"], record["cells"]
+    assert (groups, cells) == (with_table["groups"], with_table["cells"])

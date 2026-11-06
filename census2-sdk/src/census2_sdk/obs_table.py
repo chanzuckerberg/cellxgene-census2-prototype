@@ -156,10 +156,6 @@ class ScanStats:
     files_total: int = 0
     files_planned: int = 0
     rows: int = 0
-    # The sizes of the metadata files that the plan read: the metadata file, the
-    # manifest list, and the manifests.
-    metadata_bytes: int = 0
-    manifests: int = 0
     # The compressed size of the projected and the filter columns of the planned files,
     # from the column sizes in the manifests. An estimate of the data that the scan reads: the
     # scan also reads each footer, and it skips the row groups that its statistics
@@ -215,12 +211,9 @@ def scan(
     stats.scan_seconds = round(t2 - t1, 3)
     stats.files_planned = len(tasks)
     stats.rows = int(arrow.num_rows)
-    if snapshot is not None:
-        summary = snapshot.summary.additional_properties if snapshot.summary else {}
+    if snapshot is not None and snapshot.summary is not None:
+        summary = snapshot.summary.additional_properties
         stats.files_total = int(summary.get("total-data-files", 0))
-        manifests = snapshot.manifests(table.io)
-        stats.manifests = len(manifests)
-        stats.metadata_bytes = sum(int(m.manifest_length) for m in manifests)
     # The scan reads the columns of the filter as well as the selected columns.
     from census2_sdk.expressions import columns as filter_columns
 
@@ -235,3 +228,19 @@ def scan(
         if field_id in projected
     )
     return arrow, stats
+
+
+def manifest_stats(table: StaticTable) -> dict[str, int]:
+    """The number and the total size of the manifests of the current snapshot.
+
+    This reads the manifest list again, so a caller that counts the reads of a query
+    calls it after the query.
+    """
+    snapshot = table.current_snapshot()
+    if snapshot is None:
+        return {"manifests": 0, "manifest_bytes": 0}
+    manifests = snapshot.manifests(table.io)
+    return {
+        "manifests": len(manifests),
+        "manifest_bytes": sum(int(m.manifest_length) for m in manifests),
+    }
