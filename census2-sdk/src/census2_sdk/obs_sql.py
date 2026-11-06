@@ -883,7 +883,7 @@ class Engine:
             con.install_extension("httpfs")
             con.load_extension("httpfs")
             s3_secret(con, self.options.credentials)
-        if self.options.files == "iceberg":
+        if self.options.files in ("iceberg", "iceberg_all"):
             con.install_extension("iceberg")
             con.load_extension("iceberg")
         if self.options.count_requests:
