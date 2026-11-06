@@ -820,6 +820,33 @@ class QueryStats:
         return {**out, **self.extra}
 
 
+def s3_secret(con: duckdb.DuckDBPyConnection, mode: str = "auto") -> None:
+    """An S3 secret in `con`: the AWS_* variables, or DuckDB's credential chain.
+
+    `mode` is as for `Options.credentials`. The chain needs DuckDB's `aws` extension.
+    The region comes from `AWS_REGION` or `AWS_DEFAULT_REGION`.
+    """
+    if mode == "auto":
+        mode = "env" if os.environ.get("AWS_ACCESS_KEY_ID") else "chain"
+    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    parts = ["TYPE s3"]
+    if region:
+        parts.append(f"REGION {quote(region)}")
+    if mode == "chain":
+        con.install_extension("aws")
+        con.load_extension("aws")
+        parts.append("PROVIDER credential_chain")
+    elif mode == "env":
+        parts.append(f"KEY_ID {quote(os.environ['AWS_ACCESS_KEY_ID'])}")
+        parts.append(f"SECRET {quote(os.environ['AWS_SECRET_ACCESS_KEY'])}")
+        token = os.environ.get("AWS_SESSION_TOKEN")
+        if token:
+            parts.append(f"SESSION_TOKEN {quote(token)}")
+    else:
+        raise ValueError(f"no credentials mode {mode!r}")
+    con.execute(f"CREATE SECRET census2_s3 ({', '.join(parts)})")
+
+
 class Engine:
     """One DuckDB connection over the catalog and the fragments of a census.
 
@@ -847,7 +874,7 @@ class Engine:
         if remote:
             con.install_extension("httpfs")
             con.load_extension("httpfs")
-            self._secret(con)
+            s3_secret(con, self.options.credentials)
         if self.options.files == "iceberg":
             con.install_extension("iceberg")
             con.load_extension("iceberg")
@@ -873,29 +900,6 @@ class Engine:
         con.execute("SET lock_configuration = true")
         self.con = con
         self.open_seconds = round(time.monotonic() - t0, 3)
-
-    def _secret(self, con: duckdb.DuckDBPyConnection) -> None:
-        """An S3 secret: the AWS_* variables, or DuckDB's credential chain."""
-        mode = self.options.credentials
-        if mode == "auto":
-            mode = "env" if os.environ.get("AWS_ACCESS_KEY_ID") else "chain"
-        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-        parts = ["TYPE s3"]
-        if region:
-            parts.append(f"REGION {quote(region)}")
-        if mode == "chain":
-            con.install_extension("aws")
-            con.load_extension("aws")
-            parts.append("PROVIDER credential_chain")
-        elif mode == "env":
-            parts.append(f"KEY_ID {quote(os.environ['AWS_ACCESS_KEY_ID'])}")
-            parts.append(f"SECRET {quote(os.environ['AWS_SECRET_ACCESS_KEY'])}")
-            token = os.environ.get("AWS_SESSION_TOKEN")
-            if token:
-                parts.append(f"SESSION_TOKEN {quote(token)}")
-        else:
-            raise ValueError(f"no credentials mode {mode!r}")
-        con.execute(f"CREATE SECRET census2_s3 ({', '.join(parts)})")
 
     def terms(self, sql: str) -> list[str]:
         """The terms of one subquery of the descendants table."""

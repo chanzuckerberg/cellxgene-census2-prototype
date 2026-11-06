@@ -507,3 +507,32 @@ def test_a_census1_filter_keeps_its_meaning_on_a_joined_value(
 def test_a_value_filter_without_a_sql_term_is_refused(value_filter: str) -> None:
     with pytest.raises(obs_sql.FilterError):
         obs_sql.from_value_filter(value_filter)
+
+
+@pytest.mark.parametrize("variant", ["bloom", "sorted"])
+def test_a_fragment_variant_gives_the_same_result(
+    corpus: dict[str, Path],
+    stores: census2_sdk.Census,
+    tmp_path: Path,
+    variant: str,
+) -> None:
+    """A sorted fragment keeps each cell's store row, so the result does not change."""
+    from bench import variants
+
+    rows = variants.build(
+        pd.read_parquet(corpus["catalog"]),
+        str(tmp_path / variant),
+        variant,
+        ["cell_type", "tissue"],
+        8,
+        2,
+    )
+    rows.to_parquet(tmp_path / "catalog.parquet")
+    census = census2_sdk.open_census(
+        [tmp_path / "catalog.parquet"], obs_engine="duckdb"
+    )
+    for obs_filter in MAPPINGS[:5]:
+        assert_same(
+            stores.get_anndata("homo_sapiens", obs_filter, layers=["normalized"]),
+            census.get_anndata("homo_sapiens", obs_filter, layers=["normalized"]),
+        )
