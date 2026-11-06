@@ -401,8 +401,8 @@ under the GIL is the limit. Thus:
   than consolidation alone (2.3 times). The two multiply: 2.88 → 0.73 s, 3.9 times.
 - 8 processes spread the parse over cores. Then the per-dataset stores open in 0.43 s (8 processes
   of 4 threads), faster than the consolidated stores with any threaded open, and consolidation adds 1.4 times
-  (0.43 → 0.30 s). The CPU in all stays per store (2.9 → 1.6 s), so consolidation still saves 45% of
-  the CPU.
+  (0.43 → 0.30 s). The CPU in all stays per store (2.9 → 1.6 s), so consolidation still saves about
+  40% of the CPU.
 - On the laptop, at 1 thread, the time follows the round trips in series, not the CPU or the request
   count: about 0.66 s for each `sdk` open (a new client makes new connections) and 0.19 s for each
   `lean` open (one round trip on a warm connection, and the transfer). Consolidation gives 2.4 times
