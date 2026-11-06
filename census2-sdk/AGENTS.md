@@ -12,8 +12,9 @@ The `ponytail:` comments in the code mark the list columns.
 
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
-- The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no
-  `raw_sum`, `nnz`, or the other three columns of design 2.1.
+- The catalog holds no numeric ranges and the mapping filter accepts no numeric column. The stores
+  hold `raw_sum`, `nnz`, and the other three statistics of design 2.1 in `obs`. On the spike
+  branch, only the obs table path takes a range on them.
 
 ## The catalog builder
 

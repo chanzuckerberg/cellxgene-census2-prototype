@@ -94,6 +94,15 @@ pandas 3 holds strings as Arrow large strings, so `pa.array` of a categorical's 
 `large_string`. `fragment_table` casts to `string`, so that every fragment has one schema for
 the Iceberg table.
 
+The count statistics keep their store types in the fragment: `raw_sum`, `raw_mean_nnz`, and
+`raw_variance_nnz` are Parquet `DOUBLE` (Iceberg `double`), and `nnz` and `n_measured_vars` are
+`INT64` (`long`). No value is NaN, because the writer gives a cell with fewer than two stored values
+a variance of 0, and a cell with none a mean of 0. Thus the Iceberg bounds of each statistic are
+exact. `write_fragment` asks for a dictionary on every column except the row columns, and Parquet
+falls back to plain values for a float column with many distinct values. The mean and the variance
+are most of the bytes of a fragment; `BYTE_STREAM_SPLIT` on the float columns makes a fragment
+about 14 percent smaller, but the writer does not use it yet.
+
 ## Sharp edges: types
 
 `read_elem` and `read_elem_lazy` are typed for every element kind they can return, so both return
