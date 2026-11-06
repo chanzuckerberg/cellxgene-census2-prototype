@@ -15,8 +15,14 @@ string, which only the table path runs. A shape `query:<name>` runs one of them.
 `count:<name>:<columns>` counts its cells by the columns, joined by `+`, and
 `count_donor:<name>` counts them by donor. `--obs-table` gives the `obs` table of each
 catalog, with `{size}` in place of the size, and `--vias` selects `stores`, `table`, or
-both. `--x-from-indptr`, `--scan-workers`, `--count-arrow`, `--narrow`, and
+more. `--x-from-indptr`, `--scan-workers`, `--count-arrow`, `--narrow`, and
 `--arrow-obs` pass through to each run.
+
+The via `sql` runs `bench.sql`: DuckDB over the fragments (`census2_sdk.obs_sql`), with
+`--duckdb-threads` (a list: one run each), `--duckdb-memory-limit`, `--files`, `--glob`,
+and `--iceberg`. A named query can give one form for each via: `{"mapping": {...},
+"stores": ..., "iceberg": "...", "sql": "..."}`. A via without a form skips the query, and the
+`mapping` form serves a via without its own.
 """
 
 import argparse
@@ -40,8 +46,12 @@ def one(
     max_rss_gb: float | None = None,
     extra: list[str] | None = None,
 ) -> dict[str, Any]:
+    module = "bench.run"
+    if extra and "--sql-via" in extra:
+        module = "bench.sql"
+        extra = [a for a in extra if a != "--sql-via"]
     command = [
-        sys.executable, "-m", "bench.run", str(catalog),
+        sys.executable, "-m", module, str(catalog),
         "--shape", shape, "--workers", str(workers), "--cell-type", cell_type,
     ]  # fmt: skip
     if max_rss_gb is not None:
@@ -63,6 +73,19 @@ def one(
         tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
         return {**base, "status": "error", "error": tail}
     return dict(json.loads(done.stdout.strip().splitlines()[-1]))
+
+
+def query_form(query: Any, via: str) -> Any:
+    """The form of a named query for one via, or None when the via has none.
+
+    `stores` is the form of the store path where it differs from the mapping, for
+    example an expression that `bench.run` evaluates for a count.
+    """
+    forms = {"mapping", "stores", "iceberg", "sql"}
+    if not isinstance(query, dict) or not query or not set(query) <= forms:
+        return query
+    key = {"stores": "stores", "table": "iceberg", "sql": "sql"}[via]
+    return query.get(key, query.get("mapping"))
 
 
 def main() -> int:
@@ -88,6 +111,12 @@ def main() -> int:
     p.add_argument("--count-arrow", action="store_true")
     p.add_argument("--narrow", action="store_true")
     p.add_argument("--arrow-obs", action="store_true")
+    p.add_argument("--duckdb-threads", default="", help="a list: one run each")
+    p.add_argument("--duckdb-memory-limit", default=None)
+    p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
+    p.add_argument("--glob", default=None, help="with {size} for the size")
+    p.add_argument("--iceberg", default=None, help="a table location, with {size}")
+    p.add_argument("--no-union-by-name", action="store_true")
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
@@ -108,15 +137,28 @@ def main() -> int:
             for via in args.vias.split(","):
                 extra = []
                 if label:
-                    extra += ["--query", json.dumps(queries[label]), "--label", label]
+                    form = query_form(queries[label], via)
+                    if form is None:
+                        continue
+                    extra += ["--query", json.dumps(form), "--label", label]
                 if by:
                     extra += ["--by", by]
-                if args.count_arrow:
-                    extra.append("--count-arrow")
-                if args.narrow:
-                    extra.append("--narrow")
                 if args.arrow_obs:
                     extra.append("--arrow-obs")
+                if via == "sql":
+                    extra += ["--sql-via", "--files", args.files]
+                    if args.duckdb_memory_limit is not None:
+                        extra += ["--memory-limit", args.duckdb_memory_limit]
+                    if args.glob is not None:
+                        extra += ["--glob", args.glob.format(size=size)]
+                    if args.iceberg is not None:
+                        extra += ["--iceberg", args.iceberg.format(size=size)]
+                    if args.no_union_by_name:
+                        extra.append("--no-union-by-name")
+                if via != "sql" and args.count_arrow:
+                    extra.append("--count-arrow")
+                if via != "sql" and args.narrow:
+                    extra.append("--narrow")
                 if via == "table":
                     if args.obs_table is None:
                         p.error("the table via needs --obs-table")
@@ -127,8 +169,15 @@ def main() -> int:
                         extra.append("--key-first")
                     if args.scan_workers is not None:
                         extra += ["--scan-workers", str(args.scan_workers)]
-                for workers in (int(w) for w in args.workers.split(",")):
+                threads = [t for t in args.duckdb_threads.split(",") if t]
+                runs = [
+                    (int(w), t)
+                    for w in args.workers.split(",")
+                    for t in (threads if via == "sql" and threads else [""])
+                ]
+                for workers, thread in runs:
                     for repeat in range(args.repeats):
+                        more = ["--threads", thread] if thread else []
                         record = one(
                             catalog,
                             shape,
@@ -136,7 +185,7 @@ def main() -> int:
                             args.timeout,
                             cell_type,
                             args.max_rss_gb,
-                            extra,
+                            extra + more,
                         )
                         record.update(
                             where=args.where, repeat=repeat, size=int(size), via=via

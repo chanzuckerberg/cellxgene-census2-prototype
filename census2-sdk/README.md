@@ -144,6 +144,43 @@ record the pinned `gene_reference_version`, and the writer projects every store 
 reference, so the SDK checks only that each store has the number of genes of the first store, and
 takes `var` from the first store.
 
+## DuckDB over the fragments
+
+This part is a second spike, stacked on the first. It is not intended to merge in its current
+form; see [`spikes/obs-duckdb.md`](../spikes/obs-duckdb.md).
+
+With `obs_engine="duckdb"`, DuckDB reads the fragments of the catalog's rows directly, without a
+table. The catalog lists the stores of a release, so it also lists their fragments:
+
+```bash
+pip install './census2-sdk[s3,duckdb]'
+```
+
+```python
+census = census2_sdk.open_census(["catalog.parquet"], obs_engine="duckdb")
+adata = census.get_anndata(
+    "homo_sapiens",
+    "tissue_general = 'lung' AND cell_type IN ('macrophage', 'alveolar macrophage') "
+    "AND is_primary_data AND nnz >= 500",
+    max_workers=8,
+)
+counts = census.count_obs(
+    "homo_sapiens",
+    "list_contains(string_split(disease, ' || '), 'COVID-19')",
+    by=["donor_id"],
+)
+```
+
+The filter is the mapping filter or one SQL boolean expression over the `obs` columns: the part of
+a query after `WHERE`. The SDK parses it with DuckDB's parser, accepts only a small set of
+expressions and functions, and runs SQL that it writes again from the accepted tree; see
+`census2_sdk.obs_sql`. A filter means what SQL means, so membership in a `disease` column is
+explicit, as above. `obs_sql.from_value_filter` translates a Census 1 `value_filter` string, with
+its meaning kept. The catalog excludes the datasets that cannot match, with a test that DuckDB
+evaluates over the catalog's value sets, and the result equals the result through the stores,
+value for value, also with `layers=["normalized"]`. `get_obs` and `count_obs` open no store.
+`obs_sql.Options` sets DuckDB's threads and memory limit.
+
 ## Checks before concatenation
 
 The SDK applies the checks of design 4.3 to the selected catalog rows and reports the conflicting

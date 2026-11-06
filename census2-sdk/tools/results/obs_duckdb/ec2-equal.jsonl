@@ -1,0 +1,5 @@
+{"label": "fp_none", "stores_seconds": 3.1, "sql_seconds": 0.5, "equal": true}
+{"label": "fp_some", "stores_seconds": 7.0, "sql_seconds": 1.9, "cells": 111, "equal": true, "failed": []}
+{"label": "cell_type", "stores_seconds": 11.8, "sql_seconds": 6.1, "cells": 35795, "equal": true, "failed": []}
+{"label": "membership", "stores_seconds": 3.5, "sql_seconds": 1.7, "cells": 1258, "equal": true, "failed": []}
+{"label": "compound", "stores_seconds": 38.1, "sql_seconds": 32.0, "cells": 207185, "equal": true, "failed": []}

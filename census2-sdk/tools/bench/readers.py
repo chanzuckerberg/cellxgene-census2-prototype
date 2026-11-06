@@ -29,10 +29,10 @@ import pyarrow.fs as pafs  # type: ignore[import-untyped]
 
 from bench.run import io_read_mb, peak_rss_mb
 from census2_sdk import catalog as _catalog
-from census2_sdk import expressions, obs_table
+from census2_sdk import expressions, fragments, obs_table
 
 READERS = ("pyiceberg", "duckdb", "polars", "pyarrow")
-KEY = ["dataset_id", "observation_joinid", *obs_table.ROW_COLUMNS]
+KEY = ["dataset_id", "observation_joinid", *fragments.ROW_COLUMNS]
 
 
 def sql_literal(value: Any) -> str:

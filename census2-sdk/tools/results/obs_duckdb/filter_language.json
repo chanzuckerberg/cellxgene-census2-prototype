@@ -1,0 +1,1067 @@
+{
+ "corpus": [
+  {
+   "label": "documented_narrow:census_data/homo_sapiens",
+   "key": "documented_narrow",
+   "value_filter": "tissue_general == 'vasculature'",
+   "sql": "(\"tissue_general\" = 'vasculature')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general = 'vasculature'",
+   "mapping": {
+    "tissue_general": [
+     "vasculature"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "documented_wide:census_data/homo_sapiens",
+   "key": "documented_wide",
+   "value_filter": "tissue_general in ['brain', 'lung']",
+   "sql": "(\"tissue_general\" IN ('brain', 'lung'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general IN ('brain', 'lung')",
+   "mapping": {
+    "tissue_general": [
+     "brain",
+     "lung"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "wmg_production:census_data/homo_sapiens",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "sql": "((\"is_primary_data\" = true) AND (\"nnz\" >= 500) AND (\"cell_type_ontology_term_id\" <> 'unknown') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001017') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001007') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0002405') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0000990') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001004') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001434'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+   "mapping": null,
+   "mapping_reason": "the SDK filter takes equality and membership only: 'nnz >= 500'",
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_slice:census_data/homo_sapiens",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000897')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000897'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000897"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_data/homo_sapiens",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '62315937-e268-4fa5-a032-8f7d776f3a3f'",
+   "sql": "(\"dataset_id\" = '62315937-e268-4fa5-a032-8f7d776f3a3f')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = '62315937-e268-4fa5-a032-8f7d776f3a3f'",
+   "mapping": {
+    "dataset_id": [
+     "62315937-e268-4fa5-a032-8f7d776f3a3f"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_data/homo_sapiens",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0002048'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0002048')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0002048'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0002048"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/homo_sapiens",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/homo_sapiens",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000897')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000897'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000897"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "multivalued_disease:census_data/homo_sapiens",
+   "key": "multivalued_disease",
+   "value_filter": "disease_ontology_term_id in ['MONDO:0005109 || MONDO:0005445']",
+   "sql": "(\"disease_ontology_term_id\" IN ('MONDO:0005109 || MONDO:0005445'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "disease_ontology_term_id = 'MONDO:0005109 || MONDO:0005445'",
+   "mapping": {
+    "disease_ontology_term_id": [
+     "MONDO:0005109"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_symbol_collision:census_data/homo_sapiens",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/homo_sapiens",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000897')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000897'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000897"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_data/homo_sapiens",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000897')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000897'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000897"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_data/homo_sapiens",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/homo_sapiens",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/mus_musculus",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "sql": "((\"is_primary_data\" = true) AND (\"nnz\" >= 500) AND (\"cell_type_ontology_term_id\" <> 'unknown') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001017') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001007') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0002405') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0000990') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001004') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001434'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+   "mapping": null,
+   "mapping_reason": "the SDK filter takes equality and membership only: 'nnz >= 500'",
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_slice:census_data/mus_musculus",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000222')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000222'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000222"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_data/mus_musculus",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == 'dcfd4feb-18a3-4b30-81d7-1b0c544a8ab3'",
+   "sql": "(\"dataset_id\" = 'dcfd4feb-18a3-4b30-81d7-1b0c544a8ab3')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = 'dcfd4feb-18a3-4b30-81d7-1b0c544a8ab3'",
+   "mapping": {
+    "dataset_id": [
+     "dcfd4feb-18a3-4b30-81d7-1b0c544a8ab3"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_data/mus_musculus",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000922'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0000922')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0000922'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0000922"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/mus_musculus",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/mus_musculus",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000222')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000222'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000222"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_symbol_collision:census_data/mus_musculus",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/mus_musculus",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000222')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000222'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000222"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_data/mus_musculus",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000222')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000222'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000222"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_data/mus_musculus",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/mus_musculus",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/macaca_mulatta",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "sql": "((\"is_primary_data\" = true) AND (\"nnz\" >= 500) AND (\"cell_type_ontology_term_id\" <> 'unknown') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001017') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001007') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0002405') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0000990') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001004') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001434'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+   "mapping": null,
+   "mapping_reason": "the SDK filter takes equality and membership only: 'nnz >= 500'",
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_slice:census_data/macaca_mulatta",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_data/macaca_mulatta",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == 'd87ba7ec-fddf-4141-abfd-1d69e8427a42'",
+   "sql": "(\"dataset_id\" = 'd87ba7ec-fddf-4141-abfd-1d69e8427a42')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = 'd87ba7ec-fddf-4141-abfd-1d69e8427a42'",
+   "mapping": {
+    "dataset_id": [
+     "d87ba7ec-fddf-4141-abfd-1d69e8427a42"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_data/macaca_mulatta",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0000955')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0000955'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0000955"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/macaca_mulatta",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/macaca_mulatta",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_symbol_collision:census_data/macaca_mulatta",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/macaca_mulatta",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_data/macaca_mulatta",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_data/macaca_mulatta",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/macaca_mulatta",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/callithrix_jacchus",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "sql": "((\"is_primary_data\" = true) AND (\"nnz\" >= 500) AND (\"cell_type_ontology_term_id\" <> 'unknown') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001017') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001007') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0002405') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0000990') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001004') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001434'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+   "mapping": null,
+   "mapping_reason": "the SDK filter takes equality and membership only: 'nnz >= 500'",
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_slice:census_data/callithrix_jacchus",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_data/callithrix_jacchus",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '22c5f395-17c2-40f5-972d-d4ff5e69f9be'",
+   "sql": "(\"dataset_id\" = '22c5f395-17c2-40f5-972d-d4ff5e69f9be')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = '22c5f395-17c2-40f5-972d-d4ff5e69f9be'",
+   "mapping": {
+    "dataset_id": [
+     "22c5f395-17c2-40f5-972d-d4ff5e69f9be"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_data/callithrix_jacchus",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0000955')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0000955'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0000955"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/callithrix_jacchus",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/callithrix_jacchus",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_symbol_collision:census_data/callithrix_jacchus",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/callithrix_jacchus",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_data/callithrix_jacchus",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000679')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000679'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000679"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_data/callithrix_jacchus",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/callithrix_jacchus",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/pan_troglodytes",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "sql": "((\"is_primary_data\" = true) AND (\"nnz\" >= 500) AND (\"cell_type_ontology_term_id\" <> 'unknown') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001017') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001007') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0002405') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0000990') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001004') AND (\"tissue_general_ontology_term_id\" <> 'UBERON:0001434'))",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+   "mapping": null,
+   "mapping_reason": "the SDK filter takes equality and membership only: 'nnz >= 500'",
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_slice:census_data/pan_troglodytes",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000128')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000128'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000128"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_data/pan_troglodytes",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '070b36c0-773a-45d7-ac44-92f690aee9ca'",
+   "sql": "(\"dataset_id\" = '070b36c0-773a-45d7-ac44-92f690aee9ca')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = '070b36c0-773a-45d7-ac44-92f690aee9ca'",
+   "mapping": {
+    "dataset_id": [
+     "070b36c0-773a-45d7-ac44-92f690aee9ca"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_data/pan_troglodytes",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0000955')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0000955'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0000955"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/pan_troglodytes",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/pan_troglodytes",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000128')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000128'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000128"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_symbol_collision:census_data/pan_troglodytes",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/pan_troglodytes",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000128')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000128'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000128"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_data/pan_troglodytes",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000128')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000128'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000128"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_data/pan_troglodytes",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/pan_troglodytes",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "cell_type_slice:census_spatial_sequencing/homo_sapiens",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000115')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000115'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000115"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_spatial_sequencing/homo_sapiens",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '88b7da92-178d-4f27-bc18-b0165b256c67'",
+   "sql": "(\"dataset_id\" = '88b7da92-178d-4f27-bc18-b0165b256c67')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = '88b7da92-178d-4f27-bc18-b0165b256c67'",
+   "mapping": {
+    "dataset_id": [
+     "88b7da92-178d-4f27-bc18-b0165b256c67"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_spatial_sequencing/homo_sapiens",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0002113'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0002113')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0002113'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0002113"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_gene_subset:census_spatial_sequencing/homo_sapiens",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000115')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000115'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000115"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "spatial_cell_type:census_spatial_sequencing/homo_sapiens",
+   "key": "spatial_cell_type",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000115')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000115'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000115"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_spatial_sequencing/homo_sapiens",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:0000115')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:0000115'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:0000115"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_spatial_sequencing/homo_sapiens",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_spatial_sequencing/homo_sapiens",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "cell_type_slice:census_spatial_sequencing/mus_musculus",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:1000838')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:1000838'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:1000838"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "dataset_slice:census_spatial_sequencing/mus_musculus",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '9a32e8f2-a570-4eef-ae25-a3919f98049b'",
+   "sql": "(\"dataset_id\" = '9a32e8f2-a570-4eef-ae25-a3919f98049b')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "dataset_id = '9a32e8f2-a570-4eef-ae25-a3919f98049b'",
+   "mapping": {
+    "dataset_id": [
+     "9a32e8f2-a570-4eef-ae25-a3919f98049b"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "tissue_slice:census_spatial_sequencing/mus_musculus",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0002113'",
+   "sql": "(\"tissue_general_ontology_term_id\" = 'UBERON:0002113')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "tissue_general_ontology_term_id = 'UBERON:0002113'",
+   "mapping": {
+    "tissue_general_ontology_term_id": [
+     "UBERON:0002113"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "cell_type_gene_subset:census_spatial_sequencing/mus_musculus",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:1000838')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:1000838'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:1000838"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "spatial_cell_type:census_spatial_sequencing/mus_musculus",
+   "key": "spatial_cell_type",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:1000838')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:1000838'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:1000838"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "obs_metadata_only:census_spatial_sequencing/mus_musculus",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "sql": "(\"cell_type_ontology_term_id\" = 'CL:1000838')",
+   "sql_status": "accepted",
+   "iceberg_status": "accepted",
+   "iceberg": "cell_type_ontology_term_id = 'CL:1000838'",
+   "mapping": {
+    "cell_type_ontology_term_id": [
+     "CL:1000838"
+    ]
+   },
+   "status": "expressible"
+  },
+  {
+   "label": "var_all_genes:census_spatial_sequencing/mus_musculus",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_spatial_sequencing/mus_musculus",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  }
+ ],
+ "probes": [
+  {
+   "kind": "compound boolean",
+   "mapping": null,
+   "iceberg": "(tissue = 'lung' OR tissue_general = 'lung') AND NOT cell_type = 'macrophage'",
+   "sql": "(tissue = 'lung' OR tissue_general = 'lung') AND NOT cell_type = 'macrophage'",
+   "sql_status": "accepted",
+   "sql_rendered": "(((\"tissue\" = 'lung') OR (\"tissue_general\" = 'lung')) AND (NOT (\"cell_type\" = 'macrophage')))",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "((tissue = 'lung' OR tissue_general = 'lung') AND NOT cell_type = 'macrophage')",
+   "sql_catalog_candidates": 17,
+   "sql_catalog_seconds": 0.0043,
+   "datasets_with_cells": 17,
+   "cells": 1885447,
+   "iceberg_catalog_candidates": 17,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "IN",
+   "mapping": {
+    "cell_type": [
+     "neutrophil",
+     "monocyte"
+    ]
+   },
+   "iceberg": "cell_type IN ('neutrophil', 'monocyte')",
+   "sql": "cell_type IN ('neutrophil', 'monocyte')",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"cell_type\" IN ('neutrophil', 'monocyte'))",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "cell_type IN ('monocyte', 'neutrophil')",
+   "sql_catalog_candidates": 22,
+   "sql_catalog_seconds": 0.0012,
+   "datasets_with_cells": 22,
+   "cells": 122097,
+   "iceberg_catalog_candidates": 22,
+   "mapping_catalog_candidates": 22,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "NOT IN",
+   "mapping": null,
+   "iceberg": "tissue_general = 'lung' AND cell_type NOT IN ('alveolar macrophage', 'type II pneumocyte')",
+   "sql": "tissue_general = 'lung' AND cell_type NOT IN ('alveolar macrophage', 'type II pneumocyte')",
+   "sql_status": "accepted",
+   "sql_rendered": "((\"tissue_general\" = 'lung') AND (NOT (\"cell_type\" IN ('alveolar macrophage', 'type II pneumocyte'))))",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "(tissue_general = 'lung' AND cell_type NOT IN ('alveolar macrophage', 'type II pneumocyte'))",
+   "sql_catalog_candidates": 17,
+   "sql_catalog_seconds": 0.0014,
+   "datasets_with_cells": 17,
+   "cells": 1822235,
+   "iceberg_catalog_candidates": 17,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "nulls",
+   "mapping": null,
+   "iceberg": "raw_variance_nnz IS NULL",
+   "sql": "raw_variance_nnz IS NULL",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"raw_variance_nnz\" IS NULL)",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "raw_variance_nnz IS NULL",
+   "sql_catalog_candidates": 103,
+   "sql_catalog_seconds": 0.0005,
+   "datasets_with_cells": 0,
+   "cells": 0,
+   "iceberg_catalog_candidates": 103,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "membership, multi-valued disease",
+   "mapping": {
+    "disease": "COVID-19"
+   },
+   "iceberg": "disease = 'COVID-19'",
+   "sql": "list_contains(string_split(disease, ' || '), 'COVID-19')",
+   "sql_status": "accepted",
+   "sql_rendered": "list_contains(string_split(\"disease\", ' || '), 'COVID-19')",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "disease = 'COVID-19'",
+   "sql_catalog_candidates": 9,
+   "sql_catalog_seconds": 0.0011,
+   "datasets_with_cells": 9,
+   "cells": 637638,
+   "iceberg_catalog_candidates": 9,
+   "mapping_catalog_candidates": 9,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "joined value, as Census 1",
+   "mapping": null,
+   "iceberg": "disease = 'COVID-19 || normal'",
+   "sql": "disease = 'COVID-19 || normal'",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"disease\" = 'COVID-19 || normal')",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "disease = 'COVID-19 || normal'",
+   "sql_catalog_candidates": 0,
+   "sql_catalog_seconds": 0.0014,
+   "datasets_with_cells": 0,
+   "cells": 0,
+   "iceberg_catalog_candidates": 0,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "numeric range",
+   "mapping": null,
+   "iceberg": "cell_type = 'neutrophil' AND nnz >= 2000 AND raw_sum < 20000",
+   "sql": "cell_type = 'neutrophil' AND nnz >= 2000 AND raw_sum < 20000",
+   "sql_status": "accepted",
+   "sql_rendered": "((\"cell_type\" = 'neutrophil') AND (\"nnz\" >= 2000) AND (\"raw_sum\" < 20000))",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "(cell_type = 'neutrophil' AND (nnz >= 2000 AND raw_sum < 20000))",
+   "sql_catalog_candidates": 14,
+   "sql_catalog_seconds": 0.0009,
+   "datasets_with_cells": 6,
+   "cells": 1077,
+   "iceberg_catalog_candidates": 14,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "numeric range only",
+   "mapping": null,
+   "iceberg": "nnz >= 8000",
+   "sql": "nnz >= 8000",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"nnz\" >= 8000)",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "nnz >= 8000",
+   "sql_catalog_candidates": 103,
+   "sql_catalog_seconds": 0.0006,
+   "datasets_with_cells": 58,
+   "cells": 279441,
+   "iceberg_catalog_candidates": 103,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "prefix",
+   "mapping": null,
+   "iceberg": "cell_type LIKE 'CD8%'",
+   "sql": "cell_type LIKE 'CD8%'",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"cell_type\" LIKE 'CD8%')",
+   "iceberg_status": "accepted",
+   "iceberg_rendered": "cell_type LIKE 'CD8%'",
+   "sql_catalog_candidates": 24,
+   "sql_catalog_seconds": 0.0014,
+   "datasets_with_cells": 24,
+   "cells": 427977,
+   "iceberg_catalog_candidates": 24,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "substring, case-insensitive",
+   "mapping": null,
+   "iceberg": null,
+   "sql": "cell_type ILIKE '%macrophage%'",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"cell_type\" ILIKE '%macrophage%')",
+   "sql_catalog_candidates": 36,
+   "sql_catalog_seconds": 0.0012,
+   "datasets_with_cells": 36,
+   "cells": 581205,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "regular expression",
+   "mapping": null,
+   "iceberg": null,
+   "sql": "regexp_matches(cell_type, '^CD(4|8)-positive')",
+   "sql_status": "accepted",
+   "sql_rendered": "regexp_matches(\"cell_type\", '^CD(4|8)-positive')",
+   "sql_catalog_candidates": 27,
+   "sql_catalog_seconds": 0.0015,
+   "datasets_with_cells": 27,
+   "cells": 1051329,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "ontology closure (T cell)",
+   "mapping": null,
+   "iceberg": null,
+   "sql": "cell_type_ontology_term_id IN (SELECT descendant FROM descendants WHERE ancestor = 'CL:0000084')",
+   "sql_status": "accepted",
+   "sql_rendered": "(\"cell_type_ontology_term_id\" IN (SELECT descendant FROM descendants WHERE (\"ancestor\" = 'CL:0000084')))",
+   "sql_catalog_candidates": 46,
+   "sql_catalog_seconds": 0.0037,
+   "datasets_with_cells": 46,
+   "cells": 3658513,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "arithmetic",
+   "mapping": null,
+   "iceberg": null,
+   "sql": "raw_sum / nnz > 3.0 AND tissue_general = 'blood'",
+   "sql_status": "accepted",
+   "sql_rendered": "(((\"raw_sum\" / \"nnz\") > 3.0) AND (\"tissue_general\" = 'blood'))",
+   "sql_catalog_candidates": 15,
+   "sql_catalog_seconds": 0.0011,
+   "datasets_with_cells": 15,
+   "cells": 2047708,
+   "catalog_rows": 103
+  }
+ ]
+}

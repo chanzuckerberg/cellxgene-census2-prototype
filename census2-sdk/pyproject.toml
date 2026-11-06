@@ -35,6 +35,9 @@ s3 = ["obstore>=0.11"]
 # The obs table (census2_sdk.obs_table) is an Iceberg table, which pyiceberg reads.
 # A census without one needs none of this.
 iceberg = ["pyiceberg[pyarrow]>=0.10"]
+# The SQL path (census2_sdk.obs_sql): DuckDB over the obs fragments, without a table.
+# The filter check reads the parse tree of json_serialize_sql in the form of 2.0.
+duckdb = ["duckdb>=2.0"]
 # obstore and pyiceberg are here as well, because mypy --strict checks the remote and
 # the obs table code paths. The tests build a table through pyiceberg's SQLite catalog.
 dev = [
@@ -44,6 +47,7 @@ dev = [
     "scipy-stubs",
     "obstore>=0.11",
     "pyiceberg[pyarrow,sql-sqlite]>=0.10",
+    "duckdb>=2.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -71,6 +75,8 @@ files = [
     "tests",
     "tools/build_catalog.py",
     "tools/build_obs_table.py",
+    "tools/build_descendants.py",
+    "tools/harness/filter_language_sql.py",
     "tools/harness/corpus.py",
     "tools/harness/canonical.py",
     "tools/harness/comparator.py",

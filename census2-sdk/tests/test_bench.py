@@ -314,3 +314,63 @@ def test_a_count_from_the_stores_equals_the_count_from_the_table(
         record = run.run(catalog, "count", 2, None, query=query, by=by, narrow=narrow)
         groups, cells = record["groups"], record["cells"]
     assert (groups, cells) == (with_table["groups"], with_table["cells"])
+
+
+@pytest.mark.parametrize(
+    ("shape", "query", "expected"),
+    [
+        ("query", {"cell_type": "T cell"}, (2, 25)),
+        (
+            "query",
+            "cell_type = 'T cell' AND observation_joinid IN ('j0', 'j2')",
+            (2, 4),
+        ),
+        ("count", {"cell_type": "T cell"}, (0, 25)),
+        ("corpus_obs", None, (0, 50)),
+    ],
+)
+def test_the_sql_shapes_run(
+    table: Path, shape: str, query: Any, expected: tuple[int, int]
+) -> None:
+    from bench import sql
+
+    from census2_sdk import obs_sql
+
+    record = sql.run(
+        str(table / "catalog.parquet"),
+        shape,
+        2,
+        None,
+        obs_sql.Options(threads=2, count_requests=False),
+        query=query,
+    )
+    assert record["status"] == "ok" and record["via"] == "sql"
+    assert (record["stores_opened"], record["cells"]) == expected
+    assert record["files_read"] == 2
+    assert record["cpu_seconds"] >= 0
+
+
+def test_a_count_through_duckdb_equals_the_count_from_the_table(table: Path) -> None:
+    from bench import sql
+
+    from census2_sdk import obs_sql
+
+    catalog = str(table / "catalog.parquet")
+    query = {"cell_type": "T cell"}
+    with_table = run.run(
+        catalog, "count", 2, None, query=query, obs_table=str(table / "obs")
+    )
+    options = obs_sql.Options(threads=2, count_requests=False)
+    record = sql.run(catalog, "count", 2, None, options, query=query)
+    assert (record["groups"], record["cells"]) == (
+        with_table["groups"],
+        with_table["cells"],
+    )
+
+
+def test_a_query_gives_each_via_its_form() -> None:
+    forms = {"mapping": {"tissue": "lung"}, "sql": "tissue = 'lung' AND nnz > 9"}
+    assert matrix.query_form(forms, "sql") == "tissue = 'lung' AND nnz > 9"
+    assert matrix.query_form(forms, "table") == {"tissue": "lung"}
+    assert matrix.query_form({"sql": "nnz > 9"}, "stores") is None
+    assert matrix.query_form({"tissue": "lung"}, "sql") == {"tissue": "lung"}

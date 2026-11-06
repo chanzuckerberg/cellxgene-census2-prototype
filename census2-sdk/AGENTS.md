@@ -116,3 +116,34 @@ A delete of `dataset_id IN (...)` on a table partitioned by `dataset_id` drops w
 rewrites nothing. A predicate that does not follow the partition would make pyiceberg rewrite a
 fragment into the table location, a copy that the Census does not want. `build_obs_table.py`
 deletes by partition only.
+
+## DuckDB over the fragments (spike)
+
+`census2_sdk.obs_sql`, `census2_sdk.fragments`, `tools/bench/sql.py`, `tools/bench/variants.py`,
+`tools/build_descendants.py`, and `tools/harness/filter_language_sql.py` are the second `obs`
+spike, stacked on the Iceberg spike. `spikes/obs-duckdb.md` at the repository root records the
+design, the measures, and the open questions. DuckDB is the optional `duckdb` extra, and
+`census2_sdk.fragments` holds the fragment column names, so the SQL path does not import pyiceberg.
+
+## Sharp edges: DuckDB
+
+DuckDB 2.0 ships its own type information (`py.typed` and stubs), so its imports need no ignore.
+A relation keeps no result: `fetchone()` is on a connection's result, and a relation has
+`to_arrow_reader()` and `to_arrow_table()`. `json_serialize_sql` gives literals as
+`{"kind": ..., "text": ...}` in 2.0; `obs_sql.parse` reads that form only.
+
+An Arrow array that DuckDB exports keeps its whole result chunk alive. A batch whose label columns
+the SDK dictionary-encodes would otherwise keep the plain strings of those columns in memory
+through its other columns. `obs_sql._encoded` copies each kept column into pyarrow's memory
+(`pa.concat_arrays`), which took the peak of a read of all `obs` from 10.7 to 5.9 GiB.
+
+With `enable_external_access = false`, DuckDB's `httpfs` cannot read the CA bundle, so the TLS
+connection to S3 fails. The bundle must be in `allowed_paths`; `obs_sql._CA_BUNDLES` lists the
+usual places. `allowed_directories` allows writes as well as reads in those directories, so only
+the filter language keeps a `COPY` out of a query. `lock_configuration` also locks
+`enable_logging`, so the HTTP log is on or off for the life of a connection.
+
+A table function cannot take a subquery, so `read_parquet((SELECT list(...) FROM catalog))` fails
+to bind. The SDK writes the file list into the SQL; a SQL script can use `SET VARIABLE` and
+`getvariable` instead. `read_parquet` without `union_by_name` takes the schema of the first file
+and refuses a file without one of its columns.
