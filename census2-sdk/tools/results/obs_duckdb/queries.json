@@ -1,4 +1,7 @@
 {
+ "cell_type": {
+  "cell_type": "neutrophil"
+ },
  "compound": {
   "tissue": [
    "epithelial cell of lung",
@@ -29,8 +32,13 @@
   "tissue": "liver",
   "cell_type": "mesothelial cell"
  },
- "cell_type": {
-  "cell_type": "neutrophil"
+ "tissue_general": {
+  "tissue_general": "pancreas"
+ },
+ "wmg": {
+  "stores": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+  "iceberg": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))",
+  "sql": "(((is_primary_data = true AND nnz >= 500) AND (cell_type_ontology_term_id != 'unknown' AND tissue_general_ontology_term_id != 'UBERON:0001017')) AND ((tissue_general_ontology_term_id != 'UBERON:0001007' AND tissue_general_ontology_term_id != 'UBERON:0002405') AND (tissue_general_ontology_term_id != 'UBERON:0000990' AND (tissue_general_ontology_term_id != 'UBERON:0001004' AND tissue_general_ontology_term_id != 'UBERON:0001434'))))"
  },
  "all": {},
  "numeric": {
@@ -38,7 +46,10 @@
   "sql": "cell_type = 'neutrophil' AND nnz >= 1000"
  },
  "membership": {
-  "mapping": {"disease": "COVID-19", "cell_type": "neutrophil"},
+  "mapping": {
+   "disease": "COVID-19",
+   "cell_type": "neutrophil"
+  },
   "iceberg": "disease = 'COVID-19' AND cell_type = 'neutrophil'",
   "sql": "list_contains(string_split(disease, ' || '), 'COVID-19') AND cell_type = 'neutrophil'"
  }

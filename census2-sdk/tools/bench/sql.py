@@ -194,18 +194,24 @@ def main() -> int:
     p.add_argument("--memory-limit", default=None, help="DuckDB's memory_limit")
     p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
     p.add_argument("--glob", default=None)
-    p.add_argument("--iceberg", default=None, help="a metadata file")
+    p.add_argument("--iceberg", default=None, help="a metadata file or table location")
     p.add_argument("--no-union-by-name", action="store_true")
     p.add_argument("--no-count-requests", action="store_true")
     p.add_argument("--credentials", default="auto")
     args = p.parse_args()
     counting.install_read_counting()
+    iceberg = args.iceberg
+    if iceberg is not None and not iceberg.endswith(".metadata.json"):
+        # A table location: its version hint names the current metadata file.
+        from census2_sdk import obs_table
+
+        iceberg = obs_table.current_metadata(iceberg)
     options = obs_sql.Options(
         threads=args.threads,
         memory_limit=args.memory_limit,
         files=args.files,
         glob=args.glob,
-        iceberg=args.iceberg,
+        iceberg=iceberg,
         union_by_name=not args.no_union_by_name,
         count_requests=not args.no_count_requests,
         credentials=args.credentials,

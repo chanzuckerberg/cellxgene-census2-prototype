@@ -19,9 +19,9 @@ more. `--x-from-indptr`, `--scan-workers`, `--count-arrow`, `--narrow`, and
 `--arrow-obs` pass through to each run.
 
 The via `sql` runs `bench.sql`: DuckDB over the fragments (`census2_sdk.obs_sql`), with
-`--duckdb-threads` (a list: one run each), `--duckdb-memory-limit`, `--files`, and
-`--glob`. A named query can give one form for each via: `{"mapping": {...},
-"iceberg": "...", "sql": "..."}`. A via without a form skips the query, and the
+`--duckdb-threads` (a list: one run each), `--duckdb-memory-limit`, `--files`, `--glob`,
+and `--iceberg`. A named query can give one form for each via: `{"mapping": {...},
+"stores": ..., "iceberg": "...", "sql": "..."}`. A via without a form skips the query, and the
 `mapping` form serves a via without its own.
 """
 
@@ -76,11 +76,15 @@ def one(
 
 
 def query_form(query: Any, via: str) -> Any:
-    """The form of a named query for one via, or None when the via has none."""
-    forms = {"mapping", "iceberg", "sql"}
+    """The form of a named query for one via, or None when the via has none.
+
+    `stores` is the form of the store path where it differs from the mapping, for
+    example an expression that `bench.run` evaluates for a count.
+    """
+    forms = {"mapping", "stores", "iceberg", "sql"}
     if not isinstance(query, dict) or not query or not set(query) <= forms:
         return query
-    key = {"stores": "mapping", "table": "iceberg", "sql": "sql"}[via]
+    key = {"stores": "stores", "table": "iceberg", "sql": "sql"}[via]
     return query.get(key, query.get("mapping"))
 
 
@@ -111,6 +115,7 @@ def main() -> int:
     p.add_argument("--duckdb-memory-limit", default=None)
     p.add_argument("--files", default="catalog", help="obs_sql.Options.files")
     p.add_argument("--glob", default=None, help="with {size} for the size")
+    p.add_argument("--iceberg", default=None, help="a table location, with {size}")
     args = p.parse_args()
     queries = {} if args.queries is None else json.loads(args.queries.read_text())
 
@@ -145,6 +150,8 @@ def main() -> int:
                         extra += ["--memory-limit", args.duckdb_memory_limit]
                     if args.glob is not None:
                         extra += ["--glob", args.glob.format(size=size)]
+                    if args.iceberg is not None:
+                        extra += ["--iceberg", args.iceberg.format(size=size)]
                 if via != "sql" and args.count_arrow:
                     extra.append("--count-arrow")
                 if via != "sql" and args.narrow:

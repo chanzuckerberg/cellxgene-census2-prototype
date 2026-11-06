@@ -85,7 +85,7 @@ def main() -> int:
                     functools.partial(kept_iceberg, records, expr), args.repeats
                 )
             mapping = query_form(query, "stores")
-            if isinstance(mapping, dict):
+            if isinstance(mapping, dict) and "stores" not in query:
                 record["mapping_seconds"], record["mapping_kept"] = timed(
                     functools.partial(kept_mapping, census.catalog, mapping),
                     args.repeats,
