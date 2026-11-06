@@ -10,11 +10,11 @@ process INGEST {
     // `s3_//bucket/prefix` is accepted as an escape and normalized below. Both
     // spellings mean the destination is remote.
     //
-    // The store moves, because copying it would duplicate gigabytes. The receipt
-    // is copied, because REPORT consumes it from the work directory and 'move'
-    // would take it away.
+    // The store and its obs fragment move, because copying the store would
+    // duplicate gigabytes. The receipt is copied, because REPORT consumes it from
+    // the work directory and 'move' would take it away.
     publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
-               mode: 'move', pattern: '*.zarr',
+               mode: 'move', pattern: '*.{zarr,obs.parquet}',
                enabled: !params.outdir.toString().matches('^s3(://|_//).*')
     publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
                mode: 'copy', pattern: '*.json',
@@ -52,6 +52,7 @@ process INGEST {
     output:
     path "${meta.dataset_version_id}.json", emit: receipt
     path "${meta.dataset_version_id}.zarr", type: 'dir', optional: true, emit: store
+    path "${meta.dataset_version_id}.obs.parquet", optional: true, emit: fragment
 
     script:
     // Nextflow escapes a `path` value for the shell, which is why `config` and

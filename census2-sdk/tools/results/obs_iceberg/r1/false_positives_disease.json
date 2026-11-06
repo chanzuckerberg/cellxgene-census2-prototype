@@ -1,0 +1,84 @@
+{
+ "pairs": 1619,
+ "pairs_without_a_cell": 280,
+ "passing": 2444,
+ "false_positive": 301,
+ "false_positive_share": 0.123,
+ "held_pairs": 1339,
+ "held_passing": 2152,
+ "held_false_positive": 9,
+ "held_false_positive_share": 0.004,
+ "median_false_positive_share_of_held_pairs": 0.0,
+ "worst": [
+  {
+   "disease": "gastric cancer",
+   "cell_type": "pro-B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "gastric cancer",
+   "cell_type": "precursor B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "inflammatory bowel disease",
+   "cell_type": "endothelial cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "inflammatory bowel disease",
+   "cell_type": "endothelial cell of lymphatic vessel",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "inflammatory bowel disease",
+   "cell_type": "pro-B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "inflammatory bowel disease",
+   "cell_type": "precursor B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "ulcerative colitis",
+   "cell_type": "pro-B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "ulcerative colitis",
+   "cell_type": "precursor B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "Crohn disease",
+   "cell_type": "pro-B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  },
+  {
+   "disease": "Crohn disease",
+   "cell_type": "precursor B cell",
+   "passing": 2,
+   "joint": 0,
+   "false_positive": 2
+  }
+ ]
+}

@@ -150,7 +150,7 @@ def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
 
     with pytest.raises(SourceConflict):
         answer(QUERY, cast("census2_sdk.Census", Broken()), ["d1"], PINS)
-    unindexed = replace(QUERY, obs_filter="is_primary_data == True")
+    unindexed = replace(QUERY, obs_filter="donor_id == 'd1'")
     with pytest.raises(Unsupported, match="not a catalog column"):
         answer(unindexed, cast("census2_sdk.Census", Broken()), ["d1"], PINS)
     with pytest.raises(NoCells):

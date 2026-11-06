@@ -10,12 +10,31 @@ format, so that the writer and a reader of a store use one definition:
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
+- The `obs` fragment next to the store: `fragment_location`, the row columns
+  that the fragment adds to `obs` (`FRAGMENT_ROW_COLUMNS`), and the fragment
+  record under `attrs[SUMMARY_NAMESPACE][FRAGMENT_KEY]`: `FragmentRecord`,
+  `FRAGMENT_VERSION`, and `validate_fragment`.
 
 The module imports only the standard library, so a reader could depend on it
 without the writer's dependencies. The package re-exports these names. The SDK
 repeats some of them today, because it does not depend on the writer.
+
+The `obs` fragment
+------------------
+The fragment is one Parquet file next to the store, with one row for each cell.
+It holds the store's `obs` columns, in the store's order, and three more int64
+columns: the store row ordinal, and the start and end of the cell's values in
+`X` (`X/indptr[i]` and `X/indptr[i + 1]`). A query engine can then select
+cells from the fragments of many stores, and the SDK reads only the `X` ranges
+of the selected cells. The fragment is not part of the Zarr hierarchy, so the
+store stays a plain AnnData-Zarr store.
+
+The fragment record in the store names the digest, the size, and the row count
+of the fragment. The record is in the immutable store, so a builder can prove
+that a fragment is the one that the writer wrote with the store.
 """
 
+import re
 from enum import Enum
 from typing import TypedDict, cast
 
@@ -147,3 +166,79 @@ DERIVED_OBS_COLUMNS = frozenset(
 # The dataset's assayed genes. `X` cannot show them, because an unmeasured gene is 0.
 # It is the only part of `var` that differs between stores of one organism.
 MEASURED_COLUMN = "measured"
+
+# Where the fragment record is: a key under SUMMARY_NAMESPACE, beside the summary
+# record.
+FRAGMENT_KEY = "obs_fragment"
+
+# The format of the fragment and its record. Raise it when a column or a field
+# changes meaning or goes away. A reader refuses a version that it does not know.
+FRAGMENT_VERSION = 1
+
+# The fragment of `<name>.zarr` is `<name>.obs.parquet`, in the same directory.
+FRAGMENT_SUFFIX = ".obs.parquet"
+
+# The columns that the fragment adds after the `obs` columns, each int64. The
+# store row ordinal is the cell's row in the store, from 0. `x_start` and `x_end`
+# give the half-open range of the cell's stored values in `X/data` and
+# `X/indices`.
+STORE_ROW_COLUMN = "store_row"
+X_START_COLUMN = "x_start"
+X_END_COLUMN = "x_end"
+FRAGMENT_ROW_COLUMNS = (STORE_ROW_COLUMN, X_START_COLUMN, X_END_COLUMN)
+
+
+class FragmentRecord(TypedDict):
+    """The fragment that the writer wrote with a store, held in the store."""
+
+    version: int
+    # The SHA-256 digest of the fragment file, as 64 lowercase hex digits.
+    sha256: str
+    # The size of the fragment file.
+    bytes: int
+    # The number of rows, which is the store's number of cells.
+    rows: int
+
+
+def fragment_location(store: str) -> str:
+    """The location of the fragment of the store at `store`: a path or a URL.
+
+    The store's name must end with `.zarr`. The fragment is in the same directory,
+    with `FRAGMENT_SUFFIX` in place of `.zarr`.
+    """
+    base = store.rstrip("/")
+    if not base.endswith(".zarr"):
+        raise ValueError(f"a store name ends with .zarr: {store!r}")
+    return base.removesuffix(".zarr") + FRAGMENT_SUFFIX
+
+
+def validate_fragment(obj: object) -> FragmentRecord:
+    """Return `obj` as a fragment record, or raise `SummaryRecordError` saying why not.
+
+    The record must have exactly the fields of `FragmentRecord`. `version` must be
+    `FRAGMENT_VERSION`, `sha256` a hex digest, and `bytes` and `rows` integers that
+    are not negative.
+    """
+    if not isinstance(obj, dict):
+        raise SummaryRecordError(
+            f"a fragment record is a JSON object, not {type(obj).__name__}"
+        )
+    fields = set(FragmentRecord.__annotations__)
+    if set(obj) != fields:
+        missing, extra = sorted(fields - set(obj)), sorted(set(obj) - fields)
+        raise SummaryRecordError(
+            f"fragment record fields: missing {missing}, unknown {extra}"
+        )
+    if type(obj["version"]) is not int or obj["version"] != FRAGMENT_VERSION:
+        raise SummaryRecordError(
+            f"fragment record version {obj['version']!r}; "
+            f"this package reads {FRAGMENT_VERSION}"
+        )
+    if not isinstance(obj["sha256"], str) or not re.fullmatch(
+        "[0-9a-f]{64}", obj["sha256"]
+    ):
+        raise SummaryRecordError(f"fragment record sha256 is {obj['sha256']!r}")
+    for field in ("bytes", "rows"):
+        if type(obj[field]) is not int or obj[field] < 0:
+            raise SummaryRecordError(f"fragment record {field} is {obj[field]!r}")
+    return cast("FragmentRecord", obj)

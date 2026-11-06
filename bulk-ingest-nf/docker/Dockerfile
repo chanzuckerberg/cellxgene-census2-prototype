@@ -61,7 +61,7 @@ RUN pip install --no-cache-dir --no-deps --force-reinstall /src/census2-dataset-
 # list matched to what census2_dataset_writer and cxg-ingest.py import.
 RUN python -c "\
 import census2_dataset_writer, anndata, zarr, h5py, scipy, numpy, pandas, dask; \
-import obstore, obstore.store; \
+import obstore, obstore.store, pyarrow, pyarrow.parquet; \
 import cellxgene_ontology_guide; \
 import importlib.metadata as md; \
 from anndata.experimental import read_elem_lazy; \

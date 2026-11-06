@@ -9,10 +9,11 @@ aggregate cannot run here.
 Public calls
 ------------
 `create(source, dest, *, dataset_id, dataset_version_id, ...)` builds the
-store and writes it. It writes nothing when the dataset is not admitted, and
-returns a `Result` in both cases. A Discover h5ad does not hold its own
-identifiers, so the caller gives them. `build` and `write` split the same work
-into two calls, so a caller can inspect the AnnData before the write:
+store and writes it, with its `obs` fragment next to it. It writes nothing
+when the dataset is not admitted, and returns a `Result` in both cases. A
+Discover h5ad does not hold its own identifiers, so the caller gives them.
+`build` and `write` split the same work into two calls, so a caller can
+inspect the AnnData before the write:
 
     with h5py.File("dataset.h5ad") as f:
         adata, result = census2_dataset_writer.build(
@@ -20,13 +21,16 @@ into two calls, so a caller can inspect the AnnData before the write:
         )
         if adata is not None:
             summary = census2_dataset_writer.summary_record(result)
-            census2_dataset_writer.write(adata, "store.zarr", summary=summary)
+            census2_dataset_writer.write(
+                adata, "store.zarr", summary=summary, fragment="store.obs.parquet"
+            )
 
 Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
 
 `slots_of(adata)` lists what a store written from an AnnData will hold.
-`read_summary(dest)` returns the summary record of a store. `load_config(path)`
+`read_summary(dest)` returns the summary record of a store, and
+`read_fragment_record(dest)` the record of its `obs` fragment. `load_config(path)`
 returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
 which ships no S3 client. `census2_dataset_writer.store_format` names what a
@@ -106,6 +110,19 @@ keeps its dataset when stores are concatenated.
 `write` adds the record after anndata writes the store and its consolidated
 metadata, so the record is the last write.
 
+The `obs` fragment
+------------------
+`write` also writes the `obs` fragment: one Parquet file, next to the store and
+outside its Zarr hierarchy, with one row for each cell. It holds the store's
+`obs` columns, whatever they are, and the three row columns of
+`store_format.FRAGMENT_ROW_COLUMNS`: the store row ordinal and the range of the
+cell's values in `X`. A query engine can then select cells across many
+fragments, and a reader reads only the `X` ranges of the selected cells. The
+fragment comes from the `obs` in memory and the `X/indptr` that anndata wrote,
+so it agrees with the store. `write` writes it after the store and before the
+summary record. The store's root attributes then hold the fragment's digest,
+size, and row count in the fragment record, beside the summary record.
+
 Receipt
 -------
 A receipt is the JSON a pipeline writes beside a store, about one run of the
@@ -147,8 +164,10 @@ the ingest cost matters. A per-gene nnz file can share the pass of
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import importlib.metadata
 import os
+import pathlib
 from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, assert_never, cast
 
@@ -158,6 +177,8 @@ import dask.array as da
 import h5py
 import numpy as np
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow ships no types
+import pyarrow.parquet as pq  # type: ignore[import-untyped]
 import scipy.sparse as sp
 import zarr
 from anndata.experimental import read_elem_lazy
@@ -170,14 +191,21 @@ from . import store_format as store_format  # a public module; callers name it
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
+from .store_format import FRAGMENT_KEY as FRAGMENT_KEY
+from .store_format import FRAGMENT_ROW_COLUMNS as FRAGMENT_ROW_COLUMNS
+from .store_format import FRAGMENT_SUFFIX as FRAGMENT_SUFFIX
+from .store_format import FRAGMENT_VERSION as FRAGMENT_VERSION
 from .store_format import MEASURED_COLUMN as MEASURED_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
 from .store_format import ColType as ColType
+from .store_format import FragmentRecord as FragmentRecord
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import fragment_location as fragment_location
+from .store_format import validate_fragment as validate_fragment
 from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
@@ -341,8 +369,10 @@ class Receipt(StoreProvenance, total=False):
     The `StoreProvenance` keys are always present. The rest is what a writer
     knows about where the dataset came from and what it did, so it is optional
     here. `bulk-ingest-nf` fills all of them for an admitted dataset. A rejected
-    dataset gets no `slots_written`, `summary`, `store`, `output_bytes`, or
-    `published_by`, and `check` appears only when the task runs with `--check`.
+    dataset gets no `slots_written`, `summary`, `obs_fragment`, `store`,
+    `fragment`, `output_bytes`, or `published_by`, and `check` appears only when
+    the task runs with `--check`. `obs_fragment` is a copy of the store's
+    fragment record, and `fragment` is the location of the fragment.
     """
 
     dataset_id: str
@@ -359,7 +389,9 @@ class Receipt(StoreProvenance, total=False):
     dropped_obs_columns: list[str]
     dropped_var_features: list[str]
     summary: SummaryRecord
+    obs_fragment: FragmentRecord
     store: str
+    fragment: str
     output_bytes: int
     published_by: str
     elapsed_sec: float
@@ -941,10 +973,15 @@ def write(
     dest: StoreLike,
     *,
     summary: SummaryRecord,
+    fragment: PathLike,
     consolidate: bool = True,
     threads: int | None = None,
-) -> None:
-    """Write an AnnData to a Zarr store at `dest`, then its summary record.
+) -> FragmentRecord:
+    """Write an AnnData to a Zarr store at `dest`, then its fragment and records.
+
+    `fragment` is the location of the `obs` fragment, a path or a remote URL.
+    `fragment_location` gives the location next to a store. Return the fragment
+    record, which the store also holds.
 
     anndata consolidates the metadata itself, so this passes the choice through.
     Leave it on. Consolidated metadata is not part of the Zarr v3 specification,
@@ -954,9 +991,11 @@ def write(
     `adata.obs` must hold the `dataset_id` column that `build` adds, with the
     summary record's `dataset_id`, and an `observation_joinid` with no null and
     no repeated value. The pair is the cell key (design 1.6), so every write
-    checks it, and no configuration turns the check off. The summary record
-    goes into the root group's attributes after anndata finishes, so it is the
-    last write.
+    checks it, and no configuration turns the check off. `X` must be a CSR
+    matrix, as `build` gives. The fragment comes after anndata finishes, from
+    `adata.obs` and the `X/indptr` that anndata wrote. The summary record and
+    the fragment record then go into the root group's attributes, so they are
+    the last write.
     The root group opens with its consolidated metadata, and the attribute
     update rewrites the root `zarr.json` with that metadata intact.
 
@@ -988,7 +1027,91 @@ def write(
     with _thread_limit(threads):
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
-    root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
+    x = root["X"]
+    if not isinstance(x, zarr.Group) or x.attrs.get("encoding-type") != "csr_matrix":
+        raise ValueError("X must be a CSR matrix; `build` gives one")
+    indptr = np.asarray(cast("zarr.Array[Any]", x["indptr"])[...])
+    record = write_fragment(fragment_table(obs, indptr), fragment)
+    root.update_attributes(
+        {SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary), FRAGMENT_KEY: dict(record)}}
+    )
+    return record
+
+
+# Rows per row group of a fragment. It is the obs shard of the store layout, so a
+# row group's statistics have the grain of a per-chunk index.
+FRAGMENT_ROW_GROUP = 65_536
+
+
+def fragment_table(obs: pd.DataFrame, indptr: np.ndarray[Any, Any]) -> Any:
+    """The `obs` fragment of a store, as a `pyarrow.Table`, from its `obs` and `X/indptr`.
+
+    The columns are the columns of `obs`, in order, and then the int64 columns of
+    `FRAGMENT_ROW_COLUMNS`. A categorical column becomes plain strings: Parquet
+    encodes them with a dictionary, and a table format such as Iceberg has no
+    categorical type. The `obs` index, the source cell names, is not in the
+    fragment; the cell key is in the columns.
+
+    `indptr` must have one more entry than `obs` has rows.
+    """
+    n = len(obs)
+    indptr = np.asarray(indptr, dtype=np.int64)
+    if indptr.shape != (n + 1,):
+        raise ValueError(f"indptr has shape {indptr.shape}; obs has {n} rows")
+    arrays = []
+    for name in obs.columns:
+        array = pa.array(obs[name], from_pandas=True)
+        if pa.types.is_dictionary(array.type):
+            array = array.dictionary_decode()
+        # pandas 3 holds strings as Arrow large strings. One type for every
+        # fragment keeps their schemas equal; a fragment column is far below 2 GiB.
+        if pa.types.is_large_string(array.type):
+            array = array.cast(pa.string())
+        arrays.append(array)
+    ordinals = (np.arange(n, dtype=np.int64), indptr[:-1], indptr[1:])
+    arrays += [pa.array(a, type=pa.int64()) for a in ordinals]
+    names = [str(c) for c in obs.columns] + list(FRAGMENT_ROW_COLUMNS)
+    return pa.Table.from_arrays(arrays, names=names)
+
+
+def write_fragment(table: Any, dest: PathLike) -> FragmentRecord:
+    """Write a fragment table to `dest`, a path or a remote URL, and return its record.
+
+    The file is Parquet with zstd compression and `FRAGMENT_ROW_GROUP` rows in a
+    row group. The row columns are delta-encoded, and the other columns use a
+    dictionary. The digest is of the bytes that this call writes.
+    """
+    sink = pa.BufferOutputStream()
+    pq.write_table(
+        table,
+        sink,
+        compression="zstd",
+        row_group_size=FRAGMENT_ROW_GROUP,
+        use_dictionary=[c for c in table.column_names if c not in FRAGMENT_ROW_COLUMNS],
+        column_encoding={c: "DELTA_BINARY_PACKED" for c in FRAGMENT_ROW_COLUMNS},
+    )
+    data = bytes(sink.getvalue().to_pybytes())
+    _put(dest, data)
+    return {
+        "version": FRAGMENT_VERSION,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "bytes": len(data),
+        "rows": int(table.num_rows),
+    }
+
+
+def _put(dest: PathLike, data: bytes) -> None:
+    """Write one small object, to a path or to a remote URL through obstore."""
+    if is_remote(dest):
+        import obstore
+        import obstore.store
+
+        parent, name = str(dest).rsplit("/", 1)
+        obstore.put(obstore.store.from_url(parent), name, data)
+        return
+    path = pathlib.Path(dest)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
 
 
 def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:
@@ -1020,13 +1143,8 @@ def summary_record(result: Result) -> SummaryRecord:
     }
 
 
-def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
-    """The summary record of a store, or None when the store has none.
-
-    `dest` is a store's location, or its root group already open. A record that is
-    present but malformed raises `SummaryRecordError`; see
-    `validate_summary`.
-    """
+def _namespace(dest: StoreLike | zarr.Group) -> dict[str, Any] | None:
+    """The Census 2 attributes of a store's root group, or None when it has none."""
     root = (
         dest
         if isinstance(dest, zarr.Group)
@@ -1037,9 +1155,32 @@ def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
         return None
     if not isinstance(namespace, dict):
         raise SummaryRecordError(f"{SUMMARY_NAMESPACE} attribute is not a JSON object")
-    if SUMMARY_KEY not in namespace:
+    return namespace
+
+
+def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
+    """The summary record of a store, or None when the store has none.
+
+    `dest` is a store's location, or its root group already open. A record that is
+    present but malformed raises `SummaryRecordError`; see
+    `validate_summary`.
+    """
+    namespace = _namespace(dest)
+    if namespace is None or SUMMARY_KEY not in namespace:
         return None
     return validate_summary(namespace[SUMMARY_KEY])
+
+
+def read_fragment_record(dest: StoreLike | zarr.Group) -> FragmentRecord | None:
+    """The fragment record of a store, or None when the store has none.
+
+    `dest` is as for `read_summary`. A malformed record raises
+    `SummaryRecordError`; see `validate_fragment`.
+    """
+    namespace = _namespace(dest)
+    if namespace is None or FRAGMENT_KEY not in namespace:
+        return None
+    return validate_fragment(namespace[FRAGMENT_KEY])
 
 
 @contextlib.contextmanager
@@ -1058,6 +1199,7 @@ def create(
     *,
     dataset_id: str,
     dataset_version_id: str,
+    fragment: PathLike | None = None,
     consolidate: bool = True,
     config: Config | None = None,
     refdata: PathLike | None = None,
@@ -1069,11 +1211,18 @@ def create(
     is not admitted. That is a normal outcome, not an error.
 
     `source` is a path to an h5ad or an open `h5py.File`. `dest` is a path, a
-    remote URL, or a zarr Store. `dataset_id` and `dataset_version_id` go into
-    the store's summary record. The source stays open across the write, because
-    the expression matrix is read lazily. `threads` bounds the write, and the
-    read of `X` in `add_obs_stats`; see `write`.
+    remote URL, or a zarr Store. `fragment` is the location of the `obs`
+    fragment. Without it, the fragment goes next to `dest`, at
+    `fragment_location(dest)`, and a zarr Store as `dest` then needs it.
+    `dataset_id` and `dataset_version_id` go into the store's summary record.
+    The source stays open across the write, because the expression matrix is
+    read lazily. `threads` bounds the write, and the read of `X` in
+    `add_obs_stats`; see `write`.
     """
+    if fragment is None:
+        if not isinstance(dest, (str, os.PathLike)):
+            raise ValueError("a zarr Store as dest needs a fragment location")
+        fragment = fragment_location(str(dest))
     with _opened(source) as f:
         with _thread_limit(threads):
             adata, result = build(
@@ -1086,5 +1235,12 @@ def create(
         if adata is None:
             return result
         summary = summary_record(result)
-        write(adata, dest, summary=summary, consolidate=consolidate, threads=threads)
+        write(
+            adata,
+            dest,
+            summary=summary,
+            fragment=fragment,
+            consolidate=consolidate,
+            threads=threads,
+        )
     return result

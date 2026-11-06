@@ -6,10 +6,12 @@ written independently, composed at query time through a catalog. Harmonization
 belongs here, during ingestion, because a store is meant to be queryable
 alongside other stores and not merely the Discover h5ad in another container.
 
-This script owns the I/O: fetch the source, write the store, publish it, and
-record a receipt. The data model lives in the `census2_dataset_writer` package,
-which decides which slots a store carries and applies harmonization: it projects
-the counts onto the pinned gene reference staged in `--refdata`.
+This script owns the I/O: fetch the source, write the store and its `obs`
+fragment, publish them, and record a receipt. The data model lives in the
+`census2_dataset_writer` package, which decides which slots a store carries and
+applies harmonization: it projects the counts onto the pinned gene reference
+staged in `--refdata`. The fragment is a Parquet file next to the store; see
+`census2_dataset_writer.store_format`.
 
 Memory discipline: this script never calls `read_h5ad`. It hands the source path
 to `census2_dataset_writer.create`, which keeps the small slots in memory and
@@ -33,6 +35,8 @@ import census2_dataset_writer
 import h5py
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem, sparse_dataset
@@ -62,6 +66,9 @@ def ingest(
 ) -> dict:
     """Ingest one h5ad into a Zarr store at `dest`, which may be remote.
 
+    The `obs` fragment goes next to the store, at
+    `census2_dataset_writer.fragment_location(dest)`.
+
     Returns the result from `census2_dataset_writer.create`, which reports
     whether the dataset was admitted. A rejection writes no store and is not an
     error. The identifiers come from the manifest record `rec`, because the h5ad
@@ -70,6 +77,7 @@ def ingest(
     return census2_dataset_writer.create(
         src,
         dest,
+        fragment=census2_dataset_writer.fragment_location(dest),
         dataset_id=rec["dataset_id"],
         dataset_version_id=rec["dataset_version_id"],
         config=config,
@@ -119,6 +127,71 @@ def obs_column_problem(
     return None
 
 
+def read_bytes(uri: str) -> bytes:
+    """The content of one object, local or remote."""
+    import obstore
+    import obstore.store
+
+    parent, name = _obstore_url(uri).rsplit("/", 1)
+    return bytes(obstore.get(obstore.store.from_url(parent), name).bytes())
+
+
+def fragment_problems(fragment: str, dst: str, zroot, obs: pd.DataFrame) -> list[str]:
+    """What is wrong with the `obs` fragment at `fragment`, as a list of problems.
+
+    The store's fragment record must give the file's digest, size, and row count.
+    The fragment must hold the store's `obs` columns, in order, with the store's
+    values, and then the row columns. `store_row` must count from 0, and
+    `x_start` and `x_end` must be the store's `X/indptr` without its last and
+    without its first entry.
+    """
+    import hashlib
+
+    problems = []
+    try:
+        record = census2_dataset_writer.read_fragment_record(dst)
+    except census2_dataset_writer.SummaryRecordError as e:
+        return [f"record: {e}"]
+    if record is None:
+        return ["the store holds no fragment record"]
+    data = read_bytes(fragment)
+    found = {
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "bytes": len(data),
+        "rows": len(obs),
+    }
+    for field, value in found.items():
+        if record[field] != value:
+            problems.append(
+                f"record {field} is {record[field]}, the file gives {value}"
+            )
+    table = pq.read_table(pa.BufferReader(data))
+    rows = list(census2_dataset_writer.FRAGMENT_ROW_COLUMNS)
+    if table.column_names != list(obs.columns) + rows:
+        return problems + [f"columns {table.column_names}"]
+    for name in obs.columns:
+        got = table.column(name).to_numpy(zero_copy_only=False)
+        want = obs[name].to_numpy()
+        if obs[name].dtype.kind in "iuf":
+            # A statistic: the same type and the same value, bit for bit.
+            same = got.dtype == want.dtype and np.array_equal(got, want)
+        else:
+            as_type = bool if obs[name].dtype == bool else str
+            same = np.array_equal(got.astype(as_type), want.astype(as_type))
+        if not same:
+            problems.append(f"{name}: values differ from the store's obs")
+    indptr = np.asarray(zroot["X"]["indptr"][...])
+    expected = {
+        "store_row": np.arange(len(obs)),
+        "x_start": indptr[:-1],
+        "x_end": indptr[1:],
+    }
+    for name, want in expected.items():
+        if not np.array_equal(table.column(name).to_numpy(), want):
+            problems.append(f"{name}: values differ from the store")
+    return problems
+
+
 STATS = ("raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz", "n_measured_vars")
 
 
@@ -146,7 +219,7 @@ def row_stats(x: sp.csr_matrix) -> np.ndarray:
     return np.column_stack([total, nnz, mean, var])
 
 
-def check(src: str, dst: str, written: dict, summary: dict) -> dict:
+def check(src: str, dst: str, fragment: str, written: dict, summary: dict) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
     `compared` lists what the comparison covered, so a check that silently
@@ -174,6 +247,9 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     `n_measured_vars` the number of kept source features.
 
     `written` is the result of `census2_dataset_writer.create`.
+
+    The `obs` fragment at `fragment` must agree with the store; see
+    `fragment_problems`.
 
     The store's `var` is the gene reference, so it is not compared with the
     source `var`. The store's `X` must hold the source counts (`raw/X`, else
@@ -260,6 +336,10 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                 problem = obs_column_problem(b[name], want, col_type)
                 if problem:
                     fail(f"obs.{name}", problem)
+
+        result["compared"].append("fragment")
+        for problem in fragment_problems(fragment, dst, zroot, b):
+            fail("fragment", problem)
 
         var = read_elem(zroot["var"])
         result["compared"].append("var")
@@ -357,18 +437,24 @@ def _obstore_url(path_or_uri: str) -> str:
     return "file://" + os.path.abspath(path_or_uri)
 
 
-def verify_written(uri: str) -> None:
-    """Confirm a directly written store arrived, is readable, and has its summary record.
+def verify_written(uri: str, fragment: str) -> None:
+    """Confirm a directly written store arrived, is readable, and has its records.
 
-    A local destination is a declared Nextflow output, so the workflow fails if
-    it is missing. A direct write to object storage has no such check, so verify
-    it here.
+    The `obs` fragment at `fragment` must have the size that the store's fragment
+    record gives. A local destination is a declared Nextflow output, so the
+    workflow fails if it is missing. A direct write to object storage has no such
+    check, so verify it here.
     """
     if store_bytes(uri) == 0:
         raise SystemExit(f"store is empty after writing: {uri}")
     zarr.open_consolidated(census2_dataset_writer.as_store(uri), mode="r")
     if census2_dataset_writer.read_summary(uri) is None:
         raise SystemExit(f"store has no summary record after writing: {uri}")
+    record = census2_dataset_writer.read_fragment_record(uri)
+    if record is None:
+        raise SystemExit(f"store has no fragment record after writing: {uri}")
+    if object_bytes(fragment) != record["bytes"]:
+        raise SystemExit(f"fragment size differs from its record: {fragment}")
 
 
 def store_bytes(uri: str) -> int:
@@ -378,6 +464,15 @@ def store_bytes(uri: str) -> int:
 
     store = obstore.store.from_url(_obstore_url(uri))
     return sum(int(item["size"]) for page in obstore.list(store) for item in page)
+
+
+def object_bytes(uri: str) -> int:
+    """The size of one object, local or remote."""
+    import obstore
+    import obstore.store
+
+    parent, name = _obstore_url(uri).rsplit("/", 1)
+    return int(obstore.head(obstore.store.from_url(parent), name)["size"])
 
 
 def write_text(uri: str, text: str) -> str:
@@ -468,11 +563,14 @@ def main() -> int:
         f"refdata={config_provenance['refdata']}"
     )
 
-    # Where the store ends up, recorded in the receipt either way.
+    # Where the store ends up, recorded in the receipt either way. The obs
+    # fragment is next to it.
     store = store_uri(args.outdir, f"{version_id}.zarr")
-    # Where this task writes it. When staging locally the workflow publishes it,
-    # so the task must not reach outside its working directory.
+    # Where this task writes them. When staging locally the workflow publishes
+    # them, so the task must not reach outside its working directory.
     dest = f"{version_id}.zarr" if args.stage_local else store
+    fragment = census2_dataset_writer.fragment_location(store)
+    fragment_dest = census2_dataset_writer.fragment_location(dest)
 
     log(f"ingest -> {store} (slots={'all' if config['all_slots'] else 'census'})")
     result = ingest(
@@ -512,22 +610,28 @@ def main() -> int:
             log(f"  dropped {len(dropped)} features that are not organism genes")
         log(f"  genes projected onto {result['gene_reference_version']}")
         summary = census2_dataset_writer.summary_record(result)
+        obs_fragment = census2_dataset_writer.read_fragment_record(dest)
+        if obs_fragment is None:
+            raise SystemExit(f"store has no fragment record after writing: {dest}")
+        log(f"  wrote the obs fragment, {obs_fragment['bytes'] / 1024**2:.1f} MiB")
         receipt.update(
             {
                 "slots_written": result["slots"],
                 "dropped_obs_columns": result["dropped_obs_columns"],
                 "dropped_var_features": result["dropped_var_features"],
                 "summary": summary,
+                "obs_fragment": obs_fragment,
                 "store": store,
+                "fragment": fragment,
                 "output_bytes": store_bytes(dest),
                 "published_by": "workflow" if args.stage_local else "task",
             }
         )
         if not args.stage_local:
-            verify_written(dest)
+            verify_written(dest, fragment_dest)
         if args.check:
             log("check round trip")
-            receipt["check"] = check(src, dest, result, summary)
+            receipt["check"] = check(src, dest, fragment_dest, result, summary)
             if not receipt["check"]["passed"]:
                 for fmsg in receipt["check"].get("failures", []):
                     log(f"  FAIL {fmsg}")

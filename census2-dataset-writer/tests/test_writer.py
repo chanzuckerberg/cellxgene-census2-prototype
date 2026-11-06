@@ -404,7 +404,9 @@ def test_summary_record_keeps_the_consolidated_metadata(tmp_path: Path) -> None:
         adata, result = build(f, refdata=tmp_path / "refdata")
         assert adata is not None
         summary = census2_dataset_writer.summary_record(result)
-        census2_dataset_writer.write(adata, tmp_path / "store.zarr", summary=summary)
+        census2_dataset_writer.write(
+            adata, tmp_path / "store.zarr", summary=summary, fragment=tmp_path / "f.pq"
+        )
         adata.write_zarr(tmp_path / "plain.zarr")
 
     def nodes(path: Path) -> set[str]:
@@ -473,7 +475,12 @@ def test_write_refuses_a_malformed_record_and_writes_nothing(tmp_path: Path) -> 
     write: Any = census2_dataset_writer.write
     bad = {**GOOD_RECORD, "dataset_id": ""}
     with pytest.raises(census2_dataset_writer.SummaryRecordError, match="dataset_id"):
-        write(anndata.AnnData(X=np.zeros((2, 2))), tmp_path / "store.zarr", summary=bad)
+        write(
+            anndata.AnnData(X=np.zeros((2, 2))),
+            tmp_path / "store.zarr",
+            summary=bad,
+            fragment=tmp_path / "f.pq",
+        )
     assert not (tmp_path / "store.zarr").exists()
 
 
@@ -993,7 +1000,11 @@ def test_a_failed_call_restores_the_thread_setting(tmp_path: Path) -> None:
         create(tmp_path / "missing.h5ad", tmp_path / "store.zarr", threads=2)
     with pytest.raises(census2_dataset_writer.SummaryRecordError):
         census2_dataset_writer.write(
-            dataset(), tmp_path / "store.zarr", summary=cast(Any, {}), threads=2
+            dataset(),
+            tmp_path / "store.zarr",
+            summary=cast(Any, {}),
+            fragment=tmp_path / "f.pq",
+            threads=2,
         )
     assert dask.config.get("num_workers", None) == before
 
@@ -1120,7 +1131,12 @@ def test_write_refuses_obs_for_another_dataset(tmp_path: Path) -> None:
     )
     write: Any = census2_dataset_writer.write
     with pytest.raises(ValueError, match="must hold only the summary record's d"):
-        write(adata, tmp_path / "store.zarr", summary=dict(GOOD_RECORD))
+        write(
+            adata,
+            tmp_path / "store.zarr",
+            summary=dict(GOOD_RECORD),
+            fragment=tmp_path / "f.pq",
+        )
     assert not (tmp_path / "store.zarr").exists()
 
 
@@ -1234,7 +1250,9 @@ def test_a_repeated_cell_key_fails_with_the_values_named(tmp_path: Path) -> None
     record = dict(GOOD_RECORD, dataset_id="dataset-1")
     census2_dataset_writer.add_dataset_id(adata, "dataset-1")
     with pytest.raises(ValueError, match="such as j1, j3"):
-        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+        census2_dataset_writer.write(
+            adata, dest, summary=cast(Any, record), fragment=tmp_path / "f.pq"
+        )
     assert not dest.exists()
 
 
@@ -1246,10 +1264,191 @@ def test_a_write_refuses_a_null_cell_key(tmp_path: Path) -> None:
     adata.obs["observation_joinid"] = ["j0", "j1", None, "j3", "j4", "j5"]
     record = dict(GOOD_RECORD, dataset_id="dataset-1")
     with pytest.raises(ValueError, match="observation_joinid holds a null"):
-        census2_dataset_writer.write(adata, dest, summary=cast(Any, record))
+        census2_dataset_writer.write(
+            adata, dest, summary=cast(Any, record), fragment=tmp_path / "f.pq"
+        )
     assert not dest.exists()
 
 
 def test_obs_schema_names_are_unique_and_dataset_id_first() -> None:
     assert OBS_NAMES[0] == "dataset_id"
     assert len(set(OBS_NAMES)) == len(OBS_NAMES)
+
+
+# --- the obs fragment ---------------------------------------------------------
+
+
+def fragment_of(dest: Path) -> pd.DataFrame:
+    """The fragment next to the store at `dest`, read with pyarrow."""
+    import pyarrow.parquet as pq  # type: ignore[import-untyped]
+
+    path = census2_dataset_writer.fragment_location(str(dest))
+    return cast("pd.DataFrame", pq.read_table(path).to_pandas())
+
+
+ROW_COLUMNS = list(census2_dataset_writer.FRAGMENT_ROW_COLUMNS)
+
+
+def test_the_fragment_is_next_to_the_store_and_outside_it(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    assert (tmp_path / "store.obs.parquet").is_file()
+    assert not list(dest.rglob("*.parquet"))
+
+
+def test_the_fragment_holds_the_store_obs_and_the_row_columns(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    group = zarr.open_consolidated(dest, mode="r")
+    obs = cast("pd.DataFrame", read_elem(group["obs"]))
+    fragment = fragment_of(dest)
+    assert list(fragment.columns) == OBS_NAMES + ROW_COLUMNS
+    numeric = {
+        census2_dataset_writer.ColType.INT64,
+        census2_dataset_writer.ColType.FLOAT64,
+    }
+    for name, col_type in census2_dataset_writer.OBS_COLUMNS:
+        got, want = fragment[name].to_numpy(), obs[name].to_numpy()
+        if col_type in numeric:
+            # A statistic keeps its type and its value, bit for bit.
+            assert got.dtype == want.dtype == np.dtype(col_type.value), name
+            assert np.array_equal(got, want), name
+            continue
+        kind = bool if col_type is census2_dataset_writer.ColType.BOOL else str
+        assert np.array_equal(got.astype(kind), want.astype(kind)), name
+    indptr = values(group["X/indptr"])
+    assert np.array_equal(fragment["store_row"], np.arange(len(obs)))
+    assert np.array_equal(fragment["x_start"], indptr[:-1])
+    assert np.array_equal(fragment["x_end"], indptr[1:])
+
+
+# The Parquet type of each store column type in the fragment. A table format reads
+# these types: Iceberg gives string, boolean, long, and double.
+FRAGMENT_TYPES = {
+    census2_dataset_writer.ColType.CATEGORY: "string",
+    census2_dataset_writer.ColType.STRING: "string",
+    census2_dataset_writer.ColType.BOOL: "bool",
+    census2_dataset_writer.ColType.INT64: "int64",
+    census2_dataset_writer.ColType.FLOAT64: "double",
+}
+
+
+def test_each_fragment_column_has_the_type_of_its_store_column(
+    tmp_path: Path,
+) -> None:
+    import pyarrow.parquet as pq
+
+    dest, _ = written(tmp_path)
+    path = census2_dataset_writer.fragment_location(str(dest))
+    schema = pq.read_schema(path)
+    want = [FRAGMENT_TYPES[t] for _, t in census2_dataset_writer.OBS_COLUMNS]
+    assert [str(t) for t in schema.types] == want + ["int64"] * len(ROW_COLUMNS)
+
+
+def test_the_row_columns_address_the_values_of_each_cell(tmp_path: Path) -> None:
+    """A reader that holds only the fragment reads one cell's values from X."""
+    dest, _ = written(tmp_path)
+    group = zarr.open_consolidated(dest, mode="r")
+    data, indices = values(group["X/data"]), values(group["X/indices"])
+    x = stored_x(dest)
+    for _, row in fragment_of(dest).iloc[[0, 7, 39]].iterrows():
+        span = slice(int(row["x_start"]), int(row["x_end"]))
+        cell = x[int(row["store_row"])]
+        assert np.array_equal(indices[span], cell.indices)
+        assert np.array_equal(data[span], cell.data)
+
+
+def test_the_fragment_record_names_the_file(tmp_path: Path) -> None:
+    dest, _ = written(tmp_path)
+    record = census2_dataset_writer.read_fragment_record(dest)
+    data = (tmp_path / "store.obs.parquet").read_bytes()
+    assert record == {
+        "version": census2_dataset_writer.FRAGMENT_VERSION,
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "bytes": len(data),
+        "rows": 40,
+    }
+    # Beside the summary record, which stays as it was.
+    assert census2_dataset_writer.read_summary(dest) is not None
+
+
+def test_a_fragment_location_can_be_given(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    elsewhere = tmp_path / "fragments" / "one.parquet"
+    create(
+        source,
+        tmp_path / "store.zarr",
+        fragment=elsewhere,
+        refdata=tmp_path / "refdata",
+    )
+    assert elsewhere.is_file()
+    assert not (tmp_path / "store.obs.parquet").exists()
+
+
+def test_a_store_object_needs_a_fragment_location(tmp_path: Path) -> None:
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    store = zarr.storage.LocalStore(tmp_path / "store.zarr")
+    with pytest.raises(ValueError, match="needs a fragment location"):
+        create(source, store, refdata=tmp_path / "refdata")
+
+
+def test_the_fragment_takes_the_obs_columns_as_they_are() -> None:
+    """A column that a later writer adds to obs, such as a statistic, keeps its type."""
+    obs = pd.DataFrame(
+        {
+            "dataset_id": pd.Categorical(["d", "d"]),
+            "raw_sum": np.array([1.5, 2.0], dtype=np.float32),
+            "nnz": np.array([3, 4], dtype=np.int64),
+        }
+    )
+    table = census2_dataset_writer.fragment_table(obs, np.array([0, 3, 7]))
+    assert table.column_names == ["dataset_id", "raw_sum", "nnz", *ROW_COLUMNS]
+    types = [str(t) for t in table.schema.types]
+    assert types == ["string", "float", "int64", "int64", "int64", "int64"]
+
+
+def test_fragment_table_refuses_an_indptr_of_another_length() -> None:
+    obs = pd.DataFrame({"dataset_id": ["d", "d"]})
+    with pytest.raises(ValueError, match="obs has 2 rows"):
+        census2_dataset_writer.fragment_table(obs, np.array([0, 3]))
+
+
+@pytest.mark.parametrize(
+    ("store", "fragment"),
+    [
+        ("out/v1.zarr", "out/v1.obs.parquet"),
+        ("s3://bucket/prefix/v1.zarr/", "s3://bucket/prefix/v1.obs.parquet"),
+    ],
+)
+def test_fragment_location_is_next_to_the_store(store: str, fragment: str) -> None:
+    assert census2_dataset_writer.fragment_location(store) == fragment
+
+
+def test_fragment_location_needs_a_zarr_name() -> None:
+    with pytest.raises(ValueError, match="ends with .zarr"):
+        census2_dataset_writer.fragment_location("out/v1")
+
+
+GOOD_FRAGMENT = {"version": 1, "sha256": "0" * 64, "bytes": 10, "rows": 2}
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"version": 2}, "version 2"),
+        ({"sha256": "abc"}, "sha256 is 'abc'"),
+        ({"bytes": -1}, "bytes is -1"),
+        ({"rows": "2"}, "rows is '2'"),
+        ({"extra": 1}, "unknown \\['extra'\\]"),
+    ],
+)
+def test_validate_fragment_refuses_a_malformed_record(
+    change: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(census2_dataset_writer.SummaryRecordError, match=message):
+        census2_dataset_writer.validate_fragment({**GOOD_FRAGMENT, **change})
+
+
+def test_a_store_without_a_fragment_record_reads_as_none(tmp_path: Path) -> None:
+    anndata.AnnData(X=np.zeros((2, 2))).write_zarr(tmp_path / "plain.zarr")
+    assert census2_dataset_writer.read_fragment_record(tmp_path / "plain.zarr") is None

@@ -1,0 +1,5 @@
+{"query": "single", "cells": 3799, "obs_names": true, "obs": true, "X": true, "var": true, "stores_opened": [103, 1], "seconds": 4.1}
+{"query": "compound", "cells": 207185, "obs_names": true, "obs": true, "X": true, "var": true, "stores_opened": [103, 5], "seconds": 53.5}
+{"query": "fp_none", "stores": true, "table": true, "equal": true}
+{"query": "fp_some", "cells": 111, "obs_names": true, "obs": true, "X": true, "var": true, "stores_opened": [103, 2], "seconds": 8.7}
+{"query": "cell_type", "cells": 35795, "obs_names": true, "obs": true, "X": true, "var": true, "stores_opened": [103, 14], "seconds": 16.6}
