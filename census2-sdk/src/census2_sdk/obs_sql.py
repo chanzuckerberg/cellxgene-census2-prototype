@@ -239,6 +239,8 @@ MAX_FILTER_CHARS = 1_000_000
 # The columns that the scan always returns: the cell key and the fragment's row
 # columns. `get_anndata` needs them to find each cell in its store.
 KEY = ("dataset_id", "observation_joinid")
+# The column of the joined cell key that `get_obs` asks DuckDB for.
+KEY_COLUMN = "census2_cell_key"
 
 
 @dataclass(frozen=True)
@@ -983,12 +985,15 @@ class Engine:
         columns: Sequence[str] | None,
         *,
         dictionary: bool = True,
+        key: bool = False,
     ) -> tuple[pa.Table, QueryStats]:
         """The selected cells of the fragments of `rows`, as one Arrow table.
 
         `columns` names the `obs` columns; None gives all. The cell key and the row
         columns are always in the table. With `dictionary`, each string column except
         `observation_joinid` is dictionary-encoded, as a pandas categorical needs.
+        With `key`, the last column, `KEY_COLUMN`, is `<dataset_id>_<observation_joinid>`,
+        which DuckDB joins in its own threads.
         """
         stats = QueryStats()
         self._http()
@@ -1005,6 +1010,9 @@ class Engine:
         )
         if columns is None and self.options.files == "glob":
             wanted = "* EXCLUDE (filename)"
+        if key:
+            joined = 'concat("dataset_id", \'_\', "observation_joinid")'
+            wanted += f", {joined} AS {identifier(KEY_COLUMN)}"
         sql = f"SELECT {wanted} FROM {source} WHERE {scope} AND {pred.text}"
         t0 = time.monotonic()
         try:
@@ -1049,8 +1057,13 @@ class Engine:
         return frame[[*by, "n_cells"]], stats
 
 
+def _plain(name: str) -> bool:
+    """True for the string columns that stay plain: one value for each cell."""
+    return name in ("observation_joinid", KEY_COLUMN)
+
+
 def _dictionary_field(f: Any) -> Any:
-    if pa.types.is_string(f.type) and f.name != "observation_joinid":
+    if pa.types.is_string(f.type) and not _plain(f.name):
         return pa.field(f.name, pa.dictionary(pa.int32(), pa.string()))
     return f
 
@@ -1068,7 +1081,7 @@ def _encoded(reader: Any, dictionary: bool) -> Iterable[Any]:
     def encode(batch: Any) -> Any:
         arrays = []
         for f, array in zip(batch.schema, batch.columns, strict=True):
-            if pa.types.is_string(f.type) and f.name != "observation_joinid":
+            if pa.types.is_string(f.type) and not _plain(f.name):
                 array = pc.dictionary_encode(array).cast(
                     pa.dictionary(pa.int32(), pa.string())
                 )
@@ -1212,6 +1225,26 @@ def get_anndata(
     return result
 
 
+def _frame(arrow: pa.Table) -> pd.DataFrame:
+    """`census2_sdk._obs_frame` with the row columns, one column for each thread.
+
+    The categorical of each label column is numpy work on its integer codes, which
+    does not hold the GIL for long.
+    """
+    import census2_sdk as sdk
+
+    def convert(name: str) -> Any:
+        column = arrow.column(name)
+        if pa.types.is_dictionary(column.type):
+            return sdk._categorical(column.combine_chunks())
+        return column.to_pandas()
+
+    names = list(arrow.column_names)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        columns = dict(zip(names, pool.map(convert, names), strict=True))
+    return pd.DataFrame(columns)
+
+
 def get_obs(
     census: "Census",
     organism: str,
@@ -1224,8 +1257,6 @@ def get_obs(
     `dtype_backend` is as for `Census.get_obs`: `"pyarrow"` gives `pd.ArrowDtype`
     columns over DuckDB's Arrow data, without the categoricals.
     """
-    import census2_sdk as sdk
-
     if dtype_backend not in ("numpy", "pyarrow"):
         raise ValueError(
             f"dtype_backend is 'numpy' or 'pyarrow', not {dtype_backend!r}"
@@ -1233,22 +1264,19 @@ def get_obs(
     engine = census.sql_engine
     pred = engine.predicate(obs_filter)
     rows, catalog_seconds = engine.candidates(organism, pred)
-    arrow, stats = engine.select(rows, pred, columns)
+    arrow, stats = engine.select(rows, pred, columns, key=True)
     stats.catalog_seconds = catalog_seconds
     t0 = time.monotonic()
     frame = pd.DataFrame()
     if arrow.num_rows:
         arrow = arrow.unify_dictionaries()
+        index = pd.Index(arrow.column(KEY_COLUMN).to_pandas())
+        arrow = arrow.drop_columns([KEY_COLUMN])
         if dtype_backend == "pyarrow":
             frame = cast("pd.DataFrame", arrow.to_pandas(types_mapper=pd.ArrowDtype))
         else:
-            frame = sdk._obs_frame(arrow, keep_rows=True)
-        key = pc.binary_join_element_wise(
-            pc.cast(arrow.column("dataset_id"), pa.string()),
-            arrow.column("observation_joinid"),
-            "_",
-        )
-        frame.index = pd.Index(key.to_pandas())
+            frame = _frame(arrow)
+        frame.index = index
     stats.extra["pandas_seconds"] = round(time.monotonic() - t0, 3)
     frame.attrs["census2"] = {
         "catalog_candidates": len(rows),
