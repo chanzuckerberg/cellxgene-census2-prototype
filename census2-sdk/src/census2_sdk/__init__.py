@@ -391,11 +391,24 @@ def _open(uri: str, consolidated: bool) -> _Opened:
         return opened
     _check_record(opened)
     obs = _group(group, "obs", uri, "an encoded dataframe")
-    for name in cast("list[str]", obs.attrs["column-order"]):
-        node = obs[str(name)]
-        if isinstance(node, zarr.Group) and _encoding(node) == "categorical":
-            categories = np.asarray(read_elem(node["categories"]))
-            opened.categories[str(name)] = pd.Index(categories)
+    names = [str(name) for name in cast("list[str]", obs.attrs["column-order"])]
+    categorical = [
+        name
+        for name in names
+        if isinstance(obs[name], zarr.Group) and _encoding(obs[name]) == "categorical"
+    ]
+
+    def categories(name: str) -> pd.Index:
+        node = _group(obs, name, uri, "an encoded categorical")
+        return cast("pd.Index", pd.Index(np.asarray(read_elem(node["categories"]))))
+
+    # Each column is a read of its own, so read them at the same time, as `_obs_rows`
+    # reads the columns of a dataset.
+    threads = max(1, min(len(categorical), OBS_THREADS))
+    with ThreadPoolExecutor(max_workers=threads) as pool:
+        opened.categories = dict(
+            zip(categorical, pool.map(categories, categorical), strict=True)
+        )
     return opened
 
 
