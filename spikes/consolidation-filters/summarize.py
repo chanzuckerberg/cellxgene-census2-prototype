@@ -215,12 +215,12 @@ def bind_table(rows: list[dict[str, Any]]) -> str:
     by: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
         by[(r["layout"], r["query"])].append(r)
-    lines = [
+    header = (
         "| Stores | Query | Columns | `read_elem(obs)` ms | Builder ms: read + eval | "
         "of it eval | CPU ms: `read_elem` / builder | Requests: `read_elem` / builder | "
-        "Sum over stores, s |",
-        "|---|---|---|---|---|---|---|---|---|",
-    ]
+        "Sum over stores, s |"
+    )
+    lines = [header, "|---|---|---|---|---|---|---|---|---|"]
     for (layout, query), rs in sorted(by.items()):
         stores: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for r in rs:
