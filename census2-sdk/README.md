@@ -114,6 +114,51 @@ which stay the primary copy.
 reads up to `max_workers` datasets at the same time. The datasets of one consolidated store thus
 read at the same time as well.
 
+## Query with the typed filter builder
+
+Each organism has a namespace with typed `obs` columns. A filter combines terms with `&`, `|`, and
+`~`, with pandas names:
+
+```python
+hs = census.homo_sapiens
+obs = hs.obs
+f = obs.tissue_general.isin(["lung", "blood"]) & obs.is_primary_data
+f &= ~obs.cell_type.str.contains("macrophage", case=False)
+f &= obs.disease.has_any(["COVID-19"]) | (obs.nnz >= 500)
+
+adata = hs.get_anndata(f, layers=["normalized"], max_workers=8)
+frame = hs.get_obs(f, columns=["cell_type", "donor_id"])  # no X
+n = hs.count(f)
+by_donor = hs.count_by("donor_id", f)
+```
+
+The column classes come from the store format (`census2_sdk.obs_columns`), and each class has only
+the operators of its type:
+
+| Column | Operators |
+|---|---|
+| `CategoryColumn` (`tissue`, `cell_type`, ...) | `==`, `!=`, `isin`, `.str.startswith`, `.str.endswith`, `.str.contains`, `.str.match`, `.str.fullmatch` |
+| `MultiValueColumn` (`disease`, `disease_ontology_term_id`) | `has_any([...])`, `has_all([...])` |
+| `BoolColumn` (`is_primary_data`) | used as it is, `~`, `==` a bool |
+| `IntColumn`, `FloatColumn` (`nnz`, `raw_sum`, ...) | `<`, `<=`, `>`, `>=`, `==`, `!=`, `between` |
+| `StringColumn` (`observation_joinid`) | `==`, `!=`, `isin` |
+
+Every column has `isna()` and `notna()`. `obs["name"]` is a column that the static schema does not
+name; the query checks it against the stores. mypy reports a wrong operator, for example
+`obs.disease == "COVID-19"`, with the error code `deprecated`, which the caller's mypy must enable.
+At run time each wrong operator raises `TypeError` with a hint, and so do `and`, `or`, and `not`.
+A filter remembers its organism, and a query of another organism refuses it.
+
+A null equals nothing, as in a pandas mask: each term is False for a null before `~`, `&`, and `|`
+combine it, so `~(obs.x == "a")` keeps the cells where `x` is null. `isna()` tests the null itself.
+
+A query resolves the filter once: it checks the columns and the labels against the catalog, and
+an unknown label raises `FilterError` with the nearest known labels. It then tests the filter
+against each catalog row, and reads only the stores that can hold a match, and from each store only
+the columns of the filter. `hs.plan(f)` shows the candidates. For a filter that a mapping filter can
+express, `get_anndata` gives the result of `Census.get_anndata`, value for value; each categorical
+column holds only the labels that the result uses. See `spikes/consolidation-filters.md`.
+
 ## Count
 
 ```python

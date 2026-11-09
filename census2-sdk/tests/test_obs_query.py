@@ -453,3 +453,28 @@ def test_get_obs_with_a_read_that_keeps_no_cell(
     }
     assert min(per_store.values()) == 0 < max(per_store.values()), per_store
     assert isinstance(frame["tissue"].dtype, pd.CategoricalDtype)
+
+
+@pytest.mark.parametrize("key", ["catalog", "catalog_c"])
+def test_get_anndata_with_a_read_that_keeps_no_cell(
+    corpus: dict[str, Path], key: str
+) -> None:
+    census = census2_sdk.open_census([corpus[key]])
+    hs = census.homo_sapiens
+    f = (hs.obs.cell_type == "neutrophil") & (hs.obs.nnz > 2900)
+    got = hs.get_anndata(f, max_workers=2)
+    assert got is not None
+    assert list(got.obs_names) == list(hs.get_obs(f).index)
+    assert got.uns["census2"]["datasets_read"] == 3
+    assert got.n_vars == 20 and list(got.var.columns)[0] == "feature_id"
+    want = census.get_anndata(ORG, {"cell_type": "neutrophil"})
+    assert want is not None
+    sub = want[want.obs["nnz"].to_numpy() > 2900]
+    assert list(got.obs_names) == list(sub.obs_names)
+    assert list(got.obs.columns) == list(sub.obs.columns)
+    for name in sub.obs.columns:
+        assert list(got.obs[name].astype(str)) == list(sub.obs[name].astype(str)), name
+    assert np.array_equal(
+        sp.csr_matrix(cast("Any", got.X)).toarray(),
+        sp.csr_matrix(cast("Any", sub.X)).toarray(),
+    )

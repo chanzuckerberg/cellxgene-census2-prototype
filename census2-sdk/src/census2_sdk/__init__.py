@@ -46,6 +46,18 @@ Exclusion stays per dataset, so a consolidated store opens only when one of its
 datasets can match. The SDK reads only the rows of the selected datasets, and the
 result is the result of the per-dataset stores. `open_census(..., consolidated=False)`
 reads the per-dataset stores, which stay the primary copy.
+
+Each organism also has a namespace with a typed filter builder (`Organism`):
+
+    hs = census.homo_sapiens
+    f = (hs.obs.tissue == "lung") & hs.obs.is_primary_data & (hs.obs.nnz >= 500)
+    adata = hs.get_anndata(f)
+
+The builder has pandas names, and each column type has its own operators
+(`census2_sdk.obs_filter`). A query resolves the filter once against the catalog
+(`census2_sdk.obs_plan`), and then binds it to the `obs` of each candidate store and
+evaluates it with pyarrow (`census2_sdk.obs_arrow`). It reads only the columns of the
+filter to select the cells. `get_obs`, `count`, and `count_by` read no `X`.
 """
 
 import functools
@@ -726,14 +738,25 @@ class Organism:
         if len(rows):
             _check_composition(rows, ORGANISMS[self.name]["version"])
         scan = self._scan(plan, "anndata", max_workers, layers=layers)
-        parts = [p for p in scan.values if isinstance(p, anndata.AnnData)]
-        if not parts or not sum(p.n_obs for p in parts):
+        kept = [p for p in scan.values if isinstance(p, anndata.AnnData)]
+        if not kept:
             return None
-        _check_var(parts, [str(p.uns.pop("_uri")) for p in parts])
+        uris = [str(p.uns.pop("_uri")) for p in kept]
+        _check_var(kept, uris)
+        # A read that keeps no cell read no var; its part of no rows takes the var
+        # of the first part with cells. It stays in, so that the obs schema is the
+        # columns that all the stores read hold, as in `Census.get_anndata`.
+        parts = [
+            p
+            if isinstance(p, anndata.AnnData)
+            else p.part(cast("pd.DataFrame", kept[0].var))
+            for p in scan.values
+            if isinstance(p, anndata.AnnData | _Empty)
+        ]
         result = anndata.concat(parts, join="inner")
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
-        first = scan.opened[scan.uris[0]]
+        first = scan.opened[uris[0]]
         var = cast("pd.DataFrame", read_elem(first.group["var"]))
         result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
@@ -826,12 +849,11 @@ class Organism:
             for index, value in out:
                 values[index] = value
 
-        need_var = mode == "anndata"
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             opened = dict(
                 zip(
                     uris,
-                    pool.map(lambda u: _store(u, u in consolidated, need_var), uris),
+                    pool.map(lambda u: _store(u, u in consolidated), uris),
                     strict=True,
                 )
             )
@@ -922,20 +944,68 @@ def _units(plan: Plan, consolidated: bool) -> list[_Unit]:
     return units
 
 
-def _store(uri: str, consolidated: bool, need_var: bool) -> "_Opened":
-    """Open a store with the lean open, and read the var index when `need_var`."""
+def _store(uri: str, consolidated: bool) -> "_Opened":
+    """Open a store with the lean open. `_var` reads the var index when a part needs it."""
     group = open_store(uri, lean=True)
-    var = pd.DataFrame()
-    if need_var:
-        var_group = _group(group, "var", uri, "an encoded dataframe")
-        index = read_elem(var_group[str(var_group.attrs["_index"])])
-        var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _group(group, "X", uri, "an encoded sparse matrix")
-    opened = _Opened(uri, group, var, int(cast("list[int]", x.attrs["shape"])[0]))
+    shape = cast("list[int]", x.attrs["shape"])
+    opened = _Opened(uri, group, pd.DataFrame(), int(shape[0]))
     if consolidated:
         _check_record(opened)
     opened.cache = CategoryCache(_group(group, "obs", uri, "an encoded dataframe"))
     return opened
+
+
+_VAR_LOCK = threading.Lock()
+
+
+def _var(opened: "_Opened") -> pd.DataFrame:
+    """The var index of a store, read once, for the parts of the store with cells."""
+    with _VAR_LOCK:
+        if len(opened.var.index):
+            return opened.var
+    var_group = _group(opened.group, "var", opened.uri, "an encoded dataframe")
+    index = read_elem(var_group[str(var_group.attrs["_index"])])
+    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
+    with _VAR_LOCK:
+        opened.var = var
+    return var
+
+
+@dataclass(frozen=True)
+class _Empty:
+    """The part of a read that keeps no cell: its obs schema and its number of genes.
+
+    It reads no column and no var: `obs` comes from the store metadata.
+    """
+
+    obs: pd.DataFrame
+    n_var: int
+
+    def part(self, var: pd.DataFrame) -> anndata.AnnData:
+        x = sp.csr_matrix((0, self.n_var), dtype=np.float32)
+        return anndata.AnnData(X=x, obs=self.obs, var=pd.DataFrame(index=var.index))
+
+
+def _empty_obs(obs: zarr.Group, order: Sequence[str]) -> pd.DataFrame:
+    """An `obs` of no rows with the columns `order`, from the store metadata alone.
+
+    A categorical column has no categories; anndata takes the categories of the parts
+    with rows. A column of another encoding than categorical or array reads its type.
+    """
+    columns: dict[str, Any] = {}
+    for name in order:
+        node = obs[name]
+        kind = encoding(node)[0]
+        if kind == "categorical":
+            ordered = bool(node.attrs.get("ordered", False))
+            empty = pd.Index([], dtype=object)
+            columns[name] = pd.Categorical([], categories=empty, ordered=ordered)
+        elif kind == "array" and isinstance(node, zarr.Array):
+            columns[name] = np.empty(0, dtype=np.dtype(str(node.dtype)))
+        else:
+            columns[name] = _read_column_rows(node, np.zeros(0, dtype=np.int64))
+    return pd.DataFrame(columns, columns=list(order), index=pd.Index([], dtype=object))
 
 
 def _scan_unit(
@@ -988,9 +1058,14 @@ def _scan_unit(
             frame.index = _cell_keys(obs, dataset_id, lo + keep)
             out.append((m.index, frame))
         else:
+            if not len(keep):
+                x = _group(opened.group, "X", opened.uri, "an encoded sparse matrix")
+                n_var = int(cast("list[int]", x.attrs["shape"])[1])
+                out.append((m.index, _Empty(_empty_obs(obs, order), n_var)))
+                continue
             frame = _kept_obs(obs, order, data, lo, start, keep, cache, where)
-            if len(frame):
-                _check_dataset_id(frame, dataset_id, where)
+            _check_dataset_id(frame, dataset_id, where)
+            _var(opened)
             part = _part(opened, where, dataset_id, frame, keep, lo, layers)
             part.uns["_uri"] = opened.uri
             out.append((m.index, part))
