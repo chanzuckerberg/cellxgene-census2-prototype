@@ -12,7 +12,8 @@ so a stopped matrix keeps its finished runs.
 
 `--catalog` and `--queries` run named queries over one catalog instead. The queries
 file is a JSON list of objects with `query` (a name), `shape`, and the arguments of
-the shape: `dataset_id`, `cell_type`, or `filter`. `--per-dataset` reads the
+the shape: `dataset_id`, `cell_type`, `filter`, or `builder` (a name in
+`bench.filters.QUERIES`). `--per-dataset` reads the
 per-dataset stores of a catalog that names consolidated stores, and `--config` labels
 the records. `--only` runs the named queries of the file. `--reader` and
 `--processes` pass to `bench.run`.
@@ -74,6 +75,8 @@ def query_args(query: dict[str, Any]) -> list[str]:
         args += ["--dataset-id", str(query["dataset_id"])]
     if "filter" in query:
         args += ["--filter", json.dumps(query["filter"])]
+    if "builder" in query:
+        args += ["--builder", str(query["builder"])]
     return args
 
 

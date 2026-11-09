@@ -15,6 +15,7 @@ with the number of cells in `n_cells`. `load` reads the catalog without this col
 import io
 import os
 import pathlib
+import threading
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
@@ -84,15 +85,44 @@ def is_remote(uri: str | os.PathLike[str]) -> bool:
     return str(uri).startswith(REMOTE_SCHEMES)
 
 
-def open_store(uri: str | os.PathLike[str]) -> zarr.Group:
-    """Open a store for reading. A remote URI goes through obstore."""
+def open_store(uri: str | os.PathLike[str], *, lean: bool = False) -> zarr.Group:
+    """Open a store for reading. A remote URI goes through obstore.
+
+    With `lean`, the open gives `zarr_format=3`, so zarr reads one object (the root
+    `zarr.json`, with the consolidated metadata) and looks for no Zarr v2 key, and a
+    remote store goes through one obstore client for each bucket, so the opens share
+    the client's connections. The stores of the writer are Zarr v3.
+    """
     if is_remote(uri):
         _require_obstore()
+        if lean:
+            scheme, rest = str(uri).split("://", 1)
+            bucket, _, path = rest.partition("/")
+            shared = _bucket_store(f"{scheme}://{bucket}")
+            return zarr.open_group(
+                shared, path=path.rstrip("/"), mode="r", zarr_format=3
+            )
         store = zarr.storage.ObjectStore(
             obstore.store.from_url(str(uri)), read_only=True
         )
         return zarr.open_group(store, mode="r")
+    if lean:
+        return zarr.open_group(str(uri), mode="r", zarr_format=3)
     return zarr.open_group(str(uri), mode="r")
+
+
+_BUCKETS: dict[str, zarr.storage.ObjectStore[Any]] = {}
+_BUCKETS_LOCK = threading.Lock()
+
+
+def _bucket_store(base: str) -> zarr.storage.ObjectStore[Any]:
+    """One read-only zarr store over one obstore client for the bucket `base`."""
+    with _BUCKETS_LOCK:
+        store = _BUCKETS.get(base)
+        if store is None:
+            client = obstore.store.from_url(base)
+            store = _BUCKETS[base] = zarr.storage.ObjectStore(client, read_only=True)
+        return store
 
 
 def members(value: str, column: str) -> list[str]:

@@ -63,5 +63,9 @@ files = [
     "tools/harness/canonical.py",
     "tools/harness/comparator.py",
     "tools/bench",
+    "tools/generate_obs_columns.py",
 ]
 mypy_path = ["tools"]
+# The filter builder marks each operator that a column refuses with `deprecated`
+# (PEP 702), so that mypy reports `obs.disease == "x"` where it is written.
+enable_error_code = ["deprecated"]

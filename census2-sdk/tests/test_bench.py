@@ -1,6 +1,7 @@
 """Tests for the store-count benchmark tools. No network, no AWS."""
 
 import asyncio
+import json
 import os
 import threading
 from pathlib import Path
@@ -109,8 +110,14 @@ def stores(tmp_path_factory: pytest.TempPathFactory) -> Path:
 def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> None:
     run.COUNTER.requests = run.COUNTER.nbytes = 0
     obs_filter = {"cell_type": "T cell"} if shape == "filter" else None
+    builder = "all_obs" if shape == "builder" else None
     record = run.run(
-        str(stores / "catalog.parquet"), shape, workers, None, obs_filter=obs_filter
+        str(stores / "catalog.parquet"),
+        shape,
+        workers,
+        None,
+        obs_filter=obs_filter,
+        builder=builder,
     )
     assert record["status"] == "ok"
     assert record["catalog_stores"] == 2
@@ -230,3 +237,23 @@ def test_a_run_over_the_limit_between_checks_is_not_ok() -> None:
     assert code == run.MEMORY_LIMIT_EXIT
     assert run.final_record(record, limit_mb=4096.0) == (record, None)
     assert run.final_record(record, limit_mb=None) == (record, None)
+
+
+def test_bind_times_each_store(stores: Path, tmp_path: Path) -> None:
+    from bench import bind
+
+    records = bind.bench_store(str(stores / "v-0.zarr"), ["neutrophil", "all_obs"], 0)
+    # all_obs has no filter, so it gives no record.
+    assert [(r["query"], r["kept"], r["columns"]) for r in records] == [
+        ("neutrophil", 0, ["cell_type"])
+    ]
+    out = tmp_path / "bind.jsonl"
+    argv = ["bind", str(stores / "catalog.parquet"), "--queries", "neutrophil"]
+    argv += ["--repeats", "1", "--where", "test", "--out", str(out)]
+    with pytest.MonkeyPatch.context() as monkey:
+        monkey.setattr("sys.argv", argv)
+        assert bind.main() == 0
+    lines = [json.loads(line) for line in out.read_text().splitlines()]
+    assert len(lines) == 2
+    assert {r["layout"] for r in lines} == {"per_dataset"}
+    assert all(r["main"]["requests"] > 0 and r["read"]["requests"] > 0 for r in lines)
