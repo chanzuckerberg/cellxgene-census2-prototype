@@ -1055,7 +1055,9 @@ def _scan_unit(
             frame = _kept_obs(obs, names_out, data, lo, start, keep, cache, where)
             if "dataset_id" in frame.columns and len(frame):
                 _check_dataset_id(frame, dataset_id, where)
-            frame.index = _cell_keys(obs, dataset_id, lo + keep)
+            read = frame.get("observation_joinid")
+            joinid = None if read is None else read.array
+            frame.index = _cell_keys(obs, dataset_id, lo + keep, joinid)
             out.append((m.index, frame))
         else:
             if not len(keep):
@@ -1072,12 +1074,16 @@ def _scan_unit(
     return present, lacking, out
 
 
-def _cell_keys(obs: zarr.Group, dataset_id: str, rows: np.ndarray) -> pd.Index:
+def _cell_keys(
+    obs: zarr.Group, dataset_id: str, rows: np.ndarray, joinid: Any = None
+) -> pd.Index:
     """The cell keys of the rows `rows`: `<dataset_id>_<observation_joinid>`.
 
+    `joinid` holds the cell key of these rows when the caller read it already.
     Arrow joins the strings, so pandas makes no Python string for each cell.
     """
-    joinid = _read_column_rows(obs["observation_joinid"], rows)
+    if joinid is None:
+        joinid = _read_column_rows(obs["observation_joinid"], rows)
     values = pa.array(joinid, type=pa.string())
     keys = pc.binary_join_element_wise(pa.scalar(dataset_id), values, "_")
     index: pd.Index = pd.Index(pd.array(keys, dtype=pd.StringDtype(na_value=np.nan)))

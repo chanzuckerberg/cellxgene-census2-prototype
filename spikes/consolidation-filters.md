@@ -45,9 +45,9 @@ f = obs.tissue_general.isin(["lung", "blood"]) & obs.is_primary_data
 f &= ~obs.cell_type.str.contains("macrophage", case=False)
 f &= obs.disease.has_any(["COVID-19"]) | (obs.nnz >= 500)
 repr(f)
-# (obs.tissue_general.isin(['blood', 'lung']) & obs.is_primary_data
-#  & ~obs.cell_type.str.contains('macrophage', case=False))
-#  & (obs.disease.has_any(['COVID-19']) | (obs.nnz >= 500))
+# obs.tissue_general.isin(['blood', 'lung']) & obs.is_primary_data
+#   & ~obs.cell_type.str.contains('macrophage', case=False)
+#   & (obs.disease.has_any(['COVID-19']) | (obs.nnz >= 500))
 adata = hs.get_anndata(f, layers=["normalized"], max_workers=8)
 frame = hs.get_obs(f, columns=["cell_type", "donor_id"])
 counts = hs.count_by("donor_id", f)
@@ -55,7 +55,7 @@ counts = hs.count_by("donor_id", f)
 
 | Column class | Columns | Operators |
 |---|---|---|
-| `CategoryColumn` | the 20 label columns and `dataset_id` | `==`, `!=`, `isin`, `.str.startswith`, `.endswith`, `.contains`, `.match`, `.fullmatch` |
+| `CategoryColumn` | `dataset_id` and the 17 label columns, `donor_id` included | `==`, `!=`, `isin`, `.str.startswith`, `.endswith`, `.contains`, `.match`, `.fullmatch` |
 | `MultiValueColumn` | `disease`, `disease_ontology_term_id` | `has_any([...])`, `has_all([...])` only |
 | `BoolColumn` | `is_primary_data` | the column as a filter, `~`, `==` a bool |
 | `IntColumn`, `FloatColumn` | `nnz`, `n_measured_vars`; `raw_sum`, `raw_mean_nnz`, `raw_variance_nnz` | `<`, `<=`, `>`, `>=`, `==`, `!=`, `between` |

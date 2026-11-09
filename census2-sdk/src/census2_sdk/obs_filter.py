@@ -66,7 +66,6 @@ __all__ = [
 MULTIVALUE_SEP = " || "
 
 Number = int | float
-Label = str
 Scalar = str | int | float | bool
 Inclusive = Literal["both", "neither", "left", "right"]
 
