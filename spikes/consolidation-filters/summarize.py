@@ -124,6 +124,11 @@ def runs_table(
     return "\n".join(lines)
 
 
+def per_store(stores: dict[str, list[dict[str, Any]]], f: Any) -> list[float]:
+    """For each store, the median of `f` over its repeats."""
+    return [statistics.median(f(r) for r in v) for v in stores.values()]
+
+
 def bind_table(rows: list[dict[str, Any]]) -> str:
     by: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for r in rows:
@@ -139,16 +144,13 @@ def bind_table(rows: list[dict[str, Any]]) -> str:
         for r in rs:
             stores[r["store"]].append(r)
 
-        def per_store(f: Any) -> list[float]:
-            return [statistics.median(f(r) for r in v) for v in stores.values()]
-
-        main = per_store(lambda r: r["main"]["ms"])
-        bind = per_store(lambda r: r["bind_ms"])
-        ev = per_store(lambda r: r["eval"]["ms"])
-        main_cpu = per_store(lambda r: r["main"]["cpu_ms"])
-        bind_cpu = per_store(lambda r: r["bind_cpu_ms"])
-        main_req = per_store(lambda r: r["main"]["requests"])
-        bind_req = per_store(lambda r: r["read"]["requests"])
+        main = per_store(stores, lambda r: r["main"]["ms"])
+        bind = per_store(stores, lambda r: r["bind_ms"])
+        ev = per_store(stores, lambda r: r["eval"]["ms"])
+        main_cpu = per_store(stores, lambda r: r["main"]["cpu_ms"])
+        bind_cpu = per_store(stores, lambda r: r["bind_cpu_ms"])
+        main_req = per_store(stores, lambda r: r["main"]["requests"])
+        bind_req = per_store(stores, lambda r: r["read"]["requests"])
         lines.append(
             f"| {layout} | {query} | {len(stores)} | {len(rs[0]['columns'])} | "
             f"{fmt(statistics.median(main), 1)} | {fmt(statistics.median(bind), 1)} | "

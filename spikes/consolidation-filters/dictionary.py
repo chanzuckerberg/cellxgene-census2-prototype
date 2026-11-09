@@ -52,6 +52,46 @@ def project(table: Any, expression: Any) -> Any:
     return plan.to_table(use_threads=False)["m"]
 
 
+def measures(n_categories: int, rng: Any) -> tuple[dict[str, Callable[[], Any]], bool]:
+    """The measures for one number of categories, and whether a dictionary kernel exists."""
+    labels = [f"cell type number {i:06d}" for i in range(n_categories)]
+    categories = pa.array(labels)
+    codes = rng.integers(0, n_categories, N).astype(np.int32)
+    dictionary = pa.DictionaryArray.from_arrays(pa.array(codes), categories)
+    strings = dictionary.cast(pa.string())
+    want = labels[42]
+    values = pa.array([labels[42], labels[100], labels[200]])
+    table = pa.table({"c": dictionary})
+    table_strings = pa.table({"c": strings})
+    lut = np.zeros(n_categories + 1, dtype=bool)
+    lut[[42, 100, 200]] = True
+    try:
+        pc.starts_with(dictionary, "cell type number 00")
+        kernel = True
+    except pa.ArrowNotImplementedError:
+        kernel = False
+    return {
+        "decode": lambda: dictionary.cast(pa.string()),
+        "equal, dictionary": lambda: pc.equal(dictionary, want),
+        "equal, strings": lambda: pc.equal(strings, want),
+        "is_in, dictionary": lambda: pc.is_in(dictionary, value_set=values),
+        "is_in, strings": lambda: pc.is_in(strings, value_set=values),
+        "starts_with, strings": lambda: pc.starts_with(strings, "cell type number 00"),
+        "Table.filter(==), dictionary": lambda: table.filter(pc.field("c") == want),
+        "Table.filter(==), strings": lambda: table_strings.filter(
+            pc.field("c") == want
+        ),
+        "Acero project(==), dictionary": lambda: project(table, pc.field("c") == want),
+        "Acero project(isin), dictionary": lambda: project(
+            table, pc.field("c").isin(values)
+        ),
+        "by codes: is_in on the dictionary, take": lambda: pc.take(
+            pc.is_in(categories, value_set=values), dictionary.indices
+        ),
+        "by codes: NumPy lookup table": lambda: lut[codes],
+    }, kernel
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--out", type=pathlib.Path, default=None)
@@ -62,57 +102,14 @@ def main() -> int:
     rng = np.random.default_rng(0)
     records = []
     for n_categories in (300, 30_000):
-        labels = [f"cell type number {i:06d}" for i in range(n_categories)]
-        categories = pa.array(labels)
-        codes = rng.integers(0, n_categories, N).astype(np.int32)
-        dictionary = pa.DictionaryArray.from_arrays(pa.array(codes), categories)
-        strings = dictionary.cast(pa.string())
-        want = labels[42]
-        values = pa.array([labels[42], labels[100], labels[200]])
-        table = pa.table({"c": dictionary})
-        table_strings = pa.table({"c": strings})
-        lut = np.zeros(n_categories + 1, dtype=bool)
-        lut[[42, 100, 200]] = True
-
-        def starts_with_dictionary() -> Any:
-            return pc.starts_with(dictionary, "cell type number 00")
-
-        try:
-            starts_with_dictionary()
-            dictionary_kernel = True
-        except pa.ArrowNotImplementedError:
-            dictionary_kernel = False
-        measures: dict[str, Callable[[], Any]] = {
-            "decode": lambda: dictionary.cast(pa.string()),
-            "equal, dictionary": lambda: pc.equal(dictionary, want),
-            "equal, strings": lambda: pc.equal(strings, want),
-            "is_in, dictionary": lambda: pc.is_in(dictionary, value_set=values),
-            "is_in, strings": lambda: pc.is_in(strings, value_set=values),
-            "starts_with, strings": lambda: pc.starts_with(
-                strings, "cell type number 00"
-            ),
-            "Table.filter(==), dictionary": lambda: table.filter(pc.field("c") == want),
-            "Table.filter(==), strings": lambda: table_strings.filter(
-                pc.field("c") == want
-            ),
-            "Acero project(==), dictionary": lambda: project(
-                table, pc.field("c") == want
-            ),
-            "Acero project(isin), dictionary": lambda: project(
-                table, pc.field("c").isin(values)
-            ),
-            "by codes: is_in on the dictionary, take": lambda: pc.take(
-                pc.is_in(categories, value_set=values), dictionary.indices
-            ),
-            "by codes: NumPy lookup table": lambda: lut[codes],
-        }
-        for name, fn in measures.items():
+        table, kernel = measures(n_categories, rng)
+        for name, fn in table.items():
             record = {
                 "categories": n_categories,
                 "cells": N,
                 "measure": name,
                 "ms": best(fn),
-                "starts_with_dictionary_kernel": dictionary_kernel,
+                "starts_with_dictionary_kernel": kernel,
                 "pyarrow": pa.__version__,
                 "machine": platform.machine(),
                 "where": args.where,

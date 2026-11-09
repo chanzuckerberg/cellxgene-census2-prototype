@@ -466,7 +466,7 @@ def test_get_anndata_with_a_read_that_keeps_no_cell(
     assert got is not None
     assert list(got.obs_names) == list(hs.get_obs(f).index)
     assert got.uns["census2"]["datasets_read"] == 3
-    assert got.n_vars == 20 and list(got.var.columns)[0] == "feature_id"
+    assert got.n_vars == 20 and got.var.columns[0] == "feature_id"
     want = census.get_anndata(ORG, {"cell_type": "neutrophil"})
     assert want is not None
     sub = want[want.obs["nnz"].to_numpy() > 2900]
