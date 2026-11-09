@@ -2,7 +2,9 @@
 
 Each query builds its filter from the typed columns of one organism, and names its
 mode: `anndata` (`get_anndata`), `obs` (`get_obs`), `count`, or `count_by` with its
-columns. `mapping` is the same filter as a mapping filter of `Census.get_anndata`,
+columns. A filter that selects hundreds of thousands of cells or more counts them by
+donor, as the `count_donor` shape of the DuckDB spike does, so that the measure is the
+`obs` work and not a read of `X` of many gigabytes. `mapping` is the same filter as a mapping filter of `Census.get_anndata`,
 when one can express it, so that `main`'s path runs it too. `sql` is the filter of
 the DuckDB path of the `spike/obs-duckdb` branch, for the cross-check of the cell
 keys; `spikes/consolidation-filters/duckdb_keys.py` reads it.
@@ -191,6 +193,8 @@ QUERIES: dict[str, Query] = {
             ),
             sql="(tissue = 'lung' OR tissue_general = 'lung') AND NOT cell_type = 'macrophage'",
             tags=("new",),
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "has_any",
@@ -202,6 +206,8 @@ QUERIES: dict[str, Query] = {
                 "['MONDO:0100096', 'MONDO:0005109'])"
             ),
             tags=("new",),
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "has_all",
@@ -227,6 +233,8 @@ QUERIES: dict[str, Query] = {
             lambda o: o.nnz.between(2000, 3000) & (o.tissue_general == "blood"),
             sql="nnz BETWEEN 2000 AND 3000 AND tissue_general = 'blood'",
             tags=("new",),
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "not_in",
@@ -239,21 +247,29 @@ QUERIES: dict[str, Query] = {
                 "('alveolar macrophage', 'type II pneumocyte')"
             ),
             tags=("new",),
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "prefix",
             lambda o: o.cell_type.str.startswith("CD8"),
             sql="cell_type LIKE 'CD8%'",
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "substring",
             lambda o: o.cell_type.str.contains("macrophage", case=False, regex=False),
             sql="cell_type ILIKE '%macrophage%'",
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "regex",
             lambda o: o.cell_type.str.match(r"CD(4|8)-positive"),
             sql="regexp_matches(cell_type, '^CD(4|8)-positive')",
+            mode="count_by",
+            by=("donor_id",),
         ),
         Query(
             "isna",
