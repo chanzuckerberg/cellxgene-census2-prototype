@@ -688,7 +688,11 @@ def render(node: Expr) -> str:
         return repr(node.value)
     if isinstance(node, And | Or):
         sep = " & " if isinstance(node, And) else " | "
-        return sep.join(_wrapped(c) for c in node.children)
+        # `&` and `|` associate, so a child of the same kind needs no parentheses.
+        return sep.join(
+            render(c) if isinstance(c, node.__class__) else _wrapped(c)
+            for c in node.children
+        )
     if isinstance(node, Not):
         child = node.child
         if isinstance(child, IsNull):
@@ -697,6 +701,8 @@ def render(node: Expr) -> str:
             return f"~{_name(child.column, child.hatch)}"
         if isinstance(child, IsIn) and len(child.values) == 1:
             return f"{_name(child.column, child.hatch)} != {child.values[0]!r}"
+        if isinstance(child, Compare) and child.op == "==":
+            return f"{_name(child.column, child.hatch)} != {child.value!r}"
         return f"~{_wrapped(child)}"
     if not isinstance(node, Leaf):
         raise TypeError(f"not a filter node: {node!r}")
@@ -734,6 +740,8 @@ def _wrapped(node: Expr) -> str:
         if text.startswith("~"):
             return text
         node = node.child
+        if isinstance(node, Compare):
+            return f"({text})"
     one = isinstance(node, IsIn) and len(node.values) == 1
     simple = isinstance(node, Truth | Const) or (
         isinstance(node, Leaf) and not isinstance(node, Compare) and not one

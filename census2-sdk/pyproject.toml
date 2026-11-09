@@ -64,6 +64,7 @@ files = [
     "tools/harness/comparator.py",
     "tools/bench",
     "tools/generate_obs_columns.py",
+    "tools/harness/filter_language_builder.py",
 ]
 mypy_path = ["tools"]
 # The filter builder marks each operator that a column refuses with `deprecated`
