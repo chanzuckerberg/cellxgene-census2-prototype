@@ -1,0 +1,130 @@
+py-spy samples of the builder path, in region. 'active' excludes the samples of a
+thread that waits in an idle frame (a condition, a selector, a pool's queue).
+A thread that waits for the GIL inside other code counts as active.
+
+== all_obs: builder_pd, 8 workers, py-spy --idle --threads at 200 Hz
+samples 249839, active 22035 (8.8%)
+   71.3% thread pools
+   13.3% zarr event loop
+    9.5% asyncio to_thread
+    5.9% main
+top active leaves:
+   20.1% [thread pools] take (census2_sdk/obs_arrow.py)
+    8.8% [asyncio to_thread] as_numpy_array_wrapper (zarr/core/buffer/cpu.py)
+    5.3% [thread pools] take (pyarrow/compute.py)
+    4.3% [thread pools] _kept_obs.<locals>.one (census2_sdk/__init__.py)
+    3.7% [thread pools] ArrowExtensionArray.to_numpy (pandas/core/arrays/arrow/array.py)
+    3.5% [zarr event loop] NDBuffer.__setitem__ (zarr/core/buffer/cpu.py)
+    3.0% [thread pools] thread (162139)
+    2.9% [thread pools] thread (162138)
+    2.8% [thread pools] BaseSelectorEventLoop._write_to_self (asyncio/selector_events.py)
+    2.7% [thread pools] thread (162140)
+    2.4% [thread pools] thread (162141)
+    2.3% [thread pools] ArrowStringArray._from_sequence (pandas/core/arrays/string_arrow.py)
+    2.1% [thread pools] thread (162142)
+    2.0% [thread pools] coerce_indexer_dtype (pandas/core/dtypes/cast.py)
+    1.9% [main] thread (162061): MainThread
+    1.9% [zarr event loop] BaseSelectorEventLoop._read_from_self (asyncio/selector_events.py)
+    1.8% [thread pools] dict_to_mgr (pandas/core/internals/construction.py)
+    1.6% [thread pools] thread (162143)
+    1.6% [thread pools] thread (162144)
+    1.5% [thread pools] _make_generic_wrapper.<locals>.wrapper (pyarrow/compute.py)
+    1.3% [zarr event loop] VLenUTF8Codec._decode_sync (zarr/codecs/vlen_utf8.py)
+    1.3% [thread pools] thread (162145)
+inclusive (of active):
+   31.2% obs_arrow.take
+    9.3% zstd
+    6.7% pd.array / StringDtype
+    3.9% pandas DataFrame build
+    3.4% zarr decode (any codec)
+    3.2% read_rows (cell key, kept rows)
+    3.1% _concat_frames
+    2.0% store open
+    1.5% zarr vlen-utf8 decode
+    1.3% _cell_keys
+    1.3% obs_arrow.read_column
+    0.1% evaluate
+
+== wmg: builder_pd, 8 workers, py-spy --idle --threads at 200 Hz
+samples 161827, active 15157 (9.4%)
+   67.8% thread pools
+   14.0% zarr event loop
+   13.8% asyncio to_thread
+    4.4% main
+top active leaves:
+   16.9% [thread pools] take (census2_sdk/obs_arrow.py)
+   13.0% [asyncio to_thread] as_numpy_array_wrapper (zarr/core/buffer/cpu.py)
+    4.3% [thread pools] _kept_obs.<locals>.one (census2_sdk/__init__.py)
+    3.5% [thread pools] take (pyarrow/compute.py)
+    3.3% [zarr event loop] NDBuffer.__setitem__ (zarr/core/buffer/cpu.py)
+    3.2% [thread pools] ArrowExtensionArray.to_numpy (pandas/core/arrays/arrow/array.py)
+    2.7% [thread pools] BaseSelectorEventLoop._write_to_self (asyncio/selector_events.py)
+    2.6% [thread pools] thread (163147)
+    2.5% [thread pools] thread (163146)
+    2.4% [thread pools] thread (163149)
+    2.4% [thread pools] thread (163151)
+    2.4% [thread pools] thread (163148)
+    2.3% [thread pools] ArrowStringArray._from_sequence (pandas/core/arrays/string_arrow.py)
+    2.0% [thread pools] thread (163150)
+    1.6% [zarr event loop] VLenUTF8Codec._decode_sync (zarr/codecs/vlen_utf8.py)
+    1.6% [zarr event loop] BaseSelectorEventLoop._read_from_self (asyncio/selector_events.py)
+    1.6% [thread pools] _make_generic_wrapper.<locals>.wrapper (pyarrow/compute.py)
+    1.6% [main] thread (163013): MainThread
+    1.5% [thread pools] thread (163152)
+    1.5% [thread pools] coerce_indexer_dtype (pandas/core/dtypes/cast.py)
+    1.5% [thread pools] thread (163153)
+    1.3% [thread pools] dict_to_mgr (pandas/core/internals/construction.py)
+inclusive (of active):
+   25.3% obs_arrow.take
+   13.4% zstd
+    6.2% pd.array / StringDtype
+    4.7% read_rows (cell key, kept rows)
+    3.8% zarr decode (any codec)
+    3.2% pandas DataFrame build
+    2.8% _concat_frames
+    1.9% zarr vlen-utf8 decode
+    1.8% store open
+    1.3% _cell_keys
+    0.9% obs_arrow.read_column
+    0.8% evaluate
+
+== count_all_donor: builder_pd, 8 workers, py-spy --idle --threads at 200 Hz
+samples 8887, active 1478 (16.6%)
+   57.0% thread pools
+   36.3% zarr event loop
+    5.0% main
+    1.8% asyncio to_thread
+top active leaves:
+    5.0% [thread pools] take (census2_sdk/obs_arrow.py)
+    4.9% [main] thread (163701): MainThread
+    4.3% [thread pools] thread (163781)
+    3.6% [thread pools] thread (163780)
+    3.4% [zarr event loop] convert (zarr/core/json_parse.py)
+    3.2% [thread pools] BaseSelectorEventLoop._write_to_self (asyncio/selector_events.py)
+    3.2% [thread pools] thread (163778)
+    3.0% [zarr event loop] update_wrapper (functools.py)
+    2.8% [thread pools] unique_with_mask (pandas/core/algorithms.py)
+    2.8% [thread pools] thread (163779)
+    2.5% [thread pools] thread (163782)
+    2.2% [thread pools] ArrowExtensionArray.to_numpy (pandas/core/arrays/arrow/array.py)
+    2.2% [zarr event loop] parse_extra_fields (zarr/core/metadata/v3.py)
+    2.1% [thread pools] _compile_bytecode (<frozen importlib._bootstrap_external>)
+    2.0% [thread pools] take (pyarrow/compute.py)
+    1.8% [thread pools] _call_with_frames_removed (<frozen importlib._bootstrap>)
+    1.2% [asyncio to_thread] as_numpy_array_wrapper (zarr/core/buffer/cpu.py)
+    1.2% [thread pools] _FuncBuilder.add_fns_to_class (dataclasses.py)
+    1.0% [zarr event loop] ArrayConfig.from_dict (zarr/core/array_spec.py)
+    0.9% [thread pools] BaseGrouper.size (pandas/core/groupby/ops.py)
+    0.9% [zarr event loop] Config.get (donfig/config_obj.py)
+    0.9% [thread pools] evaluate (census2_sdk/obs_arrow.py)
+inclusive (of active):
+   34.2% store open
+   18.8% count_by groupby
+    6.9% obs_arrow.take
+    3.7% pd.array / StringDtype
+    2.4% zstd
+    1.0% zarr decode (any codec)
+    0.9% evaluate
+    0.4% obs_arrow.read_column
+    0.3% pandas DataFrame build
+    0.2% zarr vlen-utf8 decode

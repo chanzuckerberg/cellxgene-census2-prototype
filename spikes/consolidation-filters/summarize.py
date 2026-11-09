@@ -49,8 +49,8 @@ SQL: dict[str, list[str]] = {}
 REPLACED = {"wmg", "all_obs"}
 
 SELECTIONS = [
-    ("one_dataset", "(a) one dataset, a member"),
-    ("single_member", "one dataset, a member of 89,849 cells"),
+    ("one_dataset", "(a) one dataset"),
+    ("single_member", "one dataset, a member"),
     ("single_alone", "one dataset, alone"),
     ("neutrophil", "(b) neutrophils"),
     ("lung_macrophage", "lung macrophages (mapping form)"),

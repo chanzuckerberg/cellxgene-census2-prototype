@@ -30,7 +30,7 @@ all 29 queries of the cross-check.
   `harness/filter_language_builder.py` (the corpus and the probes in builder form), and the scripts
   in `spikes/consolidation-filters/`: the cross-check of the cell keys, the dictionary measure, the
   test store with nulls, and the summary of the measures.
-- 146 new tests (308 in the SDK), mypy `--strict` with the error code `deprecated` on.
+- 149 new tests (310 in the SDK), mypy `--strict` with the error code `deprecated` on.
 
 The writer does not change, and the spike needs no ingest. It reads the round-2 stores of the
 consolidation spike (103 per-dataset stores, 5 consolidated stores, and their catalogs) and the
@@ -66,7 +66,7 @@ Every column also has `isna()` and `notna()`.
 
 ### 2.1 The decisions, for discussion
 
-The operator made these decisions for the spike. Each is open for discussion.
+The spike starts from these decisions. Each is open for discussion.
 
 1. **pandas names.** `isin`, `between`, `isna` and `notna`, `.str` methods, the comparisons, and
    `&`, `|`, `~`. The spike adds `.str.endswith`, `.contains` (with `case` and `regex`),
@@ -97,7 +97,8 @@ code `deprecated` on (this package's `pyproject.toml` turns it on), mypy reports
 used, because `Refused` is not a filter. The same applies to `obs.tissue == 3` and
 `obs.nnz == "3"`. The tests prove each refusal with `# type: ignore[deprecated]`, which mypy would
 report as an unused ignore if it did not see the misuse. The marker is a type-checker mechanism and
-says nothing about a deprecation. pyright reports `deprecated` as a hint by default.
+says nothing about a deprecation. pyright marks such a call in an editor; its `reportDeprecated`
+setting makes it an error.
 
 ## 3. Resolve once, bind for each store
 
@@ -258,29 +259,30 @@ No, not in pyarrow 26.0.1. `equal` and `is_in` on a dictionary array decode it t
 each cell and then compare. `starts_with` and the other string functions have no kernel for a
 dictionary array and raise `ArrowNotImplementedError`. An expression through `Table.filter` or an
 Acero `project` node does the same. One thread (`pyarrow.set_cpu_count(1)`), 2 million cells,
-best of 7, on the laptop (`spikes/consolidation-filters/dictionary.py`,
-`results/consolidation_filters/dictionary-laptop.jsonl`):
+best of 7, in milliseconds, on the laptop (Apple silicon) and on the in-region instance (x86-64)
+(`spikes/consolidation-filters/dictionary.py`, `results/consolidation_filters/dictionary-*.jsonl`):
 
-| Measure | 300 categories, ms | 30,000 categories, ms |
-|---|---|---|
-| decode | 12.9 | 13.1 |
-| equal, dictionary | 16.9 | 17.2 |
-| equal, strings | 4.1 | 4.0 |
-| is_in, dictionary | 26.9 | 27.0 |
-| is_in, strings | 14.0 | 13.8 |
-| starts_with, strings | 4.4 | 12.0 |
-| Table.filter(==), dictionary | 17.9 | 18.1 |
-| Table.filter(==), strings | 5.1 | 4.9 |
-| Acero project(==), dictionary | 17.6 | 17.5 |
-| Acero project(isin), dictionary | 27.5 | 27.4 |
-| by codes: is_in on the dictionary, take | 5.0 | 5.1 |
-| by codes: NumPy lookup table | 2.3 | 2.3 |
+| Measure | Laptop, 300 categories | Laptop, 30,000 | In region, 300 | In region, 30,000 |
+|---|---|---|---|---|
+| decode | 12.9 | 13.1 | 10.9 | 13.4 |
+| equal, dictionary | 16.9 | 17.2 | 17.3 | 19.6 |
+| equal, strings | 4.1 | 4.0 | 6.2 | 6.1 |
+| is_in, dictionary | 26.9 | 27.0 | 29.4 | 31.7 |
+| is_in, strings | 14.0 | 13.8 | 18.2 | 18.0 |
+| starts_with, strings | 4.4 | 12.0 | 5.3 | 18.2 |
+| Table.filter(==), dictionary | 17.9 | 18.1 | 17.1 | 21.0 |
+| Table.filter(==), strings | 5.1 | 4.9 | 8.2 | 7.5 |
+| Acero project(==), dictionary | 17.6 | 17.5 | 16.2 | 20.2 |
+| Acero project(isin), dictionary | 27.5 | 27.4 | 29.1 | 32.9 |
+| by codes: is_in on the dictionary, take | 5.0 | 5.1 | 8.4 | 8.6 |
+| by codes: NumPy lookup table | 2.3 | 2.3 | 4.4 | 4.4 |
 
 `equal` on the dictionary array costs about the decode plus `equal` on the strings, and `is_in`
-the decode plus `is_in` on the strings. The evaluation by codes is 7 times faster for `==` and 12
-times for `isin`, and the number of categories does not change it. Thus `bind` evaluates each label
-term on the categories with Python and maps the result by the codes with NumPy, as `main`'s `_mask`
-does, and gives pyarrow only boolean columns and numeric terms. Two smaller findings:
+the decode plus `is_in` on the strings, on both machines. The evaluation by codes is 4 to 7 times
+faster for `==` and 7 to 12 times for `isin`, and the number of categories does not change it.
+Thus `bind` evaluates each label term on the categories with Python and maps the result by the
+codes with NumPy, as `main`'s `_mask` does, and gives pyarrow only boolean columns and numeric
+terms. Two smaller findings:
 `Table.filter(expression)` takes every column of the table and costs 9 times the evaluation at 1
 million rows, so `evaluate` projects a boolean mask instead (1.9 ms against 1.5 ms for the bare
 compute functions); and pyarrow's regular expressions are RE2, not Python's `re`, so the label
@@ -334,7 +336,175 @@ The configurations:
 - `builder_ice` and `duckdb`: the builder over the stores of the Iceberg spike's round 2, and the
   DuckDB path over the fragments of the same datasets.
 
-[[MEASURES]]
+### 7.1 Selections with `X`
+
+Seconds at 8 workers, median of 3. `main` cannot express the queries with a numeric, a boolean,
+an `|`, or a `has_all` term; `–` marks them.
+
+| Query | Cells | main | main_lean | mapping_pd | builder_pd | builder_cons | builder_ice | duckdb |
+|---|---|---|---|---|---|---|---|---|
+| (a) one dataset | 3,799 | 2.61 | 2.54 | 1.44 | 1.38 | 1.87 | 1.73 | 1.67 |
+| one dataset, a member | 89,849 | 5.87 | 6.19 | 2.47 | 2.34 | 2.84 | 2.77 | 2.68 |
+| one dataset, alone | 59,738 | 8.66 | 8.50 | 3.67 | 3.56 | 3.66 | 4.22 | 3.98 |
+| (b) neutrophils | 35,795 | 11.68 | 11.38 | 9.24 | 9.38 | 9.21 | 10.54 | 5.95 |
+| lung macrophages (mapping form) | 311,063 | 36.50 | 35.78 | 32.02 | 32.15 | 31.86 | 32.62 | 31.49 |
+| (c) lung macrophages, primary | 207,185 | – | – | – | 23.66 | 23.96 | 24.34 | 22.91 |
+| (d1) false positive, no cell | 0 | 2.61 | 2.38 | 1.12 | 0.26 | 0.26 | 0.32 | 0.44 |
+| (d2) false positive, 2 of 4 | 111 | 5.54 | 5.08 | 3.66 | 3.49 | 3.85 | 3.88 | 2.68 |
+| false positive of the consolidation spike | 0 | 2.13 | 2.20 | 1.12 | 0.35 | 0.35 | 0.34 | 0.45 |
+| (f) `tissue_general == 'pancreas'` | 12,815 | 4.90 | 4.56 | 3.37 | 3.34 | 3.35 | 3.80 | 3.14 |
+| (b) & `nnz >= 1000` | 4,113 | – | – | – | 5.13 | 5.60 | 5.44 | 3.24 |
+| COVID-19 neutrophils (`has_any`) | 1,258 | 3.31 | 3.30 | 2.44 | 2.26 | 2.36 | 2.48 | 2.11 |
+| `\|` across columns | 48,610 | – | – | – | 10.33 | 10.81 | 10.43 | 7.68 |
+| `has_all`, the joined value | 12,822 | – | – | – | 1.89 | 2.25 | 1.97 | 1.76 |
+| (b) & `nnz >= 2000` & `raw_sum < 20000` | 1,077 | – | – | – | 2.93 | 2.93 | 2.91 | 2.20 |
+| `raw_variance_nnz.isna()` | 0 | – | – | – | 3.21 | 2.16 | 3.29 | 0.65 |
+
+- **The builder costs what the mapping path costs when `X` decides.** For neutrophils and lung
+  macrophages, `builder_pd` and `mapping_pd` agree within the spread (9.4 and 9.2 s; 32.2 and
+  32.0 s). Against `main` (11.7 and 36.5 s), the gain comes from the consolidation spike's reader
+  of `X` and `obs`, which both paths share, not from the filter.
+- **The DuckDB path reads `X` faster for scattered cells** (neutrophils 5.95 s against 9.4 s,
+  with half the requests). Its reader, from the Iceberg spike, takes each cell's `X` range from the
+  fragment and reads no `indptr`; this branch reads `indptr` from the first to the last kept row
+  with `main`'s `_rows`. The difference is the read of `X`, not the filter.
+- **A catalog false positive costs least on the builder.** (d1) takes 0.26 s against 2.61 s on
+  `main`, 1.12 s on the mapping path, and 0.44 s on DuckDB, with 24 requests against 283 and 96.
+  Each of the 4 stores reads the codes and the categories of `tissue` and `cell_type`, finds no
+  cell, and reads nothing more. (d2) reads `X` for 111 cells in 2 stores, and `X` decides again.
+- **`isna` shows what the stores lack.** DuckDB answers `raw_variance_nnz IS NULL` in 0.65 s from
+  the null counts of the Parquet statistics; the stores have no statistics and the catalog records
+  no null count of a numeric column, so the builder reads the float column of all 103 stores
+  (2.2 to 3.3 s).
+
+### 7.2 Questions about `obs` only
+
+Seconds at 8 workers. The builder answers `count`, `count_by`, and `get_obs` from the stores; the
+DuckDB path from the fragments. The new queries that select hundreds of thousands of cells are
+counted by donor on both paths.
+
+| Query | Cells | builder_pd | builder_cons | builder_ice | duckdb |
+|---|---|---|---|---|---|
+| count (b) | 35,795 | 0.47 | 0.48 | 0.47 | – |
+| count (b) by donor | 35,795 | 0.53 | 0.52 | 0.51 | 0.37 |
+| count all by donor | 13,316,710 | 2.74 | 1.43 | 2.83 | 0.61 |
+| (g) WMG, count by tissue and cell type | 8,365,927 | 1.96 | 1.58 | 2.01 | 0.76 |
+| compound `\|` and `~`, by donor | 1,885,447 | 0.64 | 0.66 | 0.64 | 0.40 |
+| `NOT IN`, by donor | 1,822,235 | 0.65 | 0.62 | 0.62 | 0.34 |
+| `has_any` of two terms, by donor | 650,460 | 0.43 | 0.43 | 0.49 | 0.36 |
+| `between`, by donor | 655,430 | 0.59 | 0.67 | 0.65 | 0.61 |
+| `.str.startswith`, by donor | 427,977 | 0.81 | 0.73 | 0.82 | 0.52 |
+| `.str.contains`, by donor | 581,205 | 1.06 | 0.87 | 1.07 | 0.58 |
+| `.str.match`, by donor | 1,051,329 | 0.91 | 0.75 | 0.88 | 0.47 |
+| WMG `get_obs` (all columns) | 8,365,927 | 8.71 | 8.61 | 8.86 | 2.89 |
+| (e) `get_obs` of all cells | 13,316,710 | 13.57 | 14.22 | 13.59 | 3.78 |
+
+- **Counts are 1.0 to 4.5 times DuckDB's time, from the stores.** A count by donor of the
+  neutrophils takes 0.53 s against 0.37 s; WMG's production filter counted by tissue and cell
+  type 1.96 s (1.58 s consolidated) against 0.76 s; all 13.3 million cells by donor 2.74 s (1.43 s
+  consolidated) against 0.61 s. The DuckDB spike's reference for a store read of only the needed
+  columns, in its own session, was 0.75 s and 3.47 s for the first two.
+- **A count reads codes only.** The count of all cells by donor reads one categorical column of
+  each store, 320 requests in all, and builds no pandas object for a cell. Its CPU time (2.7 s) is
+  about half the open of 103 stores (the lean open costs about 15 ms of CPU each, section 6.1 of
+  the consolidation notes); 44 stores halve it.
+- **`get_obs` of millions of cells is 3 to 4 times DuckDB's time.** WMG's filter through
+  `get_obs`, with every column, takes 8.7 s against 2.9 s, and all 13.3 million cells 13.6 s
+  against 3.8 s. These two ran in a later batch, after a change that reads the
+  cell key once (`runs-ec2-obs.jsonl`); before it, they took 11.9 s and 17.5 s. A py-spy profile of
+  each (`profile-summary.txt`) gives the largest share of the active samples to the build of the
+  pandas columns of the kept rows (`obs_arrow.take`, the gather of the codes and the narrowing of
+  the categories: 31% for all cells), then zstd (9%), pandas' Arrow strings (7%), and the frame
+  (4%); the `vlen-utf8` decode of the cell key takes 1.5%. DuckDB scans the fragments in its own
+  threads and gives Arrow. A read that keeps every row of a per-dataset store could skip the gather
+  and the narrowing, which the builder does not yet do. For the count of all cells, the open of the
+  103 stores (the parse of their consolidated metadata) takes 34% of the active samples.
+
+### 7.3 Requests, CPU, and memory
+
+Requests / CPU seconds / peak RSS GiB at 8 workers:
+
+| Query | main | builder_pd | builder_cons | builder_ice | duckdb |
+|---|---|---|---|---|---|
+| (a) one dataset | 77 / 0.9 / 0.7 | 70 / 0.7 / 0.4 | 117 / 0.7 / 0.4 | 70 / 0.6 / 0.4 | 27 / 0.6 / 0.5 |
+| (b) neutrophils | 3,038 / 16.9 / 1.5 | 2,907 / 16.7 / 1.4 | 3,428 / 17.0 / 1.4 | 2,907 / 16.7 / 1.5 | 1,486 / 15.9 / 2.0 |
+| lung macrophages (mapping form) | 2,243 / 102 / 24.2 | 2,224 / 99.2 / 19.8 | 2,267 / 99.1 / 19.2 | 2,224 / 98.7 / 19.5 | 1,481 / 100 / 20.4 |
+| (d1) false positive, no cell | 283 / 1.2 / 0.6 | 24 / 0.2 / 0.2 | 24 / 0.2 / 0.2 | 24 / 0.2 / 0.2 | 96 / 0.9 / 0.4 |
+| (d2) false positive, 2 of 4 | 908 / 2.3 / 0.6 | 674 / 1.7 / 0.4 | 674 / 1.7 / 0.4 | 674 / 1.6 / 0.4 | 299 / 1.8 / 0.6 |
+| COVID-19 neutrophils (`has_any`) | 578 / 3.6 / 0.5 | 514 / 3.5 / 0.5 | 732 / 3.8 / 0.6 | 514 / 3.6 / 0.5 | 218 / 3.3 / 0.7 |
+| count (b) by donor | – | 79 / 0.5 / 0.3 | 124 / 0.4 / 0.3 | 79 / 0.5 / 0.3 | 113 / 0.9 / 0.4 |
+| count all by donor | – | 320 / 2.7 / 0.4 | 168 / 1.6 / 0.4 | 320 / 2.7 / 0.4 | 419 / 1.3 / 0.5 |
+| (g) WMG, count by tissue and cell type | – | 410 / 2.7 / 0.5 | 471 / 2.3 / 0.5 | 410 / 2.7 / 0.5 | 593 / 1.9 / 0.5 |
+| WMG `get_obs` (all columns) | – | 3,082 / 13.7 / 4.2 | 3,830 / 14.0 / 4.2 | 3,082 / 13.8 / 4.2 | 516 / 15.5 / 5.1 |
+| (e) `get_obs` of all cells | – | 5,492 / 21.0 / 6.0 | 6,759 / 20.7 / 6.0 | 5,492 / 21.0 / 6.0 | 594 / 22.1 / 7.7 |
+
+### 7.4 Workers
+
+| Query | Workers | main | builder_pd | builder_cons | builder_ice | duckdb |
+|---|---|---|---|---|---|---|
+| (d1) | 1 | 6.96 | 0.58 | 0.55 | 0.59 | 0.41 |
+| (d1) | 8 | 2.61 | 0.26 | 0.26 | 0.32 | 0.44 |
+| (d1) | 32 | 2.16 | 0.26 | 0.26 | 0.26 | 0.34 |
+| (b) | 1 | 35.94 | 19.05 | 21.14 | 23.04 | 12.51 |
+| (b) | 8 | 11.68 | 9.38 | 9.21 | 10.54 | 5.95 |
+| (b) | 32 | 8.13 | 6.89 | 7.25 | 7.11 | 5.47 |
+
+At 1 worker, (d1) takes 0.58 s against 6.96 s on `main`: the builder reads 2 columns of 4 stores,
+`main` every column. The builder's advantage on (b) at 1 worker (19.1 s against 35.9 s) is again
+the shared reader of the consolidation spike.
+
+### 7.5 Bind and evaluate per store
+
+`bench.bind` opens each store once and then measures, one at a time, `main`'s full
+`read_elem(obs)` and the builder's read of the filter's columns plus its bind and evaluation, over
+all the rows of the store, with the whole normalized filter (not the catalog's residual). Medians
+over the stores of the per-store medians of 3 repeats; the last column sums over the stores.
+
+| Stores | Query | Columns | `read_elem(obs)` ms | Builder ms: read + eval | of it eval | CPU ms: `read_elem` / builder | Requests: `read_elem` / builder | Sum over stores, s |
+|---|---|---|---|---|---|---|---|---|
+| 5 consolidated | fp_some | 2 | 2,726 | 105 | 0.99 | 524 / 22.3 | 188 / 14 | 12.8 / 0.49 |
+| 5 consolidated | has_any | 2 | 2,726 | 103 | 1.36 | 524 / 23.3 | 188 / 14 | 12.8 / 0.50 |
+| 5 consolidated | lung_macrophage_primary | 3 | 2,726 | 101 | 2.52 | 524 / 35.4 | 188 / 19 | 12.8 / 0.55 |
+| 5 consolidated | neutrophil | 1 | 2,726 | 103 | 1.34 | 524 / 13.7 | 188 / 7 | 12.8 / 0.49 |
+| 5 consolidated | numeric_range | 3 | 2,726 | 107 | 2.33 | 524 / 40.7 | 188 / 17 | 12.8 / 0.53 |
+| 5 consolidated | wmg | 4 | 2,726 | 112 | 2.58 | 524 / 46.6 | 188 / 24 | 12.8 / 0.55 |
+| 103 per-dataset | fp_some | 2 | 1,140 | 49.6 | 0.05 | 91.4 / 4.9 | 50 / 4 | 135 / 5.09 |
+| 103 per-dataset | has_any | 2 | 1,140 | 50.0 | 0.04 | 91.4 / 4.8 | 50 / 4 | 135 / 5.11 |
+| 103 per-dataset | lung_macrophage_primary | 3 | 1,140 | 50.9 | 0.08 | 91.4 / 6.7 | 50 / 5 | 135 / 5.25 |
+| 103 per-dataset | neutrophil | 1 | 1,140 | 47.5 | 0.04 | 91.4 / 2.7 | 50 / 2 | 135 / 4.75 |
+| 103 per-dataset | numeric_range | 3 | 1,140 | 49.3 | 0.10 | 91.4 / 7.2 | 50 / 4 | 135 / 5.27 |
+| 103 per-dataset | wmg | 4 | 1,140 | 54.9 | 0.44 | 91.4 / 8.5 | 50 / 6 | 135 / 5.79 |
+
+- **The filter's columns read in about 50 ms for a per-dataset store, against 1.1 s for its whole
+  `obs`.** The builder reads 1 to 4 columns at the same time (2 to 6 requests); `read_elem` reads
+  every column, one after another (50 requests), and decodes every string. The builder's CPU is
+  2.7 to 8.5 ms against 91 ms, 11 to 34 times less. Over the 103 stores, one after another, the
+  sums are 4.8 to 5.8 s against 135 s.
+- **The evaluation is a small part.** The bind (a lookup for each category, then the codes) and
+  the Acero projection take 0.04 to 0.44 ms on a median per-dataset store (35,000 rows), and 1 to
+  2.6 ms on a consolidated store of 197,000 to 363,000 rows. The rest is the round trips.
+- **A consolidated store** (all of its rows, 5 to 25 datasets) reads its filter columns in 101 to
+  112 ms against 2.7 s for its whole `obs`, with 14 to 47 ms of CPU against 524 ms.
+- `main`'s own `get_anndata` reads less than `read_elem(obs)`: it skips the index and the cell key,
+  which `main` reads for the kept cells only. This table compares with the full read; the
+  end-to-end measures above compare with `main` itself.
+
+### 7.6 Laptop
+
+A small subset, from a laptop on a home connection, median of 2 (the lock taken for each short
+batch):
+
+| Query | Cells | main | builder_pd | builder_cons |
+|---|---|---|---|---|
+| (a) one dataset | 3,799 | 14.73 | 16.23 | 8.41 |
+| (d1) false positive, no cell | 0 | 17.11 | 3.05 | 3.06 |
+| (d2) false positive, 2 of 4 | 111 | 30.99 | 27.28 | 29.89 |
+| count (b) by donor | 35,795 | – | 2.41 | 2.27 |
+
+The catalog false positive shows the same order as in region, and more: 17.1 s on `main` against
+3.1 s on the builder, because each column that `main` reads is a round trip on a slow link. The
+count by donor takes 2.4 s; the DuckDB spike measured 2.8 s through DuckDB and 44.7 s through
+`main`'s stores in its laptop session. (a) and (d2) read `X`, and the link decides them.
 
 ## 8. What the builder can and cannot express, against the SQL spike
 
@@ -381,10 +551,10 @@ numeric term.
   instead of strings, the catalog's residuals, and the consolidated reads.
 - **The DuckDB spike.** Its fragments answer `obs`-only questions from Parquet with DuckDB's
   late fetch; the builder answers them from the stores. Section 7 compares the two.
-- **`main`'s path.** The mapping path stays. `main`'s profile of the full `obs` read (about 1.2 of
-  16 cores busy; string arrays, `vlen-utf8` decode on zarr's event-loop thread, and categorical
-  validation as the main parts of the GIL time) is the cost that the builder avoids for the filter:
-  it reads no string column and builds no pandas object before the filter.
+- **`main`'s path.** The mapping path stays. The Iceberg spike found that the store path keeps
+  about 1.2 of 16 cores busy when it reads all `obs`. The builder reads no string column and builds
+  no pandas object before the filter, which is the work that the bind measure (section 7.5)
+  removes; the result `obs` of the kept rows still costs pandas work (section 7.2).
 
 ## 10. Open questions
 
@@ -404,7 +574,14 @@ numeric term.
   round trip for a broad one; a per-dataset store holds each column in one chunk, so the second
   round reads whole chunks anyway.
 - **Numeric ranges in the catalog.** A numeric term proves nothing, so `nnz >= 8000` reads all 103
-  stores for 58 with a cell.
+  stores for 58 with a cell, and `isna()` of a numeric column reads every store where Parquet's
+  statistics would answer it.
+- **The result of a whole read.** A read that keeps every row of a per-dataset store could skip the
+  gather of the codes and the narrowing of the categories, the largest part of `get_obs` of many
+  cells (section 7.2).
+- **The `X` read.** The DuckDB path reads scattered cells' `X` faster because its fragments give
+  each cell's `X` range. A store-only path could read `indptr` for the kept rows only, as #40 starts
+  to do for runs of rows.
 
 ## 11. Reproduce
 
