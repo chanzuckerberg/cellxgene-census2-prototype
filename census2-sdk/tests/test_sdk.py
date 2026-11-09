@@ -23,7 +23,7 @@ import zarr
 from anndata.io import read_elem, write_elem
 
 import census2_sdk
-from census2_sdk import catalog
+from census2_sdk import catalog, obs_arrow
 
 REFERENCE_IDS = [f"ENSG{j:011d}" for j in range(20)]
 
@@ -481,7 +481,7 @@ def test_cell_key_checked_on_kept_cells(
     if encoding == "nullable-string-array":
         # An empty selection of a string column reads no key data.
         monkeypatch.setattr(census2_sdk, "read_elem", None)
-    assert census2_sdk._read_column_rows(node, np.array([], dtype=int)).dtype == stored
+    assert obs_arrow.read_rows(node, np.array([], dtype=int)).dtype == stored
     monkeypatch.undo()
     census = census2_sdk.open_census([catalog])
     result = census.get_anndata("homo_sapiens", {"tissue": "lung"})
@@ -507,7 +507,7 @@ def test_malformed_store_refused(tmp_path: Path) -> None:
     key.create_group("values")
     key.create_array("mask", shape=(1,), dtype="bool")
     with pytest.raises(TypeError, match="/key must hold a values and a mask array"):
-        census2_sdk._read_column_rows(key, np.array([0]))
+        obs_arrow.read_rows(key, np.array([0]))
     with pytest.raises(ValueError, match="needs feature_length"):
         census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
 

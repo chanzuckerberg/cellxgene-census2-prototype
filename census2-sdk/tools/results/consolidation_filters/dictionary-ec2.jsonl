@@ -1,0 +1,24 @@
+{"categories": 300, "cells": 2000000, "measure": "decode", "ms": 10.911, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "equal, dictionary", "ms": 17.301, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "equal, strings", "ms": 6.194, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "is_in, dictionary", "ms": 29.439, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "is_in, strings", "ms": 18.186, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "starts_with, strings", "ms": 5.309, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "Table.filter(==), dictionary", "ms": 17.098, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "Table.filter(==), strings", "ms": 8.206, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "Acero project(==), dictionary", "ms": 16.182, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "Acero project(isin), dictionary", "ms": 29.057, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "by codes: is_in on the dictionary, take", "ms": 8.357, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 300, "cells": 2000000, "measure": "by codes: NumPy lookup table", "ms": 4.384, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "decode", "ms": 13.444, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "equal, dictionary", "ms": 19.649, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "equal, strings", "ms": 6.112, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "is_in, dictionary", "ms": 31.721, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "is_in, strings", "ms": 17.974, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "starts_with, strings", "ms": 18.237, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "Table.filter(==), dictionary", "ms": 21.025, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "Table.filter(==), strings", "ms": 7.549, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "Acero project(==), dictionary", "ms": 20.192, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "Acero project(isin), dictionary", "ms": 32.908, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "by codes: is_in on the dictionary, take", "ms": 8.618, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}
+{"categories": 30000, "cells": 2000000, "measure": "by codes: NumPy lookup table", "ms": 4.364, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "x86_64", "where": "ec2"}

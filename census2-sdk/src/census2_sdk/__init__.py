@@ -46,9 +46,24 @@ Exclusion stays per dataset, so a consolidated store opens only when one of its
 datasets can match. The SDK reads only the rows of the selected datasets, and the
 result is the result of the per-dataset stores. `open_census(..., consolidated=False)`
 reads the per-dataset stores, which stay the primary copy.
+
+Each organism also has a namespace with a typed filter builder (`Organism`):
+
+    hs = census.homo_sapiens
+    f = (hs.obs.tissue == "lung") & hs.obs.is_primary_data & (hs.obs.nnz >= 500)
+    adata = hs.get_anndata(f)
+
+The builder has pandas names, and each column type has its own operators
+(`census2_sdk.obs_filter`). A query resolves the filter once against the catalog
+(`census2_sdk.obs_plan`), and then binds it to the `obs` of each candidate store and
+evaluates it with pyarrow (`census2_sdk.obs_arrow`). It reads only the columns of the
+filter to select the cells. `get_obs`, `count`, and `count_by` read no `X`.
 """
 
+import functools
 import os
+import threading
+import warnings
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -57,6 +72,8 @@ from typing import Any, cast
 import anndata
 import numpy as np
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem
@@ -72,9 +89,26 @@ from census2_sdk.catalog import (
     unrecorded,
 )
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
+from census2_sdk.obs_arrow import (
+    OBS_THREADS,
+    CategoryCache,
+    ColumnData,
+    encoding,
+    evaluate,
+    read_column,
+    read_columns,
+    take,
+)
+from census2_sdk.obs_arrow import read_rows as _read_column_rows
+from census2_sdk.obs_columns import Obs
+from census2_sdk.obs_filter import Expr, FilterError, FilterLike, is_const
+from census2_sdk.obs_filter import columns as columns_of
+from census2_sdk.obs_plan import Plan, ValueSets, resolve, suggestions, value_sets
 
 __all__ = [
     "Census",
+    "FilterError",
+    "Organism",
     "SourceConflict",
     "open_census",
 ]
@@ -113,6 +147,16 @@ class Census:
             raise SourceConflict(
                 f"a dataset_id occurs in more than one source: {listing}"
             )
+
+    @functools.cached_property
+    def homo_sapiens(self) -> "Organism":
+        """The human datasets, with the typed filter builder in `.obs`."""
+        return Organism(self, "homo_sapiens")
+
+    @functools.cached_property
+    def mus_musculus(self) -> "Organism":
+        """The mouse datasets, with the typed filter builder in `.obs`."""
+        return Organism(self, "mus_musculus")
 
     def get_anndata(
         self,
@@ -344,6 +388,8 @@ class _Opened:
     var: pd.DataFrame
     n_obs: int
     categories: dict[str, pd.Index] = field(default_factory=dict)
+    # The categories of the builder path, read once for each column when needed.
+    cache: CategoryCache | None = None
 
 
 def _reads(rows: pd.DataFrame, consolidated: bool) -> list[_Read]:
@@ -474,24 +520,38 @@ def _read_rows(
     if key in columns:
         kept = _read_column_rows(obs_group[key], start + keep)
         obs.insert(columns.index(key), key, kept)
+    return _part(opened, where, dataset_id, obs, keep, start, layers)
+
+
+def _part(
+    opened: "_Opened",
+    where: str,
+    dataset_id: str,
+    obs: pd.DataFrame,
+    keep: np.ndarray,
+    start: int,
+    layers: Sequence[str],
+) -> anndata.AnnData:
+    """The AnnData of the kept cells of one dataset: `obs`, the counts, and `layers`.
+
+    `keep` holds the kept rows from `start`, and `obs` their rows. Both query paths
+    end here, so their results agree.
+    """
+    group, uri, var = opened.group, opened.uri, opened.var
     _check_cell_key(obs, where)
-    x = _rows(opened.group["X"], keep, start)
+    x = _rows(group["X"], keep, start)
     computed = {}
     if "normalized" in layers:
         assay = obs["assay_ontology_term_id"].astype(str)
         full_gene = assay.isin(_normalize.FULL_GENE_ASSAYS).to_numpy()
         length = None
         if full_gene.any():
-            var_group = _group(opened.group, "var", opened.uri, "an encoded dataframe")
+            var_group = _group(group, "var", uri, "an encoded dataframe")
             length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
         computed["normalized"] = _normalize.normalized(x, full_gene, length)
 
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
-    return anndata.AnnData(X=x, obs=obs, var=opened.var, layers=computed)
-
-
-# The obs columns of one dataset that the SDK reads at the same time.
-OBS_THREADS = 8
+    return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
 
 
 def _obs_rows(
@@ -565,31 +625,6 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
         )
 
 
-def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
-    """The values of one `obs` column at the row positions `rows`.
-
-    For a nullable string column, the SDK makes strings for these rows only. The
-    dtype is the one that `anndata` reads for the same column.
-    """
-    if node.attrs.get("encoding-type") != "nullable-string-array":
-        return pd.array(cast("Any", read_elem(node)))[rows]
-    if not isinstance(node, zarr.Group):
-        raise TypeError(f"{node.store_path} must be an encoded group")
-    na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
-    dtype = pd.StringDtype(na_value=na_value)
-    if not rows.size:
-        return pd.array([], dtype=dtype)
-    values, mask = node["values"], node["mask"]
-    if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
-        raise TypeError(f"{node.store_path} must hold a values and a mask array")
-    # One run of rows reads as a slice, which zarr reads faster than a selection.
-    contiguous = rows[-1] - rows[0] + 1 == rows.size
-    selection: Any = slice(int(rows[0]), int(rows[-1]) + 1) if contiguous else rows
-    result: Any = pd.array(np.asarray(values.oindex[selection]), dtype=dtype)
-    result[np.asarray(mask.oindex[selection])] = pd.NA
-    return result
-
-
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
     """Design 1.6: the kept cells' `observation_joinid` is present, non-null, and unique.
 
@@ -648,3 +683,490 @@ def _rows(
     indices = np.asarray(indices_array[selection])
     new_indptr = np.concatenate([[0], np.cumsum(lengths)])
     return sp.csr_matrix((data, indices, new_indptr), shape=(len(keep), n_var))
+
+
+# The typed filter builder: one namespace for each organism.
+
+
+class Organism:
+    """The queries of one organism, with a typed filter: `census.homo_sapiens`.
+
+    `obs` holds the typed columns of `census2_sdk.obs_columns`. Each query resolves
+    its filter once against the catalog (`plan`), and then binds it to the `obs` of
+    each store that can hold a match (`census2_sdk.obs_arrow`). A filter of another
+    organism raises `FilterError`.
+    """
+
+    def __init__(self, census: "Census", name: str) -> None:
+        if name not in ORGANISMS:
+            raise ValueError(f"no organism {name!r}; use one of {sorted(ORGANISMS)}")
+        self.census = census
+        self.name = name
+        self.obs = Obs(name)
+        self._known: ValueSets | None = None
+        # The counts of the last query: catalog candidates, stores opened, reads.
+        self.last_query: dict[str, int] = {}
+
+    def __repr__(self) -> str:
+        return f"<Organism {self.name} of {len(self.census.sources)} sources>"
+
+    def plan(self, obs_filter: FilterLike | None = None) -> Plan:
+        """Resolve `obs_filter` against the catalog: see `census2_sdk.obs_plan`."""
+        if self._known is None:
+            catalog = self.census.catalog
+            self._known = value_sets(catalog[catalog["organism"] == self.name])
+        return resolve(obs_filter, self.name, self.census.catalog, self._known)
+
+    def get_anndata(
+        self,
+        obs_filter: FilterLike | None = None,
+        *,
+        layers: Sequence[str] = (),
+        max_workers: int = 1,
+    ) -> anndata.AnnData | None:
+        """The selected cells as one AnnData, as `Census.get_anndata` gives them.
+
+        For a filter that a mapping filter can express, the result equals the result
+        of `Census.get_anndata`, value for value, except that each categorical column
+        holds only the labels that the result uses. Return None when no cell matches.
+        """
+        unknown = sorted(set(layers) - {"normalized"})
+        if unknown:
+            raise ValueError(f"no layer {unknown}; the one layer is 'normalized'")
+        plan = self.plan(obs_filter)
+        rows = pd.DataFrame([c.row for c in plan.candidates])
+        if len(rows):
+            _check_composition(rows, ORGANISMS[self.name]["version"])
+        scan = self._scan(plan, "anndata", max_workers, layers=layers)
+        kept = [p for p in scan.values if isinstance(p, anndata.AnnData)]
+        if not kept:
+            return None
+        uris = [str(p.uns.pop("_uri")) for p in kept]
+        _check_var(kept, uris)
+        # A read that keeps no cell read no var; its part of no rows takes the var
+        # of the first part with cells. It stays in, so that the obs schema is the
+        # columns that all the stores read hold, as in `Census.get_anndata`.
+        parts = [
+            p
+            if isinstance(p, anndata.AnnData)
+            else p.part(cast("pd.DataFrame", kept[0].var))
+            for p in scan.values
+            if isinstance(p, anndata.AnnData | _Empty)
+        ]
+        result = anndata.concat(parts, join="inner")
+        if not result.obs_names.is_unique:
+            raise SourceConflict("the cell key is not unique across the result")
+        first = scan.opened[uris[0]]
+        var = cast("pd.DataFrame", read_elem(first.group["var"]))
+        result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
+        result.uns["census2"] = {
+            "sources": self.census.sources,
+            "datasets_in_catalog": plan.catalog_rows,
+            "datasets_read": len(parts),
+            "stores_opened": len(scan.uris),
+        }
+        return result
+
+    def get_obs(
+        self,
+        obs_filter: FilterLike | None = None,
+        *,
+        columns: Sequence[str] | None = None,
+        max_workers: int = 1,
+    ) -> pd.DataFrame:
+        """The `obs` of the selected cells, without `X`, indexed by the cell key.
+
+        `columns` names the columns of the result, all of them by default. A
+        categorical column holds the labels that the result uses.
+        """
+        plan = self.plan(obs_filter)
+        scan = self._scan(plan, "obs", max_workers, columns=columns)
+        frames = [f for f in scan.values if isinstance(f, pd.DataFrame)]
+        return _concat_frames(frames)
+
+    def count(
+        self, obs_filter: FilterLike | None = None, *, max_workers: int = 1
+    ) -> int:
+        """The number of selected cells.
+
+        A dataset whose residual filter is True counts from its catalog row, with no
+        store open. Another dataset reads only the columns of its residual filter.
+        """
+        plan = self.plan(obs_filter)
+        return sum(int(n) for n in self._scan(plan, "count", max_workers).values)
+
+    def count_by(
+        self,
+        by: str | Sequence[str],
+        obs_filter: FilterLike | None = None,
+        *,
+        max_workers: int = 1,
+    ) -> pd.Series:
+        """The number of selected cells for each combination of the `by` columns."""
+        names = [by] if isinstance(by, str) else list(by)
+        plan = self.plan(obs_filter)
+        scan = self._scan(plan, "count_by", max_workers, columns=names)
+        parts = [p for p in scan.values if isinstance(p, pd.DataFrame)]
+        if not parts:
+            return pd.Series(dtype=np.int64, name="n_cells")
+        frame = pd.concat(parts, ignore_index=True)
+        return frame.groupby(names, sort=True)["n_cells"].sum().rename("n_cells")
+
+    def _scan(
+        self,
+        plan: Plan,
+        mode: str,
+        max_workers: int,
+        *,
+        layers: Sequence[str] = (),
+        columns: Sequence[str] | None = None,
+    ) -> "_Scan":
+        """Read each candidate dataset by `mode`: anndata, obs, count, or count_by."""
+        units = _units(plan, self.census.consolidated)
+        values: list[Any] = [None] * len(plan.candidates)
+        need_open = []
+        for unit in units:
+            if mode == "count" and all(
+                is_const(m.residual, True) for m in unit.members
+            ):
+                for m in unit.members:
+                    whole = int(m.read.row["n_obs"])
+                    values[m.index] = m.stop - m.start if m.read.rows else whole
+            else:
+                need_open.append(unit)
+        uris = list(dict.fromkeys(u.uri for u in need_open))
+        consolidated = {u.uri for u in need_open if u.consolidated}
+        seen: set[str] = set()
+        missing: dict[str, list[str]] = {}
+        lock = threading.Lock()
+
+        def scan(unit: _Unit, store: _Opened) -> None:
+            present, lacking, out = _scan_unit(unit, store, mode, layers, columns)
+            with lock:
+                seen.update(present)
+                for name in lacking:
+                    missing.setdefault(name, []).append(unit.uri)
+            for index, value in out:
+                values[index] = value
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            opened = dict(
+                zip(
+                    uris,
+                    pool.map(lambda u: _store(u, u in consolidated), uris),
+                    strict=True,
+                )
+            )
+            list(pool.map(lambda u: scan(u, opened[u.uri]), need_open))
+        self.last_query = {
+            "candidates": len(plan.candidates),
+            "stores_opened": len(uris),
+            "reads": len(need_open),
+        }
+        _check_missing(missing, seen, len(need_open))
+        return _Scan(values, uris, opened)
+
+
+@dataclass(frozen=True)
+class _Scan:
+    """The values of a scan, one for each candidate, and the stores that it opened."""
+
+    values: list[Any]
+    uris: list[str]
+    opened: dict[str, "_Opened"]
+
+
+def _check_missing(missing: dict[str, list[str]], seen: set[str], reads: int) -> None:
+    """Refuse a filter column that no read store holds, and warn for a column that
+    some stores lack. Such a store gives no cells, as in `_mask`.
+    """
+    for name, uris in sorted(missing.items()):
+        if name not in seen:
+            near = suggestions(name, frozenset(seen))
+            hint = f"; did you mean {' or '.join(map(repr, near))}?" if near else ""
+            raise FilterError(f"no store holds the obs column {name!r}{hint}")
+        stores = sorted(set(uris))
+        shown = ", ".join(stores[:3]) + (", ..." if len(stores) > 3 else "")
+        warnings.warn(
+            f"{len(stores)} of the stores read have no obs column {name!r}, so they "
+            f"give no cells: {shown}",
+            UserWarning,
+            stacklevel=4,
+        )
+
+
+@dataclass(frozen=True)
+class _Member:
+    """One candidate dataset of a read: its rows in the store, and its filter."""
+
+    index: int
+    read: "_Read"
+    residual: Expr
+    # The rows of a consolidated member; 0 and 0 for a per-dataset store.
+    start: int
+    stop: int
+
+
+@dataclass(frozen=True)
+class _Unit:
+    """One read: a per-dataset store, or adjacent members of a consolidated store."""
+
+    uri: str
+    consolidated: bool
+    members: tuple[_Member, ...]
+
+
+def _units(plan: Plan, consolidated: bool) -> list[_Unit]:
+    """The reads of the candidates. Adjacent members of a consolidated store read once."""
+    if not plan.candidates:
+        return []
+    rows = pd.DataFrame([c.row for c in plan.candidates])
+    reads = _reads(rows, consolidated)
+    by_uri: dict[str, list[_Member]] = {}
+    units: list[_Unit] = []
+    for index, (candidate, read) in enumerate(zip(plan.candidates, reads, strict=True)):
+        start, stop = read.rows if read.rows is not None else (0, 0)
+        member = _Member(index, read, candidate.residual, start, stop)
+        by_uri.setdefault(read.uri, []).append(member)
+    for uri, listed in by_uri.items():
+        if listed[0].read.rows is None:
+            units.extend(_Unit(uri, False, (m,)) for m in listed)
+            continue
+        listed.sort(key=lambda m: m.start)
+        run = [listed[0]]
+        for m in listed[1:]:
+            if m.start == run[-1].stop:
+                run.append(m)
+            else:
+                units.append(_Unit(uri, True, tuple(run)))
+                run = [m]
+        units.append(_Unit(uri, True, tuple(run)))
+    return units
+
+
+def _store(uri: str, consolidated: bool) -> "_Opened":
+    """Open a store with the lean open. `_var` reads the var index when a part needs it."""
+    group = open_store(uri, lean=True)
+    x = _group(group, "X", uri, "an encoded sparse matrix")
+    shape = cast("list[int]", x.attrs["shape"])
+    opened = _Opened(uri, group, pd.DataFrame(), int(shape[0]))
+    if consolidated:
+        _check_record(opened)
+    opened.cache = CategoryCache(_group(group, "obs", uri, "an encoded dataframe"))
+    return opened
+
+
+_VAR_LOCK = threading.Lock()
+
+
+def _var(opened: "_Opened") -> pd.DataFrame:
+    """The var index of a store, read once, for the parts of the store with cells."""
+    with _VAR_LOCK:
+        if len(opened.var.index):
+            return opened.var
+    var_group = _group(opened.group, "var", opened.uri, "an encoded dataframe")
+    index = read_elem(var_group[str(var_group.attrs["_index"])])
+    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
+    with _VAR_LOCK:
+        opened.var = var
+    return var
+
+
+@dataclass(frozen=True)
+class _Empty:
+    """The part of a read that keeps no cell: its obs schema and its number of genes.
+
+    It reads no column and no var: `obs` comes from the store metadata.
+    """
+
+    obs: pd.DataFrame
+    n_var: int
+
+    def part(self, var: pd.DataFrame) -> anndata.AnnData:
+        x = sp.csr_matrix((0, self.n_var), dtype=np.float32)
+        return anndata.AnnData(X=x, obs=self.obs, var=pd.DataFrame(index=var.index))
+
+
+def _empty_obs(obs: zarr.Group, order: Sequence[str]) -> pd.DataFrame:
+    """An `obs` of no rows with the columns `order`, from the store metadata alone.
+
+    A categorical column has no categories; anndata takes the categories of the parts
+    with rows. A column of another encoding than categorical or array reads its type.
+    """
+    columns: dict[str, Any] = {}
+    for name in order:
+        node = obs[name]
+        kind = encoding(node)[0]
+        if kind == "categorical":
+            ordered = bool(node.attrs.get("ordered", False))
+            empty = pd.Index([], dtype=object)
+            columns[name] = pd.Categorical([], categories=empty, ordered=ordered)
+        elif kind == "array" and isinstance(node, zarr.Array):
+            columns[name] = np.empty(0, dtype=np.dtype(str(node.dtype)))
+        else:
+            columns[name] = _read_column_rows(node, np.zeros(0, dtype=np.int64))
+    return pd.DataFrame(columns, columns=list(order), index=pd.Index([], dtype=object))
+
+
+def _scan_unit(
+    unit: _Unit,
+    opened: "_Opened",
+    mode: str,
+    layers: Sequence[str],
+    columns: Sequence[str] | None,
+) -> tuple[set[str], set[str], list[tuple[int, Any]]]:
+    """Bind and evaluate the filter of each member of one read, then read by `mode`.
+
+    Return the columns of the store, the filter columns that it lacks, and one value
+    for each member.
+    """
+    obs = _group(opened.group, "obs", opened.uri, "an encoded dataframe")
+    order = [str(c) for c in cast("list[str]", obs.attrs["column-order"])]
+    present = set(order)
+    spans = [
+        (0, opened.n_obs) if m.read.rows is None else _member_rows(opened, m.read)
+        for m in unit.members
+    ]
+    start, stop = spans[0][0], spans[-1][1]
+    wanted: set[str] = set()
+    for m in unit.members:
+        wanted |= columns_of(m.residual)
+    lacking = wanted - present
+    extra = set(columns or ()) & present if mode == "count_by" else set()
+    cache = opened.cache
+    data = read_columns(obs, sorted((wanted & present) | extra), start, stop, cache)
+    out: list[tuple[int, Any]] = []
+    for m, (lo, hi) in zip(unit.members, spans, strict=True):
+        dataset_id = str(m.read.row["dataset_id"])
+        where = opened.uri if m.read.rows is None else f"{opened.uri}[{dataset_id}]"
+        names = columns_of(m.residual)
+        if names & lacking:
+            keep = np.zeros(0, dtype=np.int64)  # the rule of `_mask`
+        else:
+            local = {k: data[k].part(lo - start, hi - start) for k in names}
+            keep = evaluate(m.residual, local, hi - lo)
+        if mode == "count":
+            out.append((m.index, len(keep)))
+        elif mode == "count_by":
+            span = (lo - start, hi - start)
+            out.append((m.index, _group_counts(data, columns or (), span, keep)))
+        elif mode == "obs":
+            names_out = order if columns is None else list(columns)
+            frame = _kept_obs(obs, names_out, data, lo, start, keep, cache, where)
+            if "dataset_id" in frame.columns and len(frame):
+                _check_dataset_id(frame, dataset_id, where)
+            read = frame.get("observation_joinid")
+            joinid = None if read is None else read.array
+            frame.index = _cell_keys(obs, dataset_id, lo + keep, joinid)
+            out.append((m.index, frame))
+        else:
+            if not len(keep):
+                x = _group(opened.group, "X", opened.uri, "an encoded sparse matrix")
+                n_var = int(cast("list[int]", x.attrs["shape"])[1])
+                out.append((m.index, _Empty(_empty_obs(obs, order), n_var)))
+                continue
+            frame = _kept_obs(obs, order, data, lo, start, keep, cache, where)
+            _check_dataset_id(frame, dataset_id, where)
+            _var(opened)
+            part = _part(opened, where, dataset_id, frame, keep, lo, layers)
+            part.uns["_uri"] = opened.uri
+            out.append((m.index, part))
+    return present, lacking, out
+
+
+def _cell_keys(
+    obs: zarr.Group, dataset_id: str, rows: np.ndarray, joinid: Any = None
+) -> pd.Index:
+    """The cell keys of the rows `rows`: `<dataset_id>_<observation_joinid>`.
+
+    `joinid` holds the cell key of these rows when the caller read it already.
+    Arrow joins the strings, so pandas makes no Python string for each cell.
+    """
+    if joinid is None:
+        joinid = _read_column_rows(obs["observation_joinid"], rows)
+    values = pa.array(joinid, type=pa.string())
+    keys = pc.binary_join_element_wise(pa.scalar(dataset_id), values, "_")
+    index: pd.Index = pd.Index(pd.array(keys, dtype=pd.StringDtype(na_value=np.nan)))
+    return index
+
+
+def _kept_obs(
+    obs: zarr.Group,
+    names: Sequence[str],
+    data: dict[str, ColumnData],
+    lo: int,
+    start: int,
+    keep: np.ndarray,
+    cache: CategoryCache | None,
+    where: str,
+) -> pd.DataFrame:
+    """The columns `names` of the kept rows of one member, as `read_elem` types them.
+
+    A column that the filter read is cut from that read. Another categorical or numeric
+    column reads the rows from the first to the last kept row; a column of another
+    encoding, such as the cell key, reads the kept rows only.
+    """
+    order = [str(c) for c in cast("list[str]", obs.attrs["column-order"])]
+    unknown = [n for n in names if n not in order]
+    if unknown:
+        raise FilterError(f"{where}: obs has no column {unknown}")
+    rows = lo + keep  # store rows
+    first, last = (int(rows[0]), int(rows[-1]) + 1) if len(rows) else (lo, lo)
+
+    def one(name: str) -> Any:
+        node = obs[name]
+        kind = encoding(node)[0]
+        if kind not in ("categorical", "array") or name == "observation_joinid":
+            return _read_column_rows(node, rows)
+        found = data.get(name)
+        if found is not None:
+            return take(found, rows - start)
+        cats = None
+        if cache is not None and kind == "categorical":
+            cats = functools.partial(cache, name)
+        return take(read_column(node, first, last, cats), rows - first)
+
+    with ThreadPoolExecutor(max_workers=max(1, min(len(names), OBS_THREADS))) as pool:
+        values = list(pool.map(one, names))
+    return pd.DataFrame(dict(zip(names, values, strict=True)), columns=list(names))
+
+
+def _group_counts(
+    data: dict[str, ColumnData],
+    by: Sequence[str],
+    span: tuple[int, int],
+    keep: np.ndarray,
+) -> pd.DataFrame:
+    """The kept cells of one member, counted by the `by` columns."""
+    missing = [b for b in by if b not in data]
+    if missing:
+        raise FilterError(f"obs has no column {missing} to count by")
+    frame = pd.DataFrame({b: take(data[b].part(*span), keep) for b in by})
+    counts = frame.groupby(list(by), observed=True, sort=False).size()
+    out = counts.rename("n_cells").reset_index()
+    for b in by:
+        if isinstance(out[b].dtype, pd.CategoricalDtype):
+            out[b] = out[b].astype(str)
+    return out
+
+
+def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Concatenate result frames; a categorical column unions its categories."""
+    if not frames:
+        return pd.DataFrame()
+    # A frame without rows adds no value, and its categories add no label.
+    frames = [f for f in frames if len(f)] or frames[:1]
+    if len(frames) == 1:
+        return frames[0]
+    columns = list(frames[0].columns)
+    out: dict[str, Any] = {}
+    for name in columns:
+        parts = [f[name] for f in frames]
+        if all(isinstance(p.dtype, pd.CategoricalDtype) for p in parts):
+            out[name] = pd.api.types.union_categoricals(
+                [p.array for p in parts], sort_categories=True
+            )
+        else:
+            out[name] = pd.concat(parts, ignore_index=True).array
+    index = frames[0].index.append([f.index for f in frames[1:]])
+    return pd.DataFrame(out, columns=columns, index=index)

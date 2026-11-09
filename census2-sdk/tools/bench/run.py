@@ -9,6 +9,10 @@ an earlier run. The shapes are:
   is the one whose share of the source datasets is nearest to 15 percent. The
   copies are not part of that share.
 - `filter`: `get_anndata` for the filter that `--filter` gives as JSON.
+- `builder`: the query of `bench.filters.QUERIES` that `--builder` names, through the
+  typed filter builder (`census.homo_sapiens`), by the query's mode: `get_anndata`,
+  `get_obs`, `count`, or `count_by`. The builder path always opens a store with the
+  `lean` open; `--reader` sets the open of the other paths.
 - `open`: open every store of the catalog and read nothing more.
 - `corpus_obs`: open every store and read its whole `obs`.
 - `corpus_x`: open every store and read all of `X`, one shard at a time, and keep
@@ -63,7 +67,7 @@ from zarr.core.buffer import Buffer, BufferPrototype
 import census2_sdk
 from census2_sdk import catalog as _catalog
 
-SHAPES = ("single", "cell_type", "filter", "open", "corpus_obs", "corpus_x")
+SHAPES = ("single", "cell_type", "filter", "builder", "open", "corpus_obs", "corpus_x")
 READERS = ("sdk", "lean")
 ORGANISM = "homo_sapiens"
 MEMORY_LIMIT_EXIT = 3
@@ -149,13 +153,14 @@ _BUCKETS: dict[str, CountingStore] = {}
 _BUCKETS_LOCK = threading.Lock()
 
 
-def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
+def open_counted(uri: str | os.PathLike[str], *, lean: bool = False) -> zarr.Group:
     """Open a store through a counting store, by the open of `READER`.
 
     `sdk` opens as `census2_sdk.catalog.open_store` does. `lean` opens with
-    `zarr_format=3`, and through one obstore client for each bucket.
+    `zarr_format=3`, and through one obstore client for each bucket. A caller that
+    asks for the lean open, as the builder path does, gets it with either reader.
     """
-    if READER == "lean":
+    if lean or READER == "lean":
         return open_lean(uri)
     if _catalog.is_remote(uri):
         import obstore.store
@@ -389,6 +394,7 @@ def run(
     obs_filter: dict[str, Any] | None = None,
     per_dataset: bool = False,
     processes: int = 1,
+    builder: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.monotonic()
     # Without the keyword, so that the SDK of an earlier commit runs this as well.
@@ -412,7 +418,34 @@ def run(
     }
     cpu = {"cpu_user": 0.0, "cpu_sys": 0.0}
 
-    if shape in ("single", "cell_type", "filter"):
+    if shape == "builder":
+        if builder is None:
+            raise ValueError("the builder shape needs --builder")
+        from bench.filters import QUERIES, run_query
+
+        query = QUERIES[builder]
+        organism = census.homo_sapiens
+        record["builder"] = builder
+        record["mode"] = query.mode
+        record["filter"] = repr(query.build(organism.obs))
+        original = _catalog.open_store
+        census2_sdk.__dict__["open_store"] = open_counted
+        _catalog.open_store = open_counted
+        user, system = cpu_seconds()
+        try:
+            cells = run_query(organism, query, workers)
+        finally:
+            census2_sdk.__dict__["open_store"] = original
+            _catalog.open_store = original
+        t2 = time.monotonic()
+        end_user, end_system = cpu_seconds()
+        cpu = {"cpu_user": end_user - user, "cpu_sys": end_system - system}
+        stats = organism.last_query
+        record["datasets"] = stats.get("candidates", 0)
+        record["stores_opened"] = stats.get("stores_opened", 0)
+        record["reads"] = stats.get("reads", 0)
+        record["cells"] = cells
+    elif shape in ("single", "cell_type", "filter"):
         if shape == "single":
             obs_filter = {"dataset_id": dataset_id or str(rows["dataset_id"].iloc[0])}
         elif shape == "cell_type":
@@ -470,7 +503,9 @@ def run(
         requests=COUNTER.requests,
         mb_payload=round(COUNTER.nbytes / 2**20, 2),
         peak_rss_mb=peak_rss_mb(),
-        versions={m: importlib.metadata.version(m) for m in ("anndata", "zarr")},
+        versions={
+            m: importlib.metadata.version(m) for m in ("anndata", "zarr", "pyarrow")
+        },
         status="ok",
     )
     return record
@@ -484,6 +519,7 @@ def main() -> int:
     p.add_argument("--cell-type", default=None)
     p.add_argument("--dataset-id", default=None, help="the dataset of `single`")
     p.add_argument("--filter", default=None, help="the filter of `filter`, as JSON")
+    p.add_argument("--builder", default=None, help="a query of bench.filters")
     p.add_argument(
         "--per-dataset", action="store_true", help="ignore the consolidated stores"
     )
@@ -510,6 +546,7 @@ def main() -> int:
         obs_filter=json.loads(args.filter) if args.filter else None,
         per_dataset=args.per_dataset,
         processes=args.processes,
+        builder=args.builder,
     )
     publish(*final_record(record, limit_mb))
     return 0

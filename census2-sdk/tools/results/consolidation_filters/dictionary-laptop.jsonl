@@ -1,0 +1,24 @@
+{"categories": 300, "cells": 2000000, "measure": "decode", "ms": 12.859, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "equal, dictionary", "ms": 16.947, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "equal, strings", "ms": 4.127, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "is_in, dictionary", "ms": 26.884, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "is_in, strings", "ms": 13.981, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "starts_with, strings", "ms": 4.403, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "Table.filter(==), dictionary", "ms": 17.938, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "Table.filter(==), strings", "ms": 5.113, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "Acero project(==), dictionary", "ms": 17.597, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "Acero project(isin), dictionary", "ms": 27.54, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "by codes: is_in on the dictionary, take", "ms": 4.989, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 300, "cells": 2000000, "measure": "by codes: NumPy lookup table", "ms": 2.293, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "decode", "ms": 13.098, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "equal, dictionary", "ms": 17.171, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "equal, strings", "ms": 4.031, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "is_in, dictionary", "ms": 26.977, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "is_in, strings", "ms": 13.842, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "starts_with, strings", "ms": 11.966, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "Table.filter(==), dictionary", "ms": 18.082, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "Table.filter(==), strings", "ms": 4.931, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "Acero project(==), dictionary", "ms": 17.464, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "Acero project(isin), dictionary", "ms": 27.395, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "by codes: is_in on the dictionary, take", "ms": 5.1, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}
+{"categories": 30000, "cells": 2000000, "measure": "by codes: NumPy lookup table", "ms": 2.329, "starts_with_dictionary_kernel": false, "pyarrow": "26.0.1", "machine": "arm64", "where": "laptop"}

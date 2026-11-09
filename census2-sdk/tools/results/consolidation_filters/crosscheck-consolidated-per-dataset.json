@@ -1,0 +1,234 @@
+[
+ {
+  "query": "one_dataset",
+  "cells": 3799,
+  "datasets": 1,
+  "same": true,
+  "builder_cells": 3799,
+  "builder_candidates": 1
+ },
+ {
+  "query": "single_member",
+  "cells": 89849,
+  "datasets": 1,
+  "same": true,
+  "builder_cells": 89849,
+  "builder_candidates": 1
+ },
+ {
+  "query": "single_alone",
+  "cells": 59738,
+  "datasets": 1,
+  "same": true,
+  "builder_cells": 59738,
+  "builder_candidates": 1
+ },
+ {
+  "query": "neutrophil",
+  "cells": 35795,
+  "datasets": 14,
+  "same": true,
+  "builder_cells": 35795,
+  "builder_candidates": 14
+ },
+ {
+  "query": "lung_macrophage_primary",
+  "cells": 207185,
+  "datasets": 5,
+  "same": true,
+  "builder_cells": 207185,
+  "builder_candidates": 5
+ },
+ {
+  "query": "lung_macrophage",
+  "cells": 311063,
+  "datasets": 5,
+  "same": true,
+  "builder_cells": 311063,
+  "builder_candidates": 5
+ },
+ {
+  "query": "fp_none",
+  "cells": 0,
+  "datasets": 0,
+  "same": true,
+  "builder_cells": 0,
+  "builder_candidates": 4
+ },
+ {
+  "query": "fp_some",
+  "cells": 111,
+  "datasets": 2,
+  "same": true,
+  "builder_cells": 111,
+  "builder_candidates": 4
+ },
+ {
+  "query": "false_positive",
+  "cells": 0,
+  "datasets": 0,
+  "same": true,
+  "builder_cells": 0,
+  "builder_candidates": 6
+ },
+ {
+  "query": "tissue_general",
+  "cells": 12815,
+  "datasets": 3,
+  "same": true,
+  "builder_cells": 12815,
+  "builder_candidates": 3
+ },
+ {
+  "query": "numeric",
+  "cells": 4113,
+  "datasets": 11,
+  "same": true,
+  "builder_cells": 4113,
+  "builder_candidates": 14
+ },
+ {
+  "query": "membership",
+  "cells": 1258,
+  "datasets": 6,
+  "same": true,
+  "builder_cells": 1258,
+  "builder_candidates": 6
+ },
+ {
+  "query": "or_columns",
+  "cells": 48610,
+  "datasets": 17,
+  "same": true,
+  "builder_cells": 48610,
+  "builder_candidates": 17
+ },
+ {
+  "query": "compound",
+  "cells": 1885447,
+  "datasets": 17,
+  "same": true,
+  "builder_cells": 1885447,
+  "builder_candidates": 17
+ },
+ {
+  "query": "has_any",
+  "cells": 650460,
+  "datasets": 10,
+  "same": true,
+  "builder_cells": 650460,
+  "builder_candidates": 10
+ },
+ {
+  "query": "has_all",
+  "cells": 12822,
+  "datasets": 1,
+  "same": true,
+  "builder_cells": 12822,
+  "builder_candidates": 1
+ },
+ {
+  "query": "numeric_range",
+  "cells": 1077,
+  "datasets": 6,
+  "same": true,
+  "builder_cells": 1077,
+  "builder_candidates": 14
+ },
+ {
+  "query": "between",
+  "cells": 655430,
+  "datasets": 15,
+  "same": true,
+  "builder_cells": 655430,
+  "builder_candidates": 15
+ },
+ {
+  "query": "not_in",
+  "cells": 1822235,
+  "datasets": 17,
+  "same": true,
+  "builder_cells": 1822235,
+  "builder_candidates": 17
+ },
+ {
+  "query": "prefix",
+  "cells": 427977,
+  "datasets": 24,
+  "same": true,
+  "builder_cells": 427977,
+  "builder_candidates": 24
+ },
+ {
+  "query": "substring",
+  "cells": 581205,
+  "datasets": 36,
+  "same": true,
+  "builder_cells": 581205,
+  "builder_candidates": 36
+ },
+ {
+  "query": "regex",
+  "cells": 1051329,
+  "datasets": 27,
+  "same": true,
+  "builder_cells": 1051329,
+  "builder_candidates": 27
+ },
+ {
+  "query": "isna",
+  "cells": 0,
+  "datasets": 0,
+  "same": true,
+  "builder_cells": 0,
+  "builder_candidates": 103
+ },
+ {
+  "query": "count_b_donor",
+  "cells": 35795,
+  "datasets": 14,
+  "same": true,
+  "builder_cells": 35795,
+  "builder_candidates": 14
+ },
+ {
+  "query": "count_all_donor",
+  "cells": 13316710,
+  "datasets": 103,
+  "same": true,
+  "builder_cells": 13316710,
+  "builder_candidates": 103
+ },
+ {
+  "query": "count_b",
+  "cells": 35795,
+  "datasets": 14,
+  "same": true,
+  "builder_cells": 35795,
+  "builder_candidates": 14
+ },
+ {
+  "query": "wmg_count",
+  "cells": 8365927,
+  "datasets": 55,
+  "same": true,
+  "builder_cells": 8365927,
+  "builder_candidates": 57
+ },
+ {
+  "query": "wmg",
+  "cells": 8365927,
+  "datasets": 55,
+  "same": true,
+  "builder_cells": 8365927,
+  "builder_candidates": 57
+ },
+ {
+  "query": "all_obs",
+  "cells": 13316710,
+  "datasets": 103,
+  "same": true,
+  "builder_cells": 13316710,
+  "builder_candidates": 103
+ }
+]

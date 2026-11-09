@@ -1,0 +1,91 @@
+[
+ {
+  "query": "one_dataset",
+  "shape": "filter",
+  "filter": {
+   "dataset_id": "f75f2ff4-2884-4c2d-b375-70de37a34507"
+  }
+ },
+ {
+  "query": "single_member",
+  "shape": "filter",
+  "filter": {
+   "dataset_id": "6ceeaa86-9ceb-4582-b390-6d4dd6ff0572"
+  }
+ },
+ {
+  "query": "single_alone",
+  "shape": "filter",
+  "filter": {
+   "dataset_id": "c6413315-7158-46c5-a5fd-7228385694f1"
+  }
+ },
+ {
+  "query": "neutrophil",
+  "shape": "filter",
+  "filter": {
+   "cell_type": "neutrophil"
+  }
+ },
+ {
+  "query": "lung_macrophage",
+  "shape": "filter",
+  "filter": {
+   "tissue": [
+    "epithelial cell of lung",
+    "lower lobe of left lung",
+    "lung",
+    "lung epithelium",
+    "middle lobe of right lung",
+    "upper lobe of left lung"
+   ],
+   "cell_type": [
+    "TREM2-positive macrophage",
+    "alveolar macrophage",
+    "inflammatory macrophage",
+    "lung interstitial macrophage",
+    "lung macrophage",
+    "macrophage"
+   ]
+  }
+ },
+ {
+  "query": "fp_none",
+  "shape": "filter",
+  "filter": {
+   "tissue": "mesenteric lymph node",
+   "cell_type": "megakaryocyte"
+  }
+ },
+ {
+  "query": "fp_some",
+  "shape": "filter",
+  "filter": {
+   "tissue": "liver",
+   "cell_type": "mesothelial cell"
+  }
+ },
+ {
+  "query": "false_positive",
+  "shape": "filter",
+  "filter": {
+   "assay": "10x 3' v3",
+   "tissue": "mesenteric lymph node"
+  }
+ },
+ {
+  "query": "tissue_general",
+  "shape": "filter",
+  "filter": {
+   "tissue_general": "pancreas"
+  }
+ },
+ {
+  "query": "membership",
+  "shape": "filter",
+  "filter": {
+   "disease": "COVID-19",
+   "cell_type": "neutrophil"
+  }
+ }
+]

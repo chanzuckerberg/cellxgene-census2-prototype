@@ -1,0 +1,147 @@
+[
+ {
+  "query": "one_dataset",
+  "shape": "builder",
+  "builder": "one_dataset"
+ },
+ {
+  "query": "single_member",
+  "shape": "builder",
+  "builder": "single_member"
+ },
+ {
+  "query": "single_alone",
+  "shape": "builder",
+  "builder": "single_alone"
+ },
+ {
+  "query": "neutrophil",
+  "shape": "builder",
+  "builder": "neutrophil"
+ },
+ {
+  "query": "lung_macrophage_primary",
+  "shape": "builder",
+  "builder": "lung_macrophage_primary"
+ },
+ {
+  "query": "lung_macrophage",
+  "shape": "builder",
+  "builder": "lung_macrophage"
+ },
+ {
+  "query": "fp_none",
+  "shape": "builder",
+  "builder": "fp_none"
+ },
+ {
+  "query": "fp_some",
+  "shape": "builder",
+  "builder": "fp_some"
+ },
+ {
+  "query": "false_positive",
+  "shape": "builder",
+  "builder": "false_positive"
+ },
+ {
+  "query": "tissue_general",
+  "shape": "builder",
+  "builder": "tissue_general"
+ },
+ {
+  "query": "numeric",
+  "shape": "builder",
+  "builder": "numeric"
+ },
+ {
+  "query": "membership",
+  "shape": "builder",
+  "builder": "membership"
+ },
+ {
+  "query": "or_columns",
+  "shape": "builder",
+  "builder": "or_columns"
+ },
+ {
+  "query": "compound",
+  "shape": "builder",
+  "builder": "compound"
+ },
+ {
+  "query": "has_any",
+  "shape": "builder",
+  "builder": "has_any"
+ },
+ {
+  "query": "has_all",
+  "shape": "builder",
+  "builder": "has_all"
+ },
+ {
+  "query": "numeric_range",
+  "shape": "builder",
+  "builder": "numeric_range"
+ },
+ {
+  "query": "between",
+  "shape": "builder",
+  "builder": "between"
+ },
+ {
+  "query": "not_in",
+  "shape": "builder",
+  "builder": "not_in"
+ },
+ {
+  "query": "prefix",
+  "shape": "builder",
+  "builder": "prefix"
+ },
+ {
+  "query": "substring",
+  "shape": "builder",
+  "builder": "substring"
+ },
+ {
+  "query": "regex",
+  "shape": "builder",
+  "builder": "regex"
+ },
+ {
+  "query": "isna",
+  "shape": "builder",
+  "builder": "isna"
+ },
+ {
+  "query": "count_b_donor",
+  "shape": "builder",
+  "builder": "count_b_donor"
+ },
+ {
+  "query": "count_all_donor",
+  "shape": "builder",
+  "builder": "count_all_donor"
+ },
+ {
+  "query": "count_b",
+  "shape": "builder",
+  "builder": "count_b"
+ },
+ {
+  "query": "wmg_count",
+  "shape": "builder",
+  "builder": "wmg_count"
+ },
+ {
+  "query": "wmg",
+  "shape": "builder",
+  "builder": "wmg"
+ },
+ {
+  "query": "all_obs",
+  "shape": "builder",
+  "builder": "all_obs"
+ }
+]
