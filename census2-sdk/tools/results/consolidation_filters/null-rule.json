@@ -1,0 +1,48 @@
+{
+ "cells": 2075,
+ "nulls": 415,
+ "terms": [
+  {
+   "filter": "obs['author_cell_type'] != 'basal cell of epithelium of bronchus'",
+   "cells": 1654,
+   "pandas": 1654,
+   "same": true
+  },
+  {
+   "filter": "obs['author_cell_type'] != 'basal cell of epithelium of bronchus'",
+   "cells": 1654,
+   "pandas": 1654,
+   "same": true
+  },
+  {
+   "filter": "obs['author_cell_type'] == 'basal cell of epithelium of bronchus'",
+   "cells": 421,
+   "pandas": 421,
+   "same": true
+  },
+  {
+   "filter": "obs['author_cell_type'].isna()",
+   "cells": 415,
+   "pandas": 415,
+   "same": true
+  },
+  {
+   "filter": "obs['author_cell_type'].notna()",
+   "cells": 1660,
+   "pandas": 1660,
+   "same": true
+  },
+  {
+   "filter": "obs['author_cell_type'] != 'basal cell of epithelium of bronchus'",
+   "cells": 1654,
+   "pandas": 1654,
+   "same": true
+  },
+  {
+   "filter": "~((obs['author_cell_type'] == 'basal cell of epithelium of bronchus') & obs.is_primary_data)",
+   "cells": 1654,
+   "pandas": 1654,
+   "same": true
+  }
+ ]
+}

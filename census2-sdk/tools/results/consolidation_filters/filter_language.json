@@ -1,0 +1,838 @@
+{
+ "corpus": [
+  {
+   "label": "documented_narrow:census_data/homo_sapiens",
+   "key": "documented_narrow",
+   "value_filter": "tissue_general == 'vasculature'",
+   "status": "expressible",
+   "builder": "obs.tissue_general == 'vasculature'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 1,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0085,
+   "datasets_with_cells": 1,
+   "cells": 3855,
+   "catalog_rows": 103
+  },
+  {
+   "label": "documented_wide:census_data/homo_sapiens",
+   "key": "documented_wide",
+   "value_filter": "tissue_general in ['brain', 'lung']",
+   "status": "expressible",
+   "builder": "obs.tissue_general.isin(['brain', 'lung'])",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 44,
+   "catalog_whole": 32,
+   "catalog_seconds": 0.0036,
+   "datasets_with_cells": 44,
+   "cells": 3666875,
+   "catalog_rows": 103
+  },
+  {
+   "label": "wmg_production:census_data/homo_sapiens",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "status": "expressible",
+   "builder": "obs.is_primary_data & (obs.nnz >= 500) & (obs.cell_type_ontology_term_id != 'unknown') & (obs.tissue_general_ontology_term_id != 'UBERON:0001017') & (obs.tissue_general_ontology_term_id != 'UBERON:0001007') & (obs.tissue_general_ontology_term_id != 'UBERON:0002405') & (obs.tissue_general_ontology_term_id != 'UBERON:0000990') & (obs.tissue_general_ontology_term_id != 'UBERON:0001004') & (obs.tissue_general_ontology_term_id != 'UBERON:0001434')",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 57,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0058,
+   "datasets_with_cells": 55,
+   "cells": 8365927,
+   "catalog_rows": 103
+  },
+  {
+   "label": "cell_type_slice:census_data/homo_sapiens",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000897'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 7,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 7,
+   "cells": 113835,
+   "catalog_rows": 103
+  },
+  {
+   "label": "dataset_slice:census_data/homo_sapiens",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '62315937-e268-4fa5-a032-8f7d776f3a3f'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == '62315937-e268-4fa5-a032-8f7d776f3a3f'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 1,
+   "catalog_whole": 1,
+   "catalog_seconds": 0.0036,
+   "datasets_with_cells": 1,
+   "cells": 4778,
+   "catalog_rows": 103
+  },
+  {
+   "label": "tissue_slice:census_data/homo_sapiens",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0002048'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0002048'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 17,
+   "catalog_whole": 7,
+   "catalog_seconds": 0.0035,
+   "datasets_with_cells": 17,
+   "cells": 1993595,
+   "catalog_rows": 103
+  },
+  {
+   "label": "single_gene_all_cells:census_data/homo_sapiens",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/homo_sapiens",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000897'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 7,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0038,
+   "datasets_with_cells": 7,
+   "cells": 113835,
+   "catalog_rows": 103
+  },
+  {
+   "label": "multivalued_disease:census_data/homo_sapiens",
+   "key": "multivalued_disease",
+   "value_filter": "disease_ontology_term_id in ['MONDO:0005109 || MONDO:0005445']",
+   "status": "expressible",
+   "builder": "obs.disease_ontology_term_id.has_all(['MONDO:0005109', 'MONDO:0005445'])",
+   "notes": [
+    "disease_ontology_term_id: a joined value of Census 1 becomes has_all of its members"
+   ],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 1,
+   "catalog_whole": 1,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 1,
+   "cells": 12822,
+   "catalog_rows": 103
+  },
+  {
+   "label": "var_symbol_collision:census_data/homo_sapiens",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/homo_sapiens",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000897'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 7,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 7,
+   "cells": 113835,
+   "catalog_rows": 103
+  },
+  {
+   "label": "obs_metadata_only:census_data/homo_sapiens",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000897'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000897'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 7,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 7,
+   "cells": 113835,
+   "catalog_rows": 103
+  },
+  {
+   "label": "var_all_genes:census_data/homo_sapiens",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/homo_sapiens",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/mus_musculus",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "status": "expressible",
+   "builder": "obs.is_primary_data & (obs.nnz >= 500) & (obs.cell_type_ontology_term_id != 'unknown') & (obs.tissue_general_ontology_term_id != 'UBERON:0001017') & (obs.tissue_general_ontology_term_id != 'UBERON:0001007') & (obs.tissue_general_ontology_term_id != 'UBERON:0002405') & (obs.tissue_general_ontology_term_id != 'UBERON:0000990') & (obs.tissue_general_ontology_term_id != 'UBERON:0001004') & (obs.tissue_general_ontology_term_id != 'UBERON:0001434')",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "cell_type_slice:census_data/mus_musculus",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000222'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "dataset_slice:census_data/mus_musculus",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == 'dcfd4feb-18a3-4b30-81d7-1b0c544a8ab3'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == 'dcfd4feb-18a3-4b30-81d7-1b0c544a8ab3'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "tissue_slice:census_data/mus_musculus",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000922'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0000922'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/mus_musculus",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/mus_musculus",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000222'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "var_symbol_collision:census_data/mus_musculus",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/mus_musculus",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000222'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "obs_metadata_only:census_data/mus_musculus",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000222'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000222'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "var_all_genes:census_data/mus_musculus",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/mus_musculus",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/macaca_mulatta",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "status": "expressible",
+   "builder": "obs.is_primary_data & (obs.nnz >= 500) & (obs.cell_type_ontology_term_id != 'unknown') & (obs.tissue_general_ontology_term_id != 'UBERON:0001017') & (obs.tissue_general_ontology_term_id != 'UBERON:0001007') & (obs.tissue_general_ontology_term_id != 'UBERON:0002405') & (obs.tissue_general_ontology_term_id != 'UBERON:0000990') & (obs.tissue_general_ontology_term_id != 'UBERON:0001004') & (obs.tissue_general_ontology_term_id != 'UBERON:0001434')",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "cell_type_slice:census_data/macaca_mulatta",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "dataset_slice:census_data/macaca_mulatta",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == 'd87ba7ec-fddf-4141-abfd-1d69e8427a42'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == 'd87ba7ec-fddf-4141-abfd-1d69e8427a42'",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "tissue_slice:census_data/macaca_mulatta",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/macaca_mulatta",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/macaca_mulatta",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "var_symbol_collision:census_data/macaca_mulatta",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/macaca_mulatta",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "obs_metadata_only:census_data/macaca_mulatta",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "macaca_mulatta"
+  },
+  {
+   "label": "var_all_genes:census_data/macaca_mulatta",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/macaca_mulatta",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/callithrix_jacchus",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "status": "expressible",
+   "builder": "obs.is_primary_data & (obs.nnz >= 500) & (obs.cell_type_ontology_term_id != 'unknown') & (obs.tissue_general_ontology_term_id != 'UBERON:0001017') & (obs.tissue_general_ontology_term_id != 'UBERON:0001007') & (obs.tissue_general_ontology_term_id != 'UBERON:0002405') & (obs.tissue_general_ontology_term_id != 'UBERON:0000990') & (obs.tissue_general_ontology_term_id != 'UBERON:0001004') & (obs.tissue_general_ontology_term_id != 'UBERON:0001434')",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "cell_type_slice:census_data/callithrix_jacchus",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "dataset_slice:census_data/callithrix_jacchus",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '22c5f395-17c2-40f5-972d-d4ff5e69f9be'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == '22c5f395-17c2-40f5-972d-d4ff5e69f9be'",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "tissue_slice:census_data/callithrix_jacchus",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/callithrix_jacchus",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/callithrix_jacchus",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "var_symbol_collision:census_data/callithrix_jacchus",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/callithrix_jacchus",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "obs_metadata_only:census_data/callithrix_jacchus",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000679'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000679'",
+   "notes": [],
+   "organism": "callithrix_jacchus"
+  },
+  {
+   "label": "var_all_genes:census_data/callithrix_jacchus",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/callithrix_jacchus",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "wmg_production:census_data/pan_troglodytes",
+   "key": "wmg_production",
+   "value_filter": "is_primary_data == True and nnz >= 500 and cell_type_ontology_term_id != 'unknown' and tissue_general_ontology_term_id != 'UBERON:0001017' and tissue_general_ontology_term_id != 'UBERON:0001007' and tissue_general_ontology_term_id != 'UBERON:0002405' and tissue_general_ontology_term_id != 'UBERON:0000990' and tissue_general_ontology_term_id != 'UBERON:0001004' and tissue_general_ontology_term_id != 'UBERON:0001434'",
+   "status": "expressible",
+   "builder": "obs.is_primary_data & (obs.nnz >= 500) & (obs.cell_type_ontology_term_id != 'unknown') & (obs.tissue_general_ontology_term_id != 'UBERON:0001017') & (obs.tissue_general_ontology_term_id != 'UBERON:0001007') & (obs.tissue_general_ontology_term_id != 'UBERON:0002405') & (obs.tissue_general_ontology_term_id != 'UBERON:0000990') & (obs.tissue_general_ontology_term_id != 'UBERON:0001004') & (obs.tissue_general_ontology_term_id != 'UBERON:0001434')",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "cell_type_slice:census_data/pan_troglodytes",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000128'",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "dataset_slice:census_data/pan_troglodytes",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '070b36c0-773a-45d7-ac44-92f690aee9ca'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == '070b36c0-773a-45d7-ac44-92f690aee9ca'",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "tissue_slice:census_data/pan_troglodytes",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0000955'",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "single_gene_all_cells:census_data/pan_troglodytes",
+   "key": "single_gene_all_cells",
+   "status": "var axis"
+  },
+  {
+   "label": "cell_type_gene_subset:census_data/pan_troglodytes",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000128'",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "var_symbol_collision:census_data/pan_troglodytes",
+   "key": "var_symbol_collision",
+   "status": "no obs filter"
+  },
+  {
+   "label": "both_layers:census_data/pan_troglodytes",
+   "key": "both_layers",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000128'",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "obs_metadata_only:census_data/pan_troglodytes",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000128'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000128'",
+   "notes": [],
+   "organism": "pan_troglodytes"
+  },
+  {
+   "label": "var_all_genes:census_data/pan_troglodytes",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_data/pan_troglodytes",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "cell_type_slice:census_spatial_sequencing/homo_sapiens",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000115'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 23,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0038,
+   "datasets_with_cells": 23,
+   "cells": 113310,
+   "catalog_rows": 103
+  },
+  {
+   "label": "dataset_slice:census_spatial_sequencing/homo_sapiens",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '88b7da92-178d-4f27-bc18-b0165b256c67'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == '88b7da92-178d-4f27-bc18-b0165b256c67'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "refused",
+   "run_reason": "dataset_id has no value '88b7da92-178d-4f27-bc18-b0165b256c67' in any dataset of the catalog, so obs.dataset_id == '88b7da92-178d-4f27-bc18-b0165b256c67' matches no cell"
+  },
+  {
+   "label": "tissue_slice:census_spatial_sequencing/homo_sapiens",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0002113'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0002113'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 6,
+   "catalog_whole": 1,
+   "catalog_seconds": 0.0036,
+   "datasets_with_cells": 6,
+   "cells": 208520,
+   "catalog_rows": 103
+  },
+  {
+   "label": "cell_type_gene_subset:census_spatial_sequencing/homo_sapiens",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000115'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 23,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0041,
+   "datasets_with_cells": 23,
+   "cells": 113310,
+   "catalog_rows": 103
+  },
+  {
+   "label": "spatial_cell_type:census_spatial_sequencing/homo_sapiens",
+   "key": "spatial_cell_type",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000115'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 23,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0038,
+   "datasets_with_cells": 23,
+   "cells": 113310,
+   "catalog_rows": 103
+  },
+  {
+   "label": "obs_metadata_only:census_spatial_sequencing/homo_sapiens",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:0000115'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:0000115'",
+   "notes": [],
+   "organism": "homo_sapiens",
+   "run_status": "ok",
+   "catalog_candidates": 23,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 23,
+   "cells": 113310,
+   "catalog_rows": 103
+  },
+  {
+   "label": "var_all_genes:census_spatial_sequencing/homo_sapiens",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_spatial_sequencing/homo_sapiens",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  },
+  {
+   "label": "cell_type_slice:census_spatial_sequencing/mus_musculus",
+   "key": "cell_type_slice",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:1000838'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "dataset_slice:census_spatial_sequencing/mus_musculus",
+   "key": "dataset_slice",
+   "value_filter": "dataset_id == '9a32e8f2-a570-4eef-ae25-a3919f98049b'",
+   "status": "expressible",
+   "builder": "obs.dataset_id == '9a32e8f2-a570-4eef-ae25-a3919f98049b'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "tissue_slice:census_spatial_sequencing/mus_musculus",
+   "key": "tissue_slice",
+   "value_filter": "tissue_general_ontology_term_id == 'UBERON:0002113'",
+   "status": "expressible",
+   "builder": "obs.tissue_general_ontology_term_id == 'UBERON:0002113'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "cell_type_gene_subset:census_spatial_sequencing/mus_musculus",
+   "key": "cell_type_gene_subset",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:1000838'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "spatial_cell_type:census_spatial_sequencing/mus_musculus",
+   "key": "spatial_cell_type",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:1000838'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "obs_metadata_only:census_spatial_sequencing/mus_musculus",
+   "key": "obs_metadata_only",
+   "value_filter": "cell_type_ontology_term_id == 'CL:1000838'",
+   "status": "expressible",
+   "builder": "obs.cell_type_ontology_term_id == 'CL:1000838'",
+   "notes": [],
+   "organism": "mus_musculus"
+  },
+  {
+   "label": "var_all_genes:census_spatial_sequencing/mus_musculus",
+   "key": "var_all_genes",
+   "status": "no obs filter"
+  },
+  {
+   "label": "presence_matrix:census_spatial_sequencing/mus_musculus",
+   "key": "presence_matrix",
+   "status": "no obs filter"
+  }
+ ],
+ "probes": [
+  {
+   "kind": "compound boolean",
+   "note": "",
+   "status": "expressible",
+   "builder": "((obs.tissue == 'lung') | (obs.tissue_general == 'lung')) & (obs.cell_type != 'macrophage')",
+   "run_status": "ok",
+   "catalog_candidates": 17,
+   "catalog_whole": 6,
+   "catalog_seconds": 0.0044,
+   "datasets_with_cells": 17,
+   "cells": 1885447,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "IN",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.cell_type.isin(['monocyte', 'neutrophil'])",
+   "run_status": "ok",
+   "catalog_candidates": 22,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0038,
+   "datasets_with_cells": 22,
+   "cells": 122097,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "NOT IN",
+   "note": "",
+   "status": "expressible",
+   "builder": "(obs.tissue_general == 'lung') & ~obs.cell_type.isin(['alveolar macrophage', 'type II pneumocyte'])",
+   "run_status": "ok",
+   "catalog_candidates": 17,
+   "catalog_whole": 6,
+   "catalog_seconds": 0.0048,
+   "datasets_with_cells": 17,
+   "cells": 1822235,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "nulls",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.raw_variance_nnz.isna()",
+   "run_status": "ok",
+   "catalog_candidates": 103,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0033,
+   "datasets_with_cells": 0,
+   "cells": 0,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "membership, multi-valued disease",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.disease.has_any(['COVID-19'])",
+   "run_status": "ok",
+   "catalog_candidates": 9,
+   "catalog_whole": 5,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 9,
+   "cells": 637638,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "joined value, as Census 1",
+   "note": "has_all also selects a cell with more members; no exact form of the joined value",
+   "status": "expressible",
+   "builder": "obs.disease.has_all(['COVID-19', 'normal'])",
+   "run_status": "ok",
+   "catalog_candidates": 0,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0038,
+   "datasets_with_cells": 0,
+   "cells": 0,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "numeric range",
+   "note": "",
+   "status": "expressible",
+   "builder": "(obs.cell_type == 'neutrophil') & (obs.nnz >= 2000) & (obs.raw_sum < 20000)",
+   "run_status": "ok",
+   "catalog_candidates": 14,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0037,
+   "datasets_with_cells": 6,
+   "cells": 1077,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "numeric range only",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.nnz >= 8000",
+   "run_status": "ok",
+   "catalog_candidates": 103,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0033,
+   "datasets_with_cells": 58,
+   "cells": 279441,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "prefix",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.cell_type.str.startswith('CD8')",
+   "run_status": "ok",
+   "catalog_candidates": 24,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0038,
+   "datasets_with_cells": 24,
+   "cells": 427977,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "substring, case-insensitive",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.cell_type.str.contains('macrophage', case=False, regex=False)",
+   "run_status": "ok",
+   "catalog_candidates": 36,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.0039,
+   "datasets_with_cells": 36,
+   "cells": 581205,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "regular expression",
+   "note": "",
+   "status": "expressible",
+   "builder": "obs.cell_type.str.match('CD(4|8)-positive')",
+   "run_status": "ok",
+   "catalog_candidates": 27,
+   "catalog_whole": 0,
+   "catalog_seconds": 0.004,
+   "datasets_with_cells": 27,
+   "cells": 1051329,
+   "catalog_rows": 103
+  },
+  {
+   "kind": "ontology closure (T cell)",
+   "note": "out of scope by decision; a caller passes isin of the descendant terms",
+   "status": "no builder form"
+  },
+  {
+   "kind": "arithmetic",
+   "note": "no arithmetic between columns; a caller filters the result in pandas",
+   "status": "no builder form"
+  }
+ ]
+}

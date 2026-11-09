@@ -2,11 +2,12 @@
 
 For each store that a catalog names (the consolidated stores in place of their
 members, unless `--per-dataset`), the tool opens the store once with the lean open,
-and then, one measure at a time, in this order for each query:
+and then, one measure at a time:
 
 - `main`: `anndata.io.read_elem(obs)`, the whole `obs` of the store, as `main`'s
-  `get_anndata` reads it before its filter.
-- `bind`: the builder's store side for the query over all rows of the store:
+  `get_anndata` reads it before its filter. It runs once for each repeat, and each
+  record of the repeat holds it.
+- `bind`, for each query: the builder's store side over all rows of the store:
   `obs_arrow.read_columns` of the filter's columns (`read`), then
   `obs_arrow.evaluate` (`eval`), the bind and the evaluation in Arrow.
 
@@ -62,6 +63,8 @@ def bench_store(uri: str, names: list[str], repeat: int) -> list[dict[str, Any]]
     record = cast("dict[str, Any]", group.attrs.get("cellxgene-census2", {}))
     layout = "consolidated" if "consolidation" in record else "per_dataset"
     namespace = obs_columns.Obs("homo_sapiens")
+    # The full read does not depend on the query, so it runs once for each repeat.
+    frame, main = measure(functools.partial(read_elem, obs))
     out = []
     for name in names:
         query = QUERIES[name]
@@ -70,7 +73,6 @@ def bench_store(uri: str, names: list[str], repeat: int) -> list[dict[str, Any]]
             continue
         tree = normalize(as_expr(built))
         cols = sorted(columns(tree) | set(query.by))
-        frame, main = measure(functools.partial(read_elem, obs))
         cache = obs_arrow.CategoryCache(obs)
         read_all = functools.partial(obs_arrow.read_columns, obs, cols, 0, n_obs, cache)
         data, read = measure(read_all)
