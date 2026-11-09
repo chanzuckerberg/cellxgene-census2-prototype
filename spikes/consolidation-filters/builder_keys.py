@@ -5,9 +5,10 @@ records the number of cells, the datasets, and a digest of the sorted cell keys
 `(dataset_id, observation_joinid)`. `duckdb_keys.py` records the same for the SQL path
 of the `spike/obs-duckdb` branch, and `compare_keys.py` compares the two.
 
-Run it from `census2-sdk/tools`, so that `bench.filters` imports:
+Run it from `census2-sdk/tools`, with that directory on `PYTHONPATH`, so that
+`bench.filters` imports:
 
-    python ../../spikes/consolidation-filters/builder_keys.py catalog-103.parquet \\
+    PYTHONPATH=. python ../../spikes/consolidation-filters/builder_keys.py catalog-103.parquet \\
         --out builder-keys.jsonl --export-sql queries-sql.json
 """
 

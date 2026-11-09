@@ -427,3 +427,29 @@ def test_get_obs_columns_and_cell_key(corpus: dict[str, Path]) -> None:
     assert len(frame) == hs.count(hs.obs.tissue == "lung")
     assert hs.get_obs(hs.obs.tissue == "kidney", columns=[]).shape == (30, 0)
     assert census.homo_sapiens.plan(None).tree == Const(ORG, True)
+
+
+@pytest.mark.parametrize("key", ["catalog", "catalog_c"])
+def test_get_obs_with_a_read_that_keeps_no_cell(
+    corpus: dict[str, Path], key: str
+) -> None:
+    census = census2_sdk.open_census([corpus[key]])
+    hs = census.homo_sapiens
+    f = (hs.obs.cell_type == "neutrophil") & (hs.obs.nnz > 2900)
+    frame = hs.get_obs(f, max_workers=2)
+    frames = [store_obs(corpus, d) for d in SPECS]
+    keys = [
+        f"{d}_{j}"
+        for d, fr in zip(SPECS, frames, strict=True)
+        for j in fr["observation_joinid"][
+            (fr["cell_type"] == "neutrophil") & (fr["nnz"] > 2900)
+        ]
+    ]
+    assert list(frame.index) == keys
+    assert hs.last_query["candidates"] == 3
+    # At least one candidate keeps no cell, and one keeps some.
+    per_store = {
+        d: sum(k.startswith(f"{d}_") for k in keys) for d in ("ds-1", "ds-2", "ds-4")
+    }
+    assert min(per_store.values()) == 0 < max(per_store.values()), per_store
+    assert isinstance(frame["tissue"].dtype, pd.CategoricalDtype)

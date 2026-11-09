@@ -547,7 +547,8 @@ def take(d: ColumnData, positions: np.ndarray) -> Any:
         used = np.flatnonzero(np.bincount(present, minlength=len(d.categories)))
         renumber = np.full(len(d.categories) + 1, -1, dtype=np.int64)
         renumber[used] = np.arange(len(used))
-        dtype = pd.CategoricalDtype(pd.Index(d.categories[used]), ordered=d.ordered)
+        # Slice an Index of all the categories, so that an empty slice keeps the dtype.
+        dtype = pd.CategoricalDtype(pd.Index(d.categories)[used], ordered=d.ordered)
         return pd.Categorical.from_codes(renumber[codes], dtype=dtype, validate=False)
     if d.mask is None:
         return d.values[positions]

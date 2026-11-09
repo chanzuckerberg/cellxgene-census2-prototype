@@ -60,6 +60,8 @@ from typing import Any, cast
 import anndata
 import numpy as np
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem
@@ -983,7 +985,7 @@ def _scan_unit(
             frame = _kept_obs(obs, names_out, data, lo, start, keep, cache, where)
             if "dataset_id" in frame.columns and len(frame):
                 _check_dataset_id(frame, dataset_id, where)
-            frame.index = pd.Index(_cell_keys(obs, dataset_id, lo + keep))
+            frame.index = _cell_keys(obs, dataset_id, lo + keep)
             out.append((m.index, frame))
         else:
             frame = _kept_obs(obs, order, data, lo, start, keep, cache, where)
@@ -995,10 +997,16 @@ def _scan_unit(
     return present, lacking, out
 
 
-def _cell_keys(obs: zarr.Group, dataset_id: str, rows: np.ndarray) -> np.ndarray:
-    """The cell keys of the rows `rows`: `<dataset_id>_<observation_joinid>`."""
-    joinid = pd.Series(_read_column_rows(obs["observation_joinid"], rows))
-    return np.asarray(dataset_id + "_" + joinid.astype(str), dtype=object)
+def _cell_keys(obs: zarr.Group, dataset_id: str, rows: np.ndarray) -> pd.Index:
+    """The cell keys of the rows `rows`: `<dataset_id>_<observation_joinid>`.
+
+    Arrow joins the strings, so pandas makes no Python string for each cell.
+    """
+    joinid = _read_column_rows(obs["observation_joinid"], rows)
+    values = pa.array(joinid, type=pa.string())
+    keys = pc.binary_join_element_wise(pa.scalar(dataset_id), values, "_")
+    index: pd.Index = pd.Index(pd.array(keys, dtype=pd.StringDtype(na_value=np.nan)))
+    return index
 
 
 def _kept_obs(
@@ -1065,6 +1073,8 @@ def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
     """Concatenate result frames; a categorical column unions its categories."""
     if not frames:
         return pd.DataFrame()
+    # A frame without rows adds no value, and its categories add no label.
+    frames = [f for f in frames if len(f)] or frames[:1]
     if len(frames) == 1:
         return frames[0]
     columns = list(frames[0].columns)
@@ -1077,5 +1087,5 @@ def _concat_frames(frames: list[pd.DataFrame]) -> pd.DataFrame:
             )
         else:
             out[name] = pd.concat(parts, ignore_index=True).array
-    index = pd.Index(np.concatenate([f.index.to_numpy() for f in frames]))
+    index = frames[0].index.append([f.index for f in frames[1:]])
     return pd.DataFrame(out, columns=columns, index=index)

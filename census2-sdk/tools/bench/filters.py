@@ -311,3 +311,33 @@ def run_query(organism: Any, query: Query, max_workers: int) -> int:
         counts = organism.count_by(list(query.by), obs_filter, max_workers=max_workers)
         return int(counts.sum())
     raise ValueError(f"no mode {query.mode!r}")
+
+
+def matrix_queries(kind: str) -> Any:
+    """The queries in the form of a `--queries` file.
+
+    `builder` and `mapping` give the list of `bench.matrix`; `duckdb` gives the
+    mapping of names to filters of the `spike/obs-duckdb` branch's `bench.matrix`, in
+    which a shape `query:<name>`, `obs:<name>`, or `count_donor:<name>` names a filter.
+    """
+    if kind == "builder":
+        return [
+            {"query": q.name, "shape": "builder", "builder": q.name}
+            for q in QUERIES.values()
+        ]
+    if kind == "mapping":
+        return [
+            {"query": q.name, "shape": "filter", "filter": q.mapping}
+            for q in QUERIES.values()
+            if q.mapping is not None and q.mode == "anndata"
+        ]
+    if kind == "duckdb":
+        return {q.name: {"sql": q.sql} for q in QUERIES.values() if q.sql is not None}
+    raise ValueError(f"no kind {kind!r}")
+
+
+if __name__ == "__main__":
+    import json
+    import sys
+
+    print(json.dumps(matrix_queries(sys.argv[1]), indent=1))
