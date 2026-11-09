@@ -124,16 +124,15 @@ class CountingStore(zarr.storage.WrapperStore[Store]):
             yield group
 
 
-def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
+def open_counted(
+    uri: str | os.PathLike[str], shared: _catalog.Clients | None = None
+) -> zarr.Group:
     """`census2_sdk.catalog.open_store`, through a counting store."""
     if _catalog.is_remote(uri):
-        import obstore.store
-
-        base: Store = zarr.storage.ObjectStore(
-            obstore.store.from_url(str(uri)), read_only=True
-        )
-    else:
-        base = zarr.storage.LocalStore(str(uri), read_only=True)
+        bucket, path = _catalog.split_remote(str(uri)) or (str(uri), "")
+        base: Store = (shared or {}).get(bucket) or _catalog.client(bucket)
+        return zarr.open_group(CountingStore(base), path=path, mode="r")
+    base = zarr.storage.LocalStore(str(uri), read_only=True)
     return zarr.open_group(CountingStore(base), mode="r")
 
 

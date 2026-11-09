@@ -272,10 +272,10 @@ def test_concurrent_reads_match_one_at_a_time(
     finished: list[str] = []
 
     def overlapping(
-        row: dict[str, Any], canonical: Any, layers: Any = ()
+        row: dict[str, Any], canonical: Any, layers: Any = (), shared: Any = None
     ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, canonical, layers)
+        part = read_store(row, canonical, layers, shared)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -293,6 +293,59 @@ def test_concurrent_reads_match_one_at_a_time(
     )
     assert np.array_equal(X(many).toarray(), X(one).toarray())
     assert many.uns["census2"] == one.uns["census2"]
+
+
+def test_stores_in_one_bucket_share_one_client(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Remote URIs in two buckets name the three stores. A local store stands in for
+    # the obstore client of each bucket.
+    made: list[str] = []
+
+    def client(url: str) -> zarr.storage.LocalStore:
+        made.append(url)
+        return zarr.storage.LocalStore(corpus["root"], read_only=True)
+
+    monkeypatch.setattr(catalog, "client", client)
+    obs_filter = {"tissue": ["lung", "kidney"]}  # selects all three stores
+    local = query(census2_sdk.open_census([corpus["catalog"]]), obs_filter)
+    census = census2_sdk.open_census([corpus["catalog"]])
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [
+        f"s3://{'a' if i else 'b'}/out/{name}" for i, name in enumerate(names)
+    ]
+    remote = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
+    assert sorted(made) == ["s3://a", "s3://b"]  # one client for each bucket
+    assert remote is not None
+    pd.testing.assert_frame_equal(
+        cast("pd.DataFrame", remote.obs), cast("pd.DataFrame", local.obs)
+    )
+    assert np.array_equal(X(remote).toarray(), X(local).toarray())
+
+
+@pytest.mark.parametrize(
+    ("uri", "split"),
+    [
+        ("s3://bucket/out/v-1.zarr/", ("s3://bucket", "out/v-1.zarr")),
+        ("gs://bucket/a.zarr", ("gs://bucket", "a.zarr")),
+        ("az://container/a.zarr", ("az://container", "a.zarr")),
+        ("s3://bucket", ("s3://bucket", "")),
+        ("s3://bucket/", ("s3://bucket", "")),
+        # These URIs keep a client of their own, which reads them as obstore does.
+        ("https://account.blob.core.windows.net/container/a.zarr", None),
+        ("abfs://container@account.dfs.core.windows.net/a.zarr", None),
+        ("s3://bucket/a.zarr?versionId=1", None),
+        ("s3://bucket/a%20b.zarr", None),
+        ("s3://bucket/%FF.zarr", None),
+        ("s3://bucket/a\\b.zarr", None),
+        ("s3://bucket/a/../b.zarr", None),
+        ("s3://bucket/a//b.zarr", None),
+        ("s3://bucket//", None),
+        ("s3://user@bucket/a.zarr", None),
+    ],
+)
+def test_split_remote(uri: str, split: tuple[str, str] | None) -> None:
+    assert catalog.split_remote(uri) == split
 
 
 @pytest.mark.parametrize("max_workers", [0, -1])

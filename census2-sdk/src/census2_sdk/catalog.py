@@ -15,6 +15,8 @@ with the number of cells in `n_cells`. `load` reads the catalog without this col
 import io
 import os
 import pathlib
+import re
+import urllib.parse
 from collections.abc import Iterable, Mapping
 from typing import Any, cast
 
@@ -22,6 +24,7 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq  # type: ignore[import-untyped]  # pyarrow has no types
 import zarr
+from zarr.abc.store import Store
 
 # obstore is the optional `s3` extra. It is imported here, at module level, when it
 # is installed, so that a local catalog over local stores installs and runs
@@ -76,14 +79,69 @@ def is_remote(uri: str | os.PathLike[str]) -> bool:
     return str(uri).startswith(REMOTE_SCHEMES)
 
 
-def open_store(uri: str | os.PathLike[str]) -> zarr.Group:
-    """Open a store for reading. A remote URI goes through obstore."""
+# The obstore client of each bucket that a query reads, from `clients`.
+Clients = Mapping[str, Store]
+# The schemes whose host part is the bucket (or the container).
+BUCKET_SCHEMES = frozenset({"s3", "gs", "az"})
+# A bucket name, and a path of plain names with one slash before each name.
+_PLAIN_BUCKET = re.compile(r"[A-Za-z0-9._-]+")
+_PLAIN_PATH = re.compile(r"(/[A-Za-z0-9._~-]+)*/?")
+
+
+def split_remote(uri: str) -> tuple[str, str] | None:
+    """The bucket URL of a remote URI, and the path of the store in it.
+
+    Return the split only for an `s3`, `gs`, or `az` URI with a plain bucket name
+    and a path of plain names (letters, digits, and `-._~`, but not `.` or `..`),
+    with no query and no fragment. Return None for every other remote URI. A store
+    with such a URI opens with a client of its own, which reads the URI as obstore
+    does.
+    """
+    parts = urllib.parse.urlsplit(uri)
+    if (
+        parts.scheme not in BUCKET_SCHEMES
+        or parts.query
+        or parts.fragment
+        or not _PLAIN_BUCKET.fullmatch(parts.netloc)
+        or not _PLAIN_PATH.fullmatch(parts.path)
+    ):
+        return None
+    names = [name for name in parts.path.split("/") if name]
+    if any(name in (".", "..") for name in names):
+        return None
+    return f"{parts.scheme}://{parts.netloc}", "/".join(names)
+
+
+def client(url: str) -> Store:
+    """A read-only obstore client for `url`, as a zarr store."""
+    _require_obstore()
+    return zarr.storage.ObjectStore(obstore.store.from_url(url), read_only=True)
+
+
+def clients(uris: Iterable[str]) -> dict[str, Store]:
+    """One obstore client for each bucket of the remote `uris`, for `open_store`.
+
+    The stores in one bucket then use the connections of one client. A client for
+    each store opens new connections for each store, with a DNS lookup and a TLS
+    handshake for each connection. Each query makes its own clients, so a query
+    reads the credentials from the environment again.
+    """
+    buckets = {split[0] for uri in uris if (split := split_remote(uri))}
+    return {bucket: client(bucket) for bucket in buckets}
+
+
+def open_store(
+    uri: str | os.PathLike[str], shared: Clients | None = None
+) -> zarr.Group:
+    """Open a store for reading. A remote URI goes through obstore.
+
+    The store opens at its path in the client of its bucket from `shared`. A
+    remote URI whose bucket is not in `shared` gets a client of its own.
+    """
     if is_remote(uri):
-        _require_obstore()
-        store = zarr.storage.ObjectStore(
-            obstore.store.from_url(str(uri)), read_only=True
-        )
-        return zarr.open_group(store, mode="r")
+        bucket, path = split_remote(str(uri)) or (str(uri), "")
+        store = (shared or {}).get(bucket) or client(bucket)
+        return zarr.open_group(store, path=path, mode="r")
     return zarr.open_group(str(uri), mode="r")
 
 
