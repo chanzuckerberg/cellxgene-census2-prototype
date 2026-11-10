@@ -91,11 +91,9 @@ _PLAIN_PATH = re.compile(r"(/[A-Za-z0-9._~-]+)*/?")
 def split_remote(uri: str) -> tuple[str, str] | None:
     """The bucket URL of a remote URI, and the path of the store in it.
 
-    Return the split only for an `s3`, `gs`, or `az` URI with a plain bucket name
-    and a path of plain names (letters, digits, and `-._~`, but not `.` or `..`),
-    with no query and no fragment. Return None for every other remote URI. A store
-    with such a URI opens with a client of its own, which reads the URI as obstore
-    does.
+    Return None unless the URI is `s3`, `gs`, or `az` with plain names and no query
+    or fragment. A store with another URI opens with a client of its own, so obstore
+    reads that URI itself.
     """
     parts = urllib.parse.urlsplit(uri)
     if (
@@ -121,10 +119,8 @@ def client(url: str) -> Store:
 def clients(uris: Iterable[str]) -> dict[str, Store]:
     """One obstore client for each bucket of the remote `uris`, for `open_store`.
 
-    The stores in one bucket then use the connections of one client. A client for
-    each store opens new connections for each store, with a DNS lookup and a TLS
-    handshake for each connection. Each query makes its own clients, so a query
-    reads the credentials from the environment again.
+    The stores in one bucket use the connections of one client. Each query makes its
+    own clients, so a query reads the credentials from the environment again.
     """
     buckets = {split[0] for uri in uris if (split := split_remote(uri))}
     return {bucket: client(bucket) for bucket in buckets}
