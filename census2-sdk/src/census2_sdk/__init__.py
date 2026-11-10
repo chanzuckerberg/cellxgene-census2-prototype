@@ -389,11 +389,16 @@ RUN_THREADS = 16  # range reads in flight for one store
 
 
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
-    """The selected rows of a CSR matrix, read without loading the rest.
+    """The rows `keep` of a CSR matrix, read without the other rows.
 
-    Each run of adjacent kept rows is one range of `data` and of `indices`, read at the
-    same time. Above `MAX_RUNS` runs, the SDK uses anndata's row read, which makes fewer
-    requests. A matrix in another encoding, such as CSC, also goes through that read.
+    The plain call is `sparse_dataset(node)[keep]`. For row positions, anndata makes one
+    array position for each stored value of each kept row. zarr then selects the values
+    by position. The CPU time and the memory of that read increase with the stored values.
+
+    The stored values of adjacent kept rows are one span of `data` and of `indices`.
+    Thus this function reads one slice of each array for each run of adjacent kept rows.
+    Above `MAX_RUNS` runs, the SDK uses the plain call, which makes fewer requests. A
+    matrix in another encoding, such as CSC, also uses the plain call.
     """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
@@ -404,23 +409,31 @@ def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix
     n_vars = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
         return sp.csr_matrix((0, n_vars), dtype=data.dtype)
-    cut = np.flatnonzero(np.diff(keep) != 1) + 1
-    first, last = keep[np.r_[0, cut]], keep[np.r_[cut - 1, len(keep) - 1]] + 1
-    if len(first) > MAX_RUNS or node.attrs.get("encoding-type") != "csr_matrix":
+    if node.attrs.get("encoding-type") != "csr_matrix":
         return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
+
+    # A new run starts at each kept row that does not follow the kept row before it.
+    breaks = np.flatnonzero(np.diff(keep) != 1) + 1
+    if len(breaks) + 1 > MAX_RUNS:
+        return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
+    runs = np.split(keep, breaks)
+
     indptr = np.asarray(indptr_node[:], dtype=np.int64)
-    values = (data, indices)
-    ranges = [
-        (a, int(indptr[s]), int(indptr[e])) for s, e in zip(first, last) for a in (0, 1)
-    ]
-    with ThreadPoolExecutor(min(RUN_THREADS, len(ranges))) as pool:
-        parts = list(pool.map(lambda r: np.asarray(values[r[0]][r[1] : r[2]]), ranges))
-    counts = np.concatenate([np.diff(indptr[s : e + 1]) for s, e in zip(first, last)])
+    spans = [slice(int(indptr[run[0]]), int(indptr[run[-1] + 1])) for run in runs]
+
+    # A zarr slice read blocks the thread that calls it, so one thread reads one span at
+    # a time. This pool keeps as many as RUN_THREADS spans of the store in flight.
+    # `get_anndata` calls this function from one thread for each store that it reads.
+    # Thus a query has no more than max_workers * RUN_THREADS span reads in flight.
+    with ThreadPoolExecutor(min(RUN_THREADS, 2 * len(spans))) as pool:
+        # `map` submits each read at once, so both arrays are in flight before the wait.
+        pending = [pool.map(array.__getitem__, spans) for array in (data, indices)]
+        kept_data, kept_indices = (
+            np.concatenate([np.asarray(part) for part in parts]) for parts in pending
+        )
+
+    row_nnz = np.diff(indptr)[keep]
     return sp.csr_matrix(
-        (
-            np.concatenate(parts[0::2]),
-            np.concatenate(parts[1::2]),
-            np.r_[0, np.cumsum(counts)],
-        ),
+        (kept_data, kept_indices, np.r_[0, np.cumsum(row_nnz)]),
         shape=(len(keep), n_vars),
     )
