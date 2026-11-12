@@ -502,8 +502,51 @@ def test_obs_index_is_not_read(
     monkeypatch.setattr(census2_sdk, "read_elem", spy)
     query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
     # A read of the whole group would decode the index too.
-    assert "/obs/tissue" in names
+    assert "/obs/dataset_id" in names
     assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
+
+
+@pytest.mark.parametrize("unused", [False, True])
+def test_categories_come_from_the_catalog_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused: bool
+) -> None:
+    """A listed column reads only its codes, and equals the column that anndata reads.
+
+    A store with a category that the row does not list keeps anndata's read.
+    """
+    adata = make_store("ds-c", 8, REFERENCE_IDS[:3], ["lung"], ["normal"], 4)
+    values = ["lung", "kidney", None, "lung", "heart", None, "kidney", "lung"]
+    tissue = pd.Categorical(values)
+    adata.obs["tissue"] = tissue.add_categories(["liver"]) if unused else tissue
+    path = one_store_catalog(tmp_path, adata, "ds-c")
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    result = census2_sdk.open_census([path]).get_anndata("homo_sapiens")
+    assert result is not None
+    assert ("/obs/tissue" in names) == unused
+    assert "/obs/disease" not in names
+    store = zarr.open_group(tmp_path / "out" / "v-ds-c.zarr", mode="r")
+    stored = cast("pd.DataFrame", read_elem(store["obs"]))
+    for column in ("tissue", "disease"):
+        pd.testing.assert_extension_array_equal(
+            result.obs[column].array, stored[column].array
+        )
+    assert int(result.obs["tissue"].isna().sum()) == 2
+
+
+def test_catalog_refuses_unsorted_categories(tmp_path: Path) -> None:
+    """The SDK takes the categories from the row, so the row needs the writer's order."""
+    adata = make_store("ds-u", 4, REFERENCE_IDS[:3], ["lung"], ["normal"], 5)
+    adata.obs["tissue"] = pd.Categorical(
+        ["lung", "kidney", "lung", "kidney"], categories=["lung", "kidney"]
+    )
+    with pytest.raises(ValueError, match="tissue: the categories are not sorted"):
+        one_store_catalog(tmp_path, adata, "ds-u")
 
 
 @pytest.mark.parametrize(

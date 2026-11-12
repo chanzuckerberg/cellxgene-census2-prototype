@@ -127,6 +127,12 @@ def summarize(group: zarr.Group) -> tuple[dict[str, Any], pd.DataFrame]:
         n_obs = len(values)
         # A null is not a value. astype(str) would turn it into the string "nan".
         row[column] = sorted(values.dropna().astype(str).unique())
+        if isinstance(values.dtype, pd.CategoricalDtype):
+            # The SDK takes the categories from the row, so the row must have the
+            # order of the store.
+            categories = [str(c) for c in values.cat.categories]
+            if len(categories) == len(row[column]) and categories != row[column]:
+                raise ValueError(f"obs {column}: the categories are not sorted")
         if column in COUNTED:
             counted[column] = values
     primary: pd.Series | None = None
