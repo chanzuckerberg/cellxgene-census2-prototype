@@ -73,7 +73,7 @@ def normalized(
         corrected = full_gene[rows]
         data = np.where(corrected, data / feature_length[counts.indices], data)
         data = data.astype(np.float32)
-    # ponytail: reference order; a rare full-gene row differs in the last bit.
+    # The sum is in reference gene order. A rare full-gene row differs in the last bit.
     row_sum = np.bincount(rows, weights=data, minlength=counts.shape[0])
     values = (data / row_sum[rows]).astype(np.float32)
     return sp.csr_matrix((values, counts.indices, counts.indptr), shape=counts.shape)

@@ -121,7 +121,7 @@ class Census:
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        # ponytail: serial by default; raise the default after the store-count benchmark.
+        # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
                 pool.map(lambda row: _read_store(row, canonical, layers), records)
@@ -383,11 +383,57 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
             )
 
 
+# These limits are fixed. Tune them when stores change their row order or chunk size.
+MAX_RUNS = 256
+RUN_THREADS = 16  # range reads in flight for one store
+
+
 def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix:
-    """The selected rows of a CSR matrix, read without loading the rest."""
+    """The rows `keep` of a CSR matrix, read without the other rows.
+
+    The plain call is `sparse_dataset(node)[keep]`. For row positions, anndata makes one
+    array position for each stored value of each kept row. zarr then selects the values
+    by position. The CPU time and the memory of that read increase with the stored values.
+
+    The stored values of adjacent kept rows are one span of `data` and of `indices`.
+    Thus this function reads one slice of each array for each run of adjacent kept rows.
+    Above `MAX_RUNS` runs, the SDK uses the plain call, which makes fewer requests. A
+    matrix in another encoding, such as CSC, also uses the plain call.
+    """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
-    dataset = sparse_dataset(node)
+    arrays = [node[name] for name in ("data", "indices", "indptr")]
+    if not all(isinstance(a, zarr.Array) for a in arrays):
+        raise TypeError(f"{node.store_path} must hold data, indices, and indptr arrays")
+    data, indices, indptr_node = cast("list[zarr.Array[Any]]", arrays)
+    n_vars = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
-        return sp.csr_matrix((0, dataset.shape[1]), dtype=dataset.dtype)
-    return sp.csr_matrix(cast("sp.csr_matrix", dataset[keep]))
+        return sp.csr_matrix((0, n_vars), dtype=data.dtype)
+    if node.attrs.get("encoding-type") != "csr_matrix":
+        return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
+
+    # A new run starts at each kept row that does not follow the kept row before it.
+    breaks = np.flatnonzero(np.diff(keep) != 1) + 1
+    if len(breaks) + 1 > MAX_RUNS:
+        return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[keep]))
+    runs = np.split(keep, breaks)
+
+    indptr = np.asarray(indptr_node[:], dtype=np.int64)
+    spans = [slice(int(indptr[run[0]]), int(indptr[run[-1] + 1])) for run in runs]
+
+    # A zarr slice read blocks the thread that calls it, so one thread reads one span at
+    # a time. This pool keeps as many as RUN_THREADS spans of the store in flight.
+    # `get_anndata` calls this function from one thread for each store that it reads.
+    # Thus a query has no more than max_workers * RUN_THREADS span reads in flight.
+    with ThreadPoolExecutor(min(RUN_THREADS, 2 * len(spans))) as pool:
+        # `map` submits each read at once, so both arrays are in flight before the wait.
+        pending = [pool.map(array.__getitem__, spans) for array in (data, indices)]
+        kept_data, kept_indices = (
+            np.concatenate([np.asarray(part) for part in parts]) for parts in pending
+        )
+
+    row_nnz = np.diff(indptr)[keep]
+    return sp.csr_matrix(
+        (kept_data, kept_indices, np.r_[0, np.cumsum(row_nnz)]),
+        shape=(len(keep), n_vars),
+    )
