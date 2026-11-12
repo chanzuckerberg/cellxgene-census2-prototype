@@ -80,6 +80,10 @@ def is_remote(uri: str | os.PathLike[str]) -> bool:
 
 
 # The obstore client of each bucket that a query reads, from `clients`.
+# One client serves one bucket: obstore makes a client for one bucket URL, with the
+# region, the endpoint, and the credentials of that bucket, and the client addresses
+# each object by its path in the bucket. Thus the stores of one bucket are the
+# largest set of stores that can use the connections of one client.
 Clients = Mapping[str, Store]
 # The schemes whose host part is the bucket (or the container).
 BUCKET_SCHEMES = frozenset({"s3", "gs", "az"})
@@ -127,16 +131,16 @@ def clients(uris: Iterable[str]) -> dict[str, Store]:
 
 
 def open_store(
-    uri: str | os.PathLike[str], shared: Clients | None = None
+    uri: str | os.PathLike[str], bucket_clients: Clients | None = None
 ) -> zarr.Group:
     """Open a store for reading. A remote URI goes through obstore.
 
-    The store opens at its path in the client of its bucket from `shared`. A
-    remote URI whose bucket is not in `shared` gets a client of its own.
+    The store opens at its path in the client of its bucket from `bucket_clients`. A
+    remote URI whose bucket is not in `bucket_clients` gets a client of its own.
     """
     if is_remote(uri):
         bucket, path = split_remote(str(uri)) or (str(uri), "")
-        store = (shared or {}).get(bucket) or client(bucket)
+        store = (bucket_clients or {}).get(bucket) or client(bucket)
         return zarr.open_group(store, path=path, mode="r")
     return zarr.open_group(str(uri), mode="r")
 

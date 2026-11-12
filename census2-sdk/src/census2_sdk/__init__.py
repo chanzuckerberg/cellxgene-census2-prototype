@@ -122,12 +122,13 @@ class Census:
 
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         uris = list(rows["store_uri"].astype(str))
-        shared = _catalog.clients(uris)
+        bucket_clients = _catalog.clients(uris)
         # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
                 pool.map(
-                    lambda row: _read_store(row, canonical, layers, shared), records
+                    lambda row: _read_store(row, canonical, layers, bucket_clients),
+                    records,
                 )
             )
         _check_var(parts, uris)
@@ -141,7 +142,9 @@ class Census:
         # Each part carries only the var index. The stores record one reference
         # version and one index, so the first store supplies the var columns,
         # except the assayed genes of its own dataset.
-        var = cast("pd.DataFrame", read_elem(open_store(uris[0], shared)["var"]))
+        var = cast(
+            "pd.DataFrame", read_elem(open_store(uris[0], bucket_clients)["var"])
+        )
         result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
@@ -282,16 +285,16 @@ def _read_store(
     row: dict[str, Any],
     obs_filter: CanonicalFilter,
     layers: Sequence[str] = (),
-    shared: _catalog.Clients | None = None,
+    bucket_clients: _catalog.Clients | None = None,
 ) -> anndata.AnnData:
     """The selected cells of one store. `X` holds the counts on the reference genes.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
     compares. `get_anndata` reads the var columns from one store. `layers` names
-    the layers to calculate from the counts. `shared` holds the obstore clients
+    the layers to calculate from the counts. `bucket_clients` holds the obstore clients
     of the query (`catalog.clients`).
     """
-    group = open_store(row["store_uri"], shared)
+    group = open_store(row["store_uri"], bucket_clients)
     obs_group = group["obs"]
     if not isinstance(obs_group, zarr.Group):
         raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")

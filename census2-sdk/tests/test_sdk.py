@@ -272,10 +272,13 @@ def test_concurrent_reads_match_one_at_a_time(
     finished: list[str] = []
 
     def overlapping(
-        row: dict[str, Any], canonical: Any, layers: Any = (), shared: Any = None
+        row: dict[str, Any],
+        canonical: Any,
+        layers: Any = (),
+        bucket_clients: Any = None,
     ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, canonical, layers, shared)
+        part = read_store(row, canonical, layers, bucket_clients)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
