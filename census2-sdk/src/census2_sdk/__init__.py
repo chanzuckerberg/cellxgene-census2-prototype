@@ -330,18 +330,13 @@ def _read_store(
 def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:
     """One `obs` column of a store. `listed` is the catalog row's entry for `name`.
 
-    The plain call is `read_elem(node)`. For a categorical column, that call reads
-    the codes and the categories. The catalog row of an indexed column lists the
-    values that the store's cells hold. A store holds the same values, sorted, as
-    the categories of the column (the writer's rule, which the catalog builder
-    checks). Thus this function reads only the codes and takes the categories from
-    the row.
+    For a listed categorical column, the function reads only the codes and takes the
+    categories from the row. The writer stores the sorted values of the column as its
+    categories, and the catalog builder checks that order.
 
-    The store can hold more categories than the row lists, for example an unused
-    one. The number of categories is in the array metadata, so the comparison
-    reads no data. When the numbers differ, the function uses the plain call.
-    `dataset_id` uses the plain call, because `_check_dataset_id` compares the
-    store with the row.
+    A column keeps `read_elem` when the store has a different number of categories
+    than the row lists. `dataset_id` keeps `read_elem`, because `_check_dataset_id`
+    compares the store with the row.
     """
     if (
         name not in _catalog.INDEXED

@@ -128,8 +128,8 @@ def summarize(group: zarr.Group) -> tuple[dict[str, Any], pd.DataFrame]:
         # A null is not a value. astype(str) would turn it into the string "nan".
         row[column] = sorted(values.dropna().astype(str).unique())
         if isinstance(values.dtype, pd.CategoricalDtype):
-            # When the store has as many categories as the row lists, the SDK
-            # reads only the codes and takes the categories from the row.
+            # The SDK takes the categories from the row, so the row must have the
+            # order of the store.
             categories = [str(c) for c in values.cat.categories]
             if len(categories) == len(row[column]) and categories != row[column]:
                 raise ValueError(f"obs {column}: the categories are not sorted")
