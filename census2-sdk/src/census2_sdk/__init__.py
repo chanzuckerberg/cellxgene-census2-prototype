@@ -438,7 +438,7 @@ def _rows(node: zarr.Array[Any] | zarr.Group, keep: np.ndarray) -> sp.csr_matrix
     #
     # A measurement on 103 stores, from the region of their bucket, gives the effect of
     # the pool. Where stores take this read, the pool decreases the wall time of a query
-    # by 20 to 60 percent. The pool adds as much as 10 percent of CPU time. With one span
+    # by 5 to 60 percent. The pool adds as much as 10 percent of CPU time. With one span
     # at a time, a query whose stores have many short runs is slower than with the plain
     # call.
     with ThreadPoolExecutor(min(RUN_THREADS, 2 * len(spans))) as pool:
