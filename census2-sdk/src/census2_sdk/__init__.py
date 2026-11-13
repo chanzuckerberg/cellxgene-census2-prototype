@@ -39,6 +39,7 @@ store whose `dataset_id` differs from the dataset of its catalog row.
 """
 
 import os
+import threading
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
@@ -54,6 +55,17 @@ from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
 from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
+
+# The `obs` columns that a store can hold with a uniform category list. A root
+# attribute maps each one to a digest of its list. The SDK repeats these names
+# of the writer's `store_format`, because it does not depend on the writer.
+UNIFORM_COLUMNS = frozenset(
+    column
+    for pair in ("assay", "cell_type", "development_stage", "tissue", "tissue_general")
+    for column in (pair, f"{pair}_ontology_term_id")
+)
+_STORE_NAMESPACE = "cellxgene-census2"
+_CATEGORY_LISTS_KEY = "obs_category_lists"
 
 __all__ = [
     "Census",
@@ -123,11 +135,14 @@ class Census:
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         uris = list(rows["store_uri"].astype(str))
         bucket_clients = _catalog.clients(uris)
+        lists = _CategoryLists(canonical)
         # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
                 pool.map(
-                    lambda row: _read_store(row, canonical, layers, bucket_clients),
+                    lambda row: _read_store(
+                        row, canonical, layers, bucket_clients, lists
+                    ),
                     records,
                 )
             )
@@ -137,6 +152,11 @@ class Census:
         # Zero-row parts stay in, so the obs schema is the columns that all
         # opened stores hold.
         result = anndata.concat(parts, join="inner")
+        # A uniform list holds each term of its ontology, so the result keeps
+        # only the values that its cells hold.
+        for column in lists.columns & set(result.obs.columns):
+            if isinstance(result.obs[column].dtype, pd.CategoricalDtype):
+                result.obs[column] = result.obs[column].cat.remove_unused_categories()
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
@@ -256,8 +276,16 @@ def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
     return [None if unrecorded(v) else v for v in rows[column]]
 
 
-def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
-    """The cells of one store that match `obs_filter`, by the same rule as the catalog."""
+def _mask(
+    obs: pd.DataFrame,
+    obs_filter: CanonicalFilter,
+    bound: dict[str, np.ndarray] | None = None,
+) -> np.ndarray:
+    """The cells of one store that match `obs_filter`, by the same rule as the catalog.
+
+    `bound` holds, for a column with a uniform category list, the result of the rule
+    for each category (`_by_category`). The query makes it once for all stores.
+    """
     mask = np.ones(len(obs), dtype=bool)
     for column, wanted in obs_filter.items():
         if column == "dataset_id":
@@ -266,14 +294,93 @@ def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
             return np.zeros(len(obs), dtype=bool)  # the catalog kept an unproven store
         col = obs[column]
         if isinstance(col.dtype, pd.CategoricalDtype):
-            # Apply the rule once for each category, then index by the codes. A
-            # null has code -1, which indexes the False at the end.
-            by_category = [_hit(c, column, wanted) for c in col.cat.categories]
-            hit = np.array(by_category + [False], dtype=bool)[col.cat.codes.to_numpy()]
+            by_category = (bound or {}).get(column)
+            if by_category is None:
+                by_category = _by_category(col.cat.categories, column, wanted)
+            hit = by_category[col.cat.codes.to_numpy()]
         else:
             hit = np.fromiter((_hit(v, column, wanted) for v in col), bool, len(col))
         mask &= hit
     return mask
+
+
+def _by_category(
+    categories: pd.Index, column: str, wanted: frozenset[str]
+) -> np.ndarray:
+    """The rule of `_hit` for each category, then a False for the code of a null.
+
+    The codes index the result. A null has code -1, which indexes the last entry.
+    """
+    return np.array([_hit(c, column, wanted) for c in categories] + [False], dtype=bool)
+
+
+class _CategoryLists:
+    """The uniform category lists that the stores of one query share.
+
+    For each column and digest, the query reads the list from the first store
+    that needs it and only the codes from each other store. The filter binds to
+    the list once. The SDK relies on the digest as on the other store metadata.
+    """
+
+    def __init__(self, obs_filter: CanonicalFilter) -> None:
+        self._filter = obs_filter
+        self._lock = threading.Lock()
+        self._lists: dict[tuple[str, str], pd.Index] = {}
+        self._bound: dict[tuple[str, str], np.ndarray] = {}
+        # The columns that at least one store gave through a uniform list.
+        self.columns: set[str] = set()
+
+    def read(self, node: zarr.Group, column: str, digest: str) -> pd.Categorical | None:
+        """The column of one store with the shared list, or None for a plain read."""
+        codes, categories = node["codes"], node["categories"]
+        if not (isinstance(codes, zarr.Array) and isinstance(categories, zarr.Array)):
+            raise TypeError(
+                f"{node.store_path} must hold a codes and a categories array"
+            )
+        key = (column, digest)
+        with self._lock:
+            if key not in self._lists:
+                first = cast("pd.Categorical", read_elem(node))
+                self._lists[key] = first.categories
+                wanted = self._filter.get(column)
+                if wanted is not None:
+                    self._bound[key] = _by_category(first.categories, column, wanted)
+                self.columns.add(column)
+                return first
+            shared = self._lists[key]
+        # The array metadata gives the length with no request. Another length
+        # means that the store does not hold the list of its digest.
+        if categories.shape != (len(shared),):
+            return None
+        return pd.Categorical.from_codes(
+            np.asarray(codes[:]),
+            categories=shared,
+            ordered=bool(node.attrs.get("ordered", False)),
+        )
+
+    def bound(self, shared: dict[str, str]) -> dict[str, np.ndarray]:
+        """The filter results for each category, for the columns and digests of `shared`."""
+        with self._lock:
+            return {
+                column: self._bound[(column, digest)]
+                for column, digest in shared.items()
+                if (column, digest) in self._bound
+            }
+
+
+def _list_digests(group: zarr.Group) -> dict[str, str]:
+    """The digest of each uniform category list that a store names."""
+    namespace = group.attrs.get(_STORE_NAMESPACE)
+    digests = (
+        namespace.get(_CATEGORY_LISTS_KEY) if isinstance(namespace, dict) else None
+    )
+    if not isinstance(digests, dict):
+        return {}
+    return {
+        str(column): digest
+        for column, digest in digests.items()
+        if isinstance(digest, str) and digest
+    }
 
 
 def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
@@ -286,13 +393,15 @@ def _read_store(
     obs_filter: CanonicalFilter,
     layers: Sequence[str] = (),
     bucket_clients: _catalog.Clients | None = None,
+    lists: _CategoryLists | None = None,
 ) -> anndata.AnnData:
     """The selected cells of one store. `X` holds the counts on the reference genes.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
     compares. `get_anndata` reads the var columns from one store. `layers` names
     the layers to calculate from the counts. `bucket_clients` holds the obstore clients
-    of the query (`catalog.clients`).
+    of the query (`catalog.clients`). `lists` holds the uniform category lists of
+    the query.
     """
     group = open_store(row["store_uri"], bucket_clients)
     obs_group = group["obs"]
@@ -304,12 +413,31 @@ def _read_store(
     # the cell key after the filter, for the kept cells only.
     columns = cast("list[str]", obs_group.attrs["column-order"])
     key = "observation_joinid"
-    obs = pd.DataFrame(
-        {name: read_elem(obs_group[name]) for name in columns if name != key}
-    )
+    lists = _CategoryLists(obs_filter) if lists is None else lists
+    digests = _list_digests(group)
+    shared: dict[str, str] = {}
+    values: dict[str, Any] = {}
+    for name in columns:
+        if name == key:
+            continue
+        node = obs_group[name]
+        column = None
+        if (
+            name in digests
+            and name in UNIFORM_COLUMNS
+            and isinstance(node, zarr.Group)
+            and node.attrs.get("encoding-type") == "categorical"
+        ):
+            column = lists.read(node, name, digests[name])
+        if column is None:
+            values[name] = read_elem(node)
+        else:
+            values[name] = column
+            shared[name] = digests[name]
+    obs = pd.DataFrame(values)
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
-    keep = np.flatnonzero(_mask(obs, obs_filter))
+    keep = np.flatnonzero(_mask(obs, obs_filter, lists.bound(shared)))
     obs = obs.iloc[keep].copy()
     if key in columns:
         obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))

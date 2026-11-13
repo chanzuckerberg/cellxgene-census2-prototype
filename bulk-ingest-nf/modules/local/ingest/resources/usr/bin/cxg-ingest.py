@@ -96,17 +96,23 @@ def slot_group(slot: str) -> str:
 
 
 def obs_column_problem(
-    got: pd.Series, want: pd.Series, col_type: census2_dataset_writer.ColType
+    got: pd.Series, want: pd.Series, col_type: census2_dataset_writer.ColType, name: str
 ) -> str | None:
-    """What is wrong with the store's obs column `got`, or None.
+    """What is wrong with the store's obs column `got`, named `name`, or None.
 
     `want` holds the values that the column must hold. A categorical must have
-    the sorted distinct values of `want` as its string categories.
+    its ontology list as its string categories when the writer gives the column
+    one, and the sorted distinct values of `want` when it does not.
     """
     categorical = isinstance(got.dtype, pd.CategoricalDtype)
     if col_type is census2_dataset_writer.ColType.CATEGORY:
-        categories = sorted(set(want.astype(str)))
-        if not categorical or list(got.cat.categories) != categories:
+        uniform = census2_dataset_writer.uniform_categories(name)
+        if uniform is not None:
+            if not categorical or tuple(got.cat.categories) != uniform:
+                return "not a categorical of the ontology list"
+        elif not categorical or list(got.cat.categories) != sorted(
+            set(want.astype(str))
+        ):
             return "not a categorical of the sorted distinct values"
     elif col_type is census2_dataset_writer.ColType.BOOL:
         if got.dtype != bool:
@@ -257,7 +263,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                     continue
                 else:
                     want = a[name]
-                problem = obs_column_problem(b[name], want, col_type)
+                problem = obs_column_problem(b[name], want, col_type, name)
                 if problem:
                     fail(f"obs.{name}", problem)
 

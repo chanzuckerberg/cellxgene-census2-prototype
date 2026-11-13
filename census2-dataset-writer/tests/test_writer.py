@@ -81,6 +81,12 @@ def refdata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+def label(term: str) -> str:
+    """The label of an ontology term. The uniform columns take real terms only."""
+    parser, _ = census2_dataset_writer.tissues._ontology()
+    return str(parser.get_term_label(term))
+
+
 def cxg_obs(n_obs: int, rng: np.random.Generator) -> pd.DataFrame:
     """The CxG obs columns that every Discover dataset holds, and no other."""
 
@@ -89,13 +95,13 @@ def cxg_obs(n_obs: int, rng: np.random.Generator) -> pd.DataFrame:
 
     return pd.DataFrame(
         {
-            "assay": pd.Categorical(["10x 3' v3"] * n_obs),
+            "assay": pd.Categorical([label("EFO:0009922")] * n_obs),
             "assay_ontology_term_id": pd.Categorical(["EFO:0009922"] * n_obs),
-            "cell_type": labels("a", "b"),
+            "cell_type": labels(label("CL:0000236"), label("CL:0000624")),
             "cell_type_ontology_term_id": labels("CL:0000236", "CL:0000624"),
-            "development_stage": pd.Categorical(["adult"] * n_obs),
+            "development_stage": pd.Categorical([label("HsapDv:0000258")] * n_obs),
             "development_stage_ontology_term_id": pd.Categorical(
-                ["HsapDv:0000087"] * n_obs
+                ["HsapDv:0000258"] * n_obs
             ),
             "disease": pd.Categorical(["normal"] * n_obs),
             "disease_ontology_term_id": pd.Categorical(["PATO:0000461"] * n_obs),
@@ -906,7 +912,7 @@ def test_the_store_holds_tissue_general(tmp_path: Path) -> None:
     pair = ["tissue_general", "tissue_general_ontology_term_id"]
     assert list(obs.columns[-7:-5]) == pair
     assert list(obs["tissue_general"]) == list(np.where(retina, "eye", "lung"))
-    assert list(obs["tissue_general"].cat.categories) == ["eye", "lung"]
+    assert set(obs["tissue_general"].astype(str)) == {"eye", "lung"}
 
 
 # --- the statistics of the counts --------------------------------------------
@@ -1163,7 +1169,11 @@ def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
         if col_type is census2_dataset_writer.ColType.CATEGORY:
             assert isinstance(column.dtype, pd.CategoricalDtype), name
             categories = list(column.cat.categories)
-            assert categories == sorted(set(column.astype(str))), name
+            uniform = census2_dataset_writer.uniform_categories(name)
+            if uniform is None:
+                assert categories == sorted(set(column.astype(str))), name
+            else:
+                assert categories == list(uniform), name
             assert all(isinstance(c, str) for c in categories), name
         elif col_type is census2_dataset_writer.ColType.BOOL:
             assert column.dtype == bool, name
@@ -1174,6 +1184,91 @@ def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name
             assert all(isinstance(v, str) for v in column), name
+
+
+def test_uniform_columns_hold_the_ontology_list(tmp_path: Path) -> None:
+    """Two stores of different datasets hold equal lists, so a code has one meaning."""
+    lists = []
+    digests = []
+    for seed, cell_type in enumerate(["CL:0000236", "CL:0000624"]):
+        source = tmp_path / f"source{seed}.h5ad"
+        adata = dataset(seed=seed)
+        adata.obs["cell_type_ontology_term_id"] = pd.Categorical([cell_type] * 40)
+        adata.write_h5ad(source)
+        dest = tmp_path / f"store{seed}.zarr"
+        create(source, dest, refdata=tmp_path / "refdata")
+        root = zarr.open_consolidated(str(dest), mode="r")
+        obs = cast("pd.DataFrame", read_elem(root["obs"]))
+        column = obs["cell_type_ontology_term_id"]
+        assert set(column.astype(str)) == {cell_type}
+        lists.append(list(column.cat.categories))
+        namespace = cast("dict[str, Any]", root.attrs["cellxgene-census2"])
+        digests.append(namespace["obs_category_lists"])
+        # A column outside the uniform pairs keeps the list of its own store.
+        assert list(obs["sex"].cat.categories) == ["female"]
+    assert lists[0] == lists[1] == sorted(lists[0])
+    # Each uniform column has a digest, and equal lists have equal digests.
+    uniform = {
+        name
+        for name, _ in census2_dataset_writer.OBS_COLUMNS
+        if census2_dataset_writer.uniform_categories(name) is not None
+    }
+    assert set(digests[0]) == uniform and len(uniform) == 10
+    assert digests[0] == digests[1]
+    assert {"CL:0000236", "CL:0000624", "unknown"} <= set(lists[0])
+
+
+def test_the_label_list_is_not_parallel_to_the_identifier_list() -> None:
+    labels = census2_dataset_writer.uniform_categories("development_stage")
+    terms = census2_dataset_writer.uniform_categories(
+        "development_stage_ontology_term_id"
+    )
+    assert labels is not None and terms is not None
+    # The human and the mouse ontology share labels, and the list holds each once.
+    assert len(set(labels)) == len(labels) < len(terms)
+    assert census2_dataset_writer.uniform_categories("sex") is None
+
+
+def test_a_value_outside_the_ontology_list_is_refused() -> None:
+    adata = dataset()
+    obs = cast("pd.DataFrame", adata.obs)
+    obs["cell_type_ontology_term_id"] = pd.Categorical(["CL:9999999"] * len(obs))
+    with pytest.raises(ValueError, match="cell_type_ontology_term_id.*CL:9999999"):
+        census2_dataset_writer.project_obs(adata)
+
+
+def test_another_list_has_another_digest(tmp_path: Path) -> None:
+    """`write` takes any AnnData, so the digest comes from the list that obs holds."""
+    recorded = []
+    for name, own_list in (("uniform.zarr", False), ("own.zarr", True)):
+        source = tmp_path / f"{name}.h5ad"
+        dataset().write_h5ad(source)
+        with h5py.File(source) as f:
+            adata, result = build(f, refdata=tmp_path / "refdata")
+            assert adata is not None
+            obs = cast("pd.DataFrame", adata.obs)
+            if own_list:
+                obs["tissue"] = obs["tissue"].cat.remove_unused_categories()
+            summary = census2_dataset_writer.summary_record(result)
+            census2_dataset_writer.write(adata, tmp_path / name, summary=summary)
+        root = zarr.open_group(str(tmp_path / name))
+        namespace = cast("dict[str, Any]", root.attrs["cellxgene-census2"])
+        recorded.append(namespace["obs_category_lists"])
+        assert census2_dataset_writer.read_summary(tmp_path / name) == summary
+    assert recorded[0]["tissue"] != recorded[1]["tissue"]
+    assert recorded[0]["cell_type"] == recorded[1]["cell_type"]
+
+
+def test_a_list_of_another_type_gets_no_digest() -> None:
+    """The digest of [1, 2] must not equal the digest of ["1", "2"]."""
+    obs = pd.DataFrame(
+        {
+            "tissue": pd.Categorical([1, 2]),
+            "cell_type": pd.Categorical(["1", "2"]),
+            "sex": pd.Categorical(["female", "male"]),
+        }
+    )
+    assert set(census2_dataset_writer.list_digests(obs)) == {"cell_type"}
 
 
 def test_a_string_source_column_becomes_categorical() -> None:

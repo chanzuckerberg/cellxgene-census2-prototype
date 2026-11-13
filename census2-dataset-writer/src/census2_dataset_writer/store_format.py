@@ -6,6 +6,9 @@ format, so that the writer and a reader of a store use one definition:
 - `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
 - `OBS_COLUMNS`, the columns of a store's `obs`, in order, each with its
   `ColType`, and `DERIVED_OBS_COLUMNS`, the ones that the writer computes.
+- `UNIFORM_OBS_ONTOLOGIES`, the `obs` columns whose categories are a full
+  ontology list, and `CATEGORY_LISTS_KEY`, the root attribute that holds a
+  digest of each of those lists.
 - `MEASURED_COLUMN`, the `var` column of the dataset's assayed genes.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
@@ -90,8 +93,9 @@ class ColType(Enum):
     pandas holds the type.
     """
 
-    # A pandas categorical whose categories are strings: the observed values,
-    # sorted, with no unused category.
+    # A pandas categorical whose categories are strings, sorted. A column of
+    # `UNIFORM_OBS_ONTOLOGIES` holds its full ontology list. Each other column
+    # holds the observed values, with no unused category.
     CATEGORY = "category"
     # NumPy bool.
     BOOL = "bool"
@@ -137,6 +141,24 @@ OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     ("raw_variance_nnz", ColType.FLOAT64),
     ("n_measured_vars", ColType.INT64),
 )
+
+# The `obs` pairs (`<name>` and `<name>_ontology_term_id`) whose categories are
+# the full list of these ontologies. Stores of one ontology version hold equal
+# lists, so a code has one meaning in all of them.
+UNIFORM_OBS_ONTOLOGIES: dict[str, tuple[str, ...]] = {
+    "assay": ("EFO",),
+    "cell_type": ("CL",),
+    "development_stage": ("HsapDv", "MmusDv"),
+    "tissue": ("UBERON",),
+    "tissue_general": ("UBERON",),
+}
+
+# The pairs in which the CxG schema also allows the value "unknown".
+UNIFORM_OBS_UNKNOWN = frozenset({"cell_type", "development_stage"})
+
+# The key under `attrs[SUMMARY_NAMESPACE]` that maps each uniform column to the
+# SHA-256 digest of its category list. Equal digests mean equal lists.
+CATEGORY_LISTS_KEY = "obs_category_lists"
 
 # The writer computes these columns. Each other column copies the source.
 DERIVED_OBS_COLUMNS = frozenset(
