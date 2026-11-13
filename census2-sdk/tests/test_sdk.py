@@ -271,14 +271,9 @@ def test_concurrent_reads_match_one_at_a_time(
     done = {dataset_id: threading.Event() for dataset_id in order}
     finished: list[str] = []
 
-    def overlapping(
-        row: dict[str, Any],
-        canonical: Any,
-        layers: Any = (),
-        bucket_clients: Any = None,
-    ) -> anndata.AnnData:
+    def overlapping(row: dict[str, Any], canonical: Any, *rest: Any) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, canonical, layers, bucket_clients)
+        part = read_store(row, canonical, *rest)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -504,6 +499,161 @@ def test_obs_index_is_not_read(
     # A read of the whole group would decode the index too.
     assert "/obs/tissue" in names
     assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
+
+
+# A stand-in for an ontology list: every store holds it whole, in this order.
+TISSUE_LIST = ["blood", "brain", "kidney", "liver", "lung", "skin"]
+Query = dict[str, str | list[str]]
+
+
+def uniform_corpus(
+    tmp_path: Path, digests: dict[str, str | None], lists: dict[str, list[str]]
+) -> Path:
+    """The stores of `STORES` with `tissue` on a list for each store, and a catalog.
+
+    `digests` gives the digest that each store names for its `tissue` list, or
+    None for a store that names none. One cell of each store has a null tissue,
+    and the column is an ordered categorical.
+    """
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    for seed, (dataset_id, spec) in enumerate(STORES.items()):
+        adata = make_store(dataset_id, *spec, seed=seed)
+        obs = cast("pd.DataFrame", adata.obs)
+        tissue = obs["tissue"].cat.set_categories(lists[dataset_id], ordered=True)
+        tissue.iloc[0] = None
+        obs["tissue"] = tissue
+        write_one(prefix, adata, dataset_id)
+        if digests[dataset_id] is not None:
+            root = zarr.open_group(prefix / f"v-{dataset_id}.zarr", mode="r+")
+            namespace = dict(cast("dict[str, Any]", root.attrs["cellxgene-census2"]))
+            namespace["obs_category_lists"] = {"tissue": digests[dataset_id]}
+            root.update_attributes({"cellxgene-census2": namespace})
+    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    return tmp_path / "catalog.parquet"
+
+
+def plain(path: Path, obs_filter: Query, **kwargs: Any) -> anndata.AnnData:
+    """The same query with each store read whole: the stores name no list."""
+    census = census2_sdk.open_census([path])
+    for row in cast("list[dict[str, Any]]", census.catalog.to_dict("records")):
+        root = zarr.open_group(str(row["store_uri"]), mode="r+")
+        namespace = dict(cast("dict[str, Any]", root.attrs["cellxgene-census2"]))
+        namespace.pop("obs_category_lists", None)
+        root.update_attributes({"cellxgene-census2": namespace})
+    result = census.get_anndata("homo_sapiens", obs_filter, **kwargs)
+    assert result is not None
+    return result
+
+
+def same_obs(left: anndata.AnnData, right: anndata.AnnData) -> None:
+    """Equal cells, in order, with equal tissue values, nulls, and order flag."""
+    assert list(left.obs_names) == list(right.obs_names)
+    a, b = left.obs["tissue"], right.obs["tissue"]
+    assert list(a.astype(object).fillna("null")) == list(
+        b.astype(object).fillna("null")
+    )
+    # anndata.concat gives plain strings for ordered lists that differ.
+    categorical = isinstance(a.dtype, pd.CategoricalDtype)
+    assert categorical == isinstance(b.dtype, pd.CategoricalDtype)
+    if categorical:
+        assert a.cat.ordered == b.cat.ordered
+    assert np.array_equal(X(left).toarray(), X(right).toarray())
+
+
+@pytest.mark.parametrize("max_workers", [1, len(STORES)])
+def test_a_uniform_list_is_read_from_one_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, max_workers: int
+) -> None:
+    """The stores of one digest share a list: one store gives it, the others give codes."""
+    path = uniform_corpus(
+        tmp_path, dict.fromkeys(STORES, "digest 1"), dict.fromkeys(STORES, TISSUE_LIST)
+    )
+    # The catalog lists the values that the cells hold, not the whole list.
+    rows = catalog.load(path).set_index("dataset_id")
+    tissues = {d: list(cast("Any", v)) for d, v in rows["tissue"].items()}
+    assert tissues["ds-a"] == ["liver", "lung"]
+    assert tissues["ds-c"] == ["kidney"]
+
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    # This filter selects all three stores.
+    obs_filter: Query = {"tissue": ["lung", "kidney"]}
+    census = census2_sdk.open_census([path])
+    with monkeypatch.context() as patch:
+        patch.setattr(census2_sdk, "read_elem", spy)
+        result = census.get_anndata("homo_sapiens", obs_filter, max_workers=max_workers)
+    assert result is not None
+    assert names.count("/obs/tissue") == 1
+    # The result holds the values of its cells, as with a list for each store.
+    assert list(result.obs["tissue"].cat.categories) == ["kidney", "lung"]
+    same_obs(result, plain(path, obs_filter))
+
+
+def test_null_codes_and_the_order_flag_pass_through_a_shared_list(
+    tmp_path: Path,
+) -> None:
+    path = uniform_corpus(
+        tmp_path, dict.fromkeys(STORES, "digest 1"), dict.fromkeys(STORES, TISSUE_LIST)
+    )
+    shared = census2_sdk.open_census([path]).get_anndata(
+        "homo_sapiens", None, max_workers=len(STORES)
+    )
+    assert shared is not None
+    assert int(shared.obs["tissue"].isna().sum()) == len(STORES)
+    assert shared.obs["tissue"].cat.ordered
+    same_obs(shared, plain(path, {}))
+
+
+def test_two_digests_do_not_share_a_list(tmp_path: Path) -> None:
+    """A code means another value in another list, so each digest has its list."""
+    # The same length as the first list, so only the digest tells the two apart.
+    other = TISSUE_LIST[::-1]
+    path = uniform_corpus(
+        tmp_path,
+        {"ds-a": "digest 1", "ds-b": "digest 2", "ds-c": "digest 1"},
+        {"ds-a": TISSUE_LIST, "ds-b": other, "ds-c": TISSUE_LIST},
+    )
+    filters: list[Query] = [{"tissue": "lung"}, {"tissue": ["liver", "kidney"]}]
+    census = census2_sdk.open_census([path])
+    results = [query(census, obs_filter) for obs_filter in filters]
+    for result, obs_filter in zip(results, filters, strict=True):
+        same_obs(result, plain(path, obs_filter))
+
+
+def test_a_store_with_another_list_than_its_digest_is_read_whole(
+    tmp_path: Path,
+) -> None:
+    """A list of another length is not the shared list, so the SDK reads the store's own."""
+    path = uniform_corpus(
+        tmp_path,
+        dict.fromkeys(STORES, "digest 1"),
+        {"ds-a": TISSUE_LIST, "ds-b": ["lung"], "ds-c": TISSUE_LIST},
+    )
+    obs_filter: Query = {"tissue": ["lung", "kidney"]}
+    result = query(census2_sdk.open_census([path]), obs_filter)
+    same_obs(result, plain(path, obs_filter))
+
+
+def test_a_store_that_names_no_list_is_read_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = uniform_corpus(
+        tmp_path, dict.fromkeys(STORES, None), dict.fromkeys(STORES, TISSUE_LIST)
+    )
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    query(census2_sdk.open_census([path]), {"tissue": ["lung", "kidney"]})
+    assert names.count("/obs/tissue") == len(STORES)
 
 
 @pytest.mark.parametrize(

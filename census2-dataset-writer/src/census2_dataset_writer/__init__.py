@@ -166,6 +166,9 @@ from zarr.abc.store import Store
 
 from . import assays, genes, tissues
 from . import store_format as store_format  # a public module; callers name it
+from .categories import list_digests as list_digests
+from .categories import uniform_categories as uniform_categories
+from .store_format import CATEGORY_LISTS_KEY as CATEGORY_LISTS_KEY
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
@@ -516,13 +519,15 @@ def project_obs(
     that the CxG schema requires in every dataset, plus columns that it adds.
     This step copies the CxG columns, every column of `OBS_COLUMNS` except
     `DERIVED_OBS_COLUMNS`, in schema order, and gives each one its type: a
-    categorical with the sorted observed values as string categories, NumPy
+    categorical with sorted string categories (the full ontology list for a
+    column of `UNIFORM_OBS_ONTOLOGIES`, the observed values for each other), NumPy
     `bool` for `is_primary_data`, and plain strings for `observation_joinid`.
     The source index stays. Every other source column goes: the result reports
     them in `dropped_obs_columns`.
 
     It raises `ValueError` when the source lacks a schema column, when a column
-    holds a null, when `is_primary_data` is not boolean, or when
+    holds a null or a value outside its ontology list, when `is_primary_data` is
+    not boolean, or when
     `observation_joinid` is not unique. The CxG schema requires each of these,
     so the writer does not choose a repair.
 
@@ -568,7 +573,16 @@ def _project_obs_column(column: pd.Series, name: str, col_type: ColType) -> pd.S
         else:
             column = column.astype(str).astype("category")
         categories = sorted(column.cat.categories)
-        return column.cat.reorder_categories(categories).cat.as_unordered()
+        uniform = uniform_categories(name)
+        if uniform is None:
+            return column.cat.reorder_categories(categories).cat.as_unordered()
+        outside = sorted(set(categories) - set(uniform))
+        if outside:
+            raise ValueError(
+                f"obs {name} holds {len(outside)} values outside its ontology list, "
+                f"such as {', '.join(outside[:5])}"
+            )
+        return column.cat.set_categories(list(uniform)).cat.as_unordered()
     if col_type is ColType.BOOL:
         if column.dtype == bool:
             return column
@@ -956,7 +970,8 @@ def write(
     no repeated value. The pair is the cell key (design 1.6), so every write
     checks it, and no configuration turns the check off. The summary record
     goes into the root group's attributes after anndata finishes, so it is the
-    last write.
+    last write. The same attribute holds a digest of the category list of each
+    uniform column, under `CATEGORY_LISTS_KEY`.
     The root group opens with its consolidated metadata, and the attribute
     update rewrites the root `zarr.json` with that metadata intact.
 
@@ -988,7 +1003,11 @@ def write(
     with _thread_limit(threads):
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
-    root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})
+    record: dict[str, Any] = {SUMMARY_KEY: dict(summary)}
+    digests = list_digests(obs)
+    if digests:
+        record[CATEGORY_LISTS_KEY] = digests
+    root.update_attributes({SUMMARY_NAMESPACE: record})
 
 
 def add_dataset_id(adata: anndata.AnnData, dataset_id: str) -> None:

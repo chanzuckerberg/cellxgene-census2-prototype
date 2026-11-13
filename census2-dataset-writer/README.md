@@ -100,10 +100,18 @@ columns that Census 1 copies, the `tissue_general` pair, and five statistics of 
 
 - Each column has a fixed type. `is_primary_data` is `bool`, and `observation_joinid` is plain
   strings. `nnz` and `n_measured_vars` are `int64`, and `raw_sum`, `raw_mean_nnz`, and
-  `raw_variance_nnz` are `float64`. Every other column is a categorical whose categories are the
-  observed values, sorted, as strings.
-- No value is null. A source that lacks a column, holds a null, has an `is_primary_data` that is
-  not boolean, or has an `observation_joinid` that is not unique fails the build.
+  `raw_variance_nnz` are `float64`. Every other column is a categorical whose categories are
+  sorted strings.
+- The columns of `store_format.UNIFORM_OBS_ONTOLOGIES` (the pairs of `assay`, `cell_type`,
+  `development_stage`, `tissue`, and `tissue_general`) hold a uniform category list: each term
+  of the column's ontologies that is not deprecated. Every store that one version of the
+  ontology package wrote holds the same list, so a code has one meaning in all of them. The
+  root attribute `cellxgene-census2` holds a digest of each list under `obs_category_lists`,
+  and two stores with one digest hold equal lists. Each other categorical column holds the
+  observed values of its own store.
+- No value is null. A source that lacks a column, holds a null, holds a value outside an ontology
+  list, has an `is_primary_data` that is not boolean, or has an `observation_joinid` that is not
+  unique fails the build.
 - `dataset_id` and `observation_joinid` are the cell key (design 1.6). `write` checks the key on
   every write, and the error names the repeated values. No configuration turns the check off.
 - A store does not yet hold any other source column. The result names each one that it drops,
