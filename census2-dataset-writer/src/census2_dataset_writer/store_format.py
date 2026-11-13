@@ -142,12 +142,9 @@ OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
     ("n_measured_vars", ColType.INT64),
 )
 
-# The `obs` column pairs whose categories are a full ontology list, each with its
-# ontologies. A pair is the label column of this name and the
-# `<name>_ontology_term_id` column. Every store that one version of the lists
-# wrote holds the same list for a column, so a code has one meaning in all of them.
-# `census2_dataset_writer.categories` makes the lists. Each other categorical
-# column holds a list of its own store.
+# The `obs` pairs (`<name>` and `<name>_ontology_term_id`) whose categories are
+# the full list of these ontologies. Stores of one ontology version hold equal
+# lists, so a code has one meaning in all of them.
 UNIFORM_OBS_ONTOLOGIES: dict[str, tuple[str, ...]] = {
     "assay": ("EFO",),
     "cell_type": ("CL",),
@@ -159,9 +156,8 @@ UNIFORM_OBS_ONTOLOGIES: dict[str, tuple[str, ...]] = {
 # The pairs in which the CxG schema also allows the value "unknown".
 UNIFORM_OBS_UNKNOWN = frozenset({"cell_type", "development_stage"})
 
-# The key under `attrs[SUMMARY_NAMESPACE]` that maps each uniform column of a
-# store to the SHA-256 digest of its category list. Two stores with one digest for
-# a column hold equal lists for it. A store without the key names no list.
+# The key under `attrs[SUMMARY_NAMESPACE]` that maps each uniform column to the
+# SHA-256 digest of its category list. Equal digests mean equal lists.
 CATEGORY_LISTS_KEY = "obs_category_lists"
 
 # The writer computes these columns. Each other column copies the source.

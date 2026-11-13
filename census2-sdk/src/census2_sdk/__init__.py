@@ -56,11 +56,9 @@ from census2_sdk import normalize as _normalize
 from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
-# The `obs` columns that a store can hold with a uniform category list: the full
-# list of an ontology, equal in each store of one version of the ontology package.
-# The root attribute `cellxgene-census2` maps each such column to a digest of its
-# list, under `obs_category_lists`. The SDK repeats these names of the writer's
-# `store_format`, because it does not depend on the writer.
+# The `obs` columns that a store can hold with a uniform category list. A root
+# attribute maps each one to a digest of its list. The SDK repeats these names
+# of the writer's `store_format`, because it does not depend on the writer.
 UNIFORM_COLUMNS = frozenset(
     column
     for pair in ("assay", "cell_type", "development_stage", "tissue", "tissue_general")
@@ -154,8 +152,8 @@ class Census:
         # Zero-row parts stay in, so the obs schema is the columns that all
         # opened stores hold.
         result = anndata.concat(parts, join="inner")
-        # A uniform list holds each term of its ontology. The result keeps the
-        # values that its cells hold, as for a store with a list of its own.
+        # A uniform list holds each term of its ontology, so the result keeps
+        # only the values that its cells hold.
         for column in lists.columns & set(result.obs.columns):
             if isinstance(result.obs[column].dtype, pd.CategoricalDtype):
                 result.obs[column] = result.obs[column].cat.remove_unused_categories()
@@ -311,8 +309,7 @@ def _by_category(
 ) -> np.ndarray:
     """The rule of `_hit` for each category, then a False for the code of a null.
 
-    The rule runs once for each category, and the codes index the result. A null
-    has code -1, which indexes the False at the end.
+    The codes index the result. A null has code -1, which indexes the last entry.
     """
     return np.array([_hit(c, column, wanted) for c in categories] + [False], dtype=bool)
 
@@ -320,11 +317,9 @@ def _by_category(
 class _CategoryLists:
     """The uniform category lists that the stores of one query share.
 
-    A store names the list of a column by its digest. For each column and digest,
-    the query reads the list from the first store that needs it, and reads only
-    the codes from each other store. A code has one meaning in all stores of one
-    digest, so the filter also binds to the list once. The SDK relies on the
-    digest as it relies on the other metadata of a store.
+    For each column and digest, the query reads the list from the first store
+    that needs it and only the codes from each other store. The filter binds to
+    the list once. The SDK relies on the digest as on the other store metadata.
     """
 
     def __init__(self, obs_filter: CanonicalFilter) -> None:
@@ -364,11 +359,7 @@ class _CategoryLists:
         )
 
     def bound(self, shared: dict[str, str]) -> dict[str, np.ndarray]:
-        """The filter results for each category, for the shared columns of one store.
-
-        `shared` maps each column that the store gave through a shared list to
-        the digest of that list.
-        """
+        """The filter results for each category, for the columns and digests of `shared`."""
         with self._lock:
             return {
                 column: self._bound[(column, digest)]

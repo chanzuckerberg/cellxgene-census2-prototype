@@ -7,9 +7,7 @@ as an identifier or as a label, sorted. The lists come from the pinned
 version. `write` records a digest of each list in the store (`list_digests`), so
 a reader can tell which stores hold equal lists.
 
-The list of a label column is sorted by label, so it is not parallel to the list
-of the identifier column. Two ontologies of one pair can share a label, and the
-label list holds it once.
+A label list is sorted by label, so it is not parallel to the identifier list.
 """
 
 from __future__ import annotations
@@ -49,11 +47,8 @@ def uniform_categories(column: str) -> tuple[str, ...] | None:
 def list_digests(obs: pd.DataFrame) -> dict[str, str]:
     """A digest of the category list of each uniform column of `obs`.
 
-    `write` records the digests in the store. Two stores with one digest for a
-    column hold equal lists for it, so a code has one meaning in both. The digest
-    comes from the list that `obs` holds, and not from the ontology package, so
-    it is true for each `obs` that a caller gives to `write`. A list that holds
-    another type than strings gets no digest.
+    The digest comes from the list that `obs` holds. Thus it is true for each
+    `obs` that a caller gives to `write`.
     """
     digests = {}
     for name in obs.columns:
@@ -63,11 +58,10 @@ def list_digests(obs: pd.DataFrame) -> dict[str, str]:
         ):
             continue
         categories = list(column.cat.categories)
-        # A list that holds another type than strings gets no digest, because
-        # its JSON form can equal the form of a list of strings.
+        # No digest for a list with non-strings: [1, 2] must not match ["1", "2"].
         if not all(isinstance(c, str) for c in categories):
             continue
-        # A JSON array has one form for one list, whatever the strings hold.
+        # JSON, because a join on a separator is ambiguous for some strings.
         encoded = json.dumps(categories).encode()
         digests[str(name)] = hashlib.sha256(encoded).hexdigest()
     return digests
