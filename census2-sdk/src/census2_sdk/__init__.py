@@ -305,7 +305,11 @@ def _read_store(
     columns = cast("list[str]", obs_group.attrs["column-order"])
     key = "observation_joinid"
     obs = pd.DataFrame(
-        {name: read_elem(obs_group[name]) for name in columns if name != key}
+        {
+            name: _read_obs_column(obs_group[name], row.get(name), name)
+            for name in columns
+            if name != key
+        }
     )
     dataset_id = str(row["dataset_id"])
     _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
@@ -331,6 +335,39 @@ def _read_store(
 
     obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
     return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
+
+
+def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:
+    """One `obs` column of a store. `listed` is the catalog row's entry for `name`.
+
+    For a listed categorical column, the function reads only the codes and takes the
+    categories from the row. The writer stores the sorted values of the column as its
+    categories, and the catalog builder checks that order.
+
+    A column keeps `read_elem` when the store has a different number of categories
+    than the row lists. `dataset_id` keeps `read_elem`, because `_check_dataset_id`
+    compares the store with the row.
+    """
+    if (
+        name not in _catalog.INDEXED
+        or unrecorded(listed)
+        or not isinstance(node, zarr.Group)
+        or node.attrs.get("encoding-type") != "categorical"
+    ):
+        return read_elem(node)
+    codes, categories = node["codes"], node["categories"]
+    values = sorted(str(v) for v in listed)
+    if not (
+        isinstance(codes, zarr.Array)
+        and isinstance(categories, zarr.Array)
+        and categories.shape == (len(values),)
+    ):
+        return read_elem(node)
+    return pd.Categorical.from_codes(
+        cast("Any", np.asarray(codes[:])),
+        categories=pd.Index(values),
+        ordered=bool(node.attrs.get("ordered", False)),
+    )
 
 
 def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:
