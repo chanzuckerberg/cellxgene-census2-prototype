@@ -1,0 +1,418 @@
+{
+ "filters:liver": {
+  "hint_candidates": 12,
+  "hint_whole": 2,
+  "candidates": 12,
+  "whole": 2,
+  "largest_table": 69,
+  "ms": 19.8
+ },
+ "filters:crohn": {
+  "hint_candidates": 5,
+  "hint_whole": 0,
+  "candidates": 5,
+  "whole": 0,
+  "largest_table": 8,
+  "ms": 19.7
+ },
+ "filters:assay_v1": {
+  "hint_candidates": 6,
+  "hint_whole": 0,
+  "candidates": 6,
+  "whole": 0,
+  "largest_table": 9,
+  "ms": 18.6
+ },
+ "filters:neutrophil": {
+  "hint_candidates": 14,
+  "hint_whole": 0,
+  "candidates": 14,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 19.1
+ },
+ "filters:macrophage": {
+  "hint_candidates": 24,
+  "hint_whole": 0,
+  "candidates": 24,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.8
+ },
+ "filters:cd4": {
+  "hint_candidates": 12,
+  "hint_whole": 0,
+  "candidates": 12,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.8
+ },
+ "filters:one_dataset": {
+  "hint_candidates": 1,
+  "hint_whole": 1,
+  "candidates": 1,
+  "whole": 1,
+  "largest_table": 1,
+  "ms": 17.9
+ },
+ "filters:single_member": {
+  "hint_candidates": 1,
+  "hint_whole": 1,
+  "candidates": 1,
+  "whole": 1,
+  "largest_table": 1,
+  "ms": 20.3
+ },
+ "filters:single_alone": {
+  "hint_candidates": 1,
+  "hint_whole": 1,
+  "candidates": 1,
+  "whole": 1,
+  "largest_table": 1,
+  "ms": 18.4
+ },
+ "filters:lung_macrophage_primary": {
+  "hint_candidates": 5,
+  "hint_whole": 0,
+  "candidates": 5,
+  "whole": 0,
+  "largest_table": 7360,
+  "ms": 42.4
+ },
+ "filters:lung_macrophage": {
+  "hint_candidates": 5,
+  "hint_whole": 0,
+  "candidates": 5,
+  "whole": 0,
+  "largest_table": 4144,
+  "ms": 37.8
+ },
+ "filters:fp_none": {
+  "hint_candidates": 4,
+  "hint_whole": 0,
+  "candidates": 4,
+  "whole": 0,
+  "largest_table": 4144,
+  "ms": 35.2
+ },
+ "filters:fp_some": {
+  "hint_candidates": 4,
+  "hint_whole": 0,
+  "candidates": 4,
+  "whole": 0,
+  "largest_table": 4144,
+  "ms": 35.3
+ },
+ "filters:false_positive": {
+  "hint_candidates": 6,
+  "hint_whole": 0,
+  "candidates": 6,
+  "whole": 0,
+  "largest_table": 276,
+  "ms": 35.0
+ },
+ "filters:tissue_general": {
+  "hint_candidates": 3,
+  "hint_whole": 1,
+  "candidates": 3,
+  "whole": 1,
+  "largest_table": 29,
+  "ms": 18.7
+ },
+ "filters:numeric": {
+  "hint_candidates": 14,
+  "hint_whole": 0
+ },
+ "filters:numeric_only": {
+  "hint_candidates": 103,
+  "hint_whole": 0
+ },
+ "filters:membership": {
+  "hint_candidates": 6,
+  "hint_whole": 0,
+  "candidates": 6,
+  "whole": 0,
+  "largest_table": 644,
+  "ms": 34.7
+ },
+ "filters:or_columns": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 17,
+  "whole": 1,
+  "largest_table": 1776,
+  "ms": 34.5
+ },
+ "filters:compound": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 17,
+  "whole": 6,
+  "largest_table": 99456,
+  "ms": 98.6
+ },
+ "filters:has_any": {
+  "hint_candidates": 10,
+  "hint_whole": 6,
+  "candidates": 10,
+  "whole": 6,
+  "largest_table": 8,
+  "ms": 19.5
+ },
+ "filters:has_all": {
+  "hint_candidates": 1,
+  "hint_whole": 0,
+  "candidates": 1,
+  "whole": 1,
+  "largest_table": 8,
+  "ms": 21.6
+ },
+ "filters:numeric_range": {
+  "hint_candidates": 14,
+  "hint_whole": 0
+ },
+ "filters:between": {
+  "hint_candidates": 15,
+  "hint_whole": 0
+ },
+ "filters:not_in": {
+  "hint_candidates": 17,
+  "hint_whole": 0,
+  "candidates": 17,
+  "whole": 6,
+  "largest_table": 1776,
+  "ms": 35.3
+ },
+ "filters:prefix": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 24,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.1
+ },
+ "filters:substring": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 36,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 19.5
+ },
+ "filters:regex": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 27,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.7
+ },
+ "filters:isna": {
+  "hint_candidates": 103,
+  "hint_whole": 0
+ },
+ "filters:wmg": {
+  "hint_candidates": 103,
+  "hint_whole": 0
+ },
+ "corpus:documented_narrow:census_data/homo_sapiens": {
+  "hint_candidates": 1,
+  "hint_whole": 0,
+  "candidates": 1,
+  "whole": 0,
+  "largest_table": 29,
+  "ms": 18.5
+ },
+ "corpus:documented_wide:census_data/homo_sapiens": {
+  "hint_candidates": 44,
+  "hint_whole": 32,
+  "candidates": 44,
+  "whole": 32,
+  "largest_table": 29,
+  "ms": 18.8
+ },
+ "corpus:wmg_production:census_data/homo_sapiens": {
+  "hint_candidates": 103,
+  "hint_whole": 0
+ },
+ "corpus:cell_type_slice:census_data/homo_sapiens": {
+  "hint_candidates": 7,
+  "hint_whole": 0,
+  "candidates": 7,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.2
+ },
+ "corpus:dataset_slice:census_data/homo_sapiens": {
+  "hint_candidates": 1,
+  "hint_whole": 1,
+  "candidates": 1,
+  "whole": 1,
+  "largest_table": 1,
+  "ms": 17.5
+ },
+ "corpus:tissue_slice:census_data/homo_sapiens": {
+  "hint_candidates": 17,
+  "hint_whole": 7,
+  "candidates": 17,
+  "whole": 7,
+  "largest_table": 29,
+  "ms": 17.8
+ },
+ "corpus:cell_type_gene_subset:census_data/homo_sapiens": {
+  "hint_candidates": 7,
+  "hint_whole": 0,
+  "candidates": 7,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.7
+ },
+ "corpus:multivalued_disease:census_data/homo_sapiens": {
+  "hint_candidates": 1,
+  "hint_whole": 0,
+  "candidates": 1,
+  "whole": 1,
+  "largest_table": 8,
+  "ms": 21.7
+ },
+ "corpus:both_layers:census_data/homo_sapiens": {
+  "hint_candidates": 7,
+  "hint_whole": 0,
+  "candidates": 7,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.3
+ },
+ "corpus:obs_metadata_only:census_data/homo_sapiens": {
+  "hint_candidates": 7,
+  "hint_whole": 0,
+  "candidates": 7,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.1
+ },
+ "corpus:cell_type_slice:census_spatial_sequencing/homo_sapiens": {
+  "hint_candidates": 23,
+  "hint_whole": 0,
+  "candidates": 23,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.1
+ },
+ "corpus:dataset_slice:census_spatial_sequencing/homo_sapiens": {
+  "hint_candidates": 0,
+  "hint_whole": 0,
+  "candidates": 0,
+  "whole": 0,
+  "largest_table": 1,
+  "ms": 17.5
+ },
+ "corpus:tissue_slice:census_spatial_sequencing/homo_sapiens": {
+  "hint_candidates": 6,
+  "hint_whole": 1,
+  "candidates": 6,
+  "whole": 1,
+  "largest_table": 29,
+  "ms": 18.1
+ },
+ "corpus:cell_type_gene_subset:census_spatial_sequencing/homo_sapiens": {
+  "hint_candidates": 23,
+  "hint_whole": 0,
+  "candidates": 23,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.2
+ },
+ "corpus:spatial_cell_type:census_spatial_sequencing/homo_sapiens": {
+  "hint_candidates": 23,
+  "hint_whole": 0,
+  "candidates": 23,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.4
+ },
+ "corpus:obs_metadata_only:census_spatial_sequencing/homo_sapiens": {
+  "hint_candidates": 23,
+  "hint_whole": 0,
+  "candidates": 23,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 19.1
+ },
+ "probe:compound boolean": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 17,
+  "whole": 6,
+  "largest_table": 99456,
+  "ms": 118.6
+ },
+ "probe:IN": {
+  "hint_candidates": 22,
+  "hint_whole": 0,
+  "candidates": 22,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 20.1
+ },
+ "probe:NOT IN": {
+  "hint_candidates": 17,
+  "hint_whole": 0,
+  "candidates": 17,
+  "whole": 6,
+  "largest_table": 1776,
+  "ms": 35.7
+ },
+ "probe:nulls": {
+  "hint_candidates": 103,
+  "hint_whole": 0
+ },
+ "probe:membership, multi-valued disease": {
+  "hint_candidates": 9,
+  "hint_whole": 5,
+  "candidates": 9,
+  "whole": 5,
+  "largest_table": 8,
+  "ms": 18.6
+ },
+ "probe:joined value, as Census 1": {
+  "hint_candidates": 9,
+  "hint_whole": 0,
+  "candidates": 0,
+  "whole": 0,
+  "largest_table": 8,
+  "ms": 21.1
+ },
+ "probe:numeric range": {
+  "hint_candidates": 14,
+  "hint_whole": 0
+ },
+ "probe:numeric range only": {
+  "hint_candidates": 103,
+  "hint_whole": 0
+ },
+ "probe:prefix": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 24,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 18.1
+ },
+ "probe:substring, case-insensitive": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 36,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 19.7
+ },
+ "probe:regular expression": {
+  "hint_candidates": 103,
+  "hint_whole": 0,
+  "candidates": 27,
+  "whole": 0,
+  "largest_table": 92,
+  "ms": 20.0
+ }
+}

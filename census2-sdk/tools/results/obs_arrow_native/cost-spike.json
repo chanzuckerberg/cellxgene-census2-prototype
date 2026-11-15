@@ -1,0 +1,350 @@
+{
+ "filters:liver": {
+  "candidates": 12,
+  "whole": 2,
+  "columns": 1,
+  "column_reads": 10
+ },
+ "filters:crohn": {
+  "candidates": 5,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 5
+ },
+ "filters:assay_v1": {
+  "candidates": 6,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 6
+ },
+ "filters:neutrophil": {
+  "candidates": 14,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 14
+ },
+ "filters:macrophage": {
+  "candidates": 24,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 24
+ },
+ "filters:cd4": {
+  "candidates": 12,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 12
+ },
+ "filters:one_dataset": {
+  "candidates": 1,
+  "whole": 1,
+  "columns": 1,
+  "column_reads": 0
+ },
+ "filters:single_member": {
+  "candidates": 1,
+  "whole": 1,
+  "columns": 1,
+  "column_reads": 0
+ },
+ "filters:single_alone": {
+  "candidates": 1,
+  "whole": 1,
+  "columns": 1,
+  "column_reads": 0
+ },
+ "filters:lung_macrophage_primary": {
+  "candidates": 5,
+  "whole": 0,
+  "columns": 3,
+  "column_reads": 15
+ },
+ "filters:lung_macrophage": {
+  "candidates": 5,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 10
+ },
+ "filters:fp_none": {
+  "candidates": 4,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 8
+ },
+ "filters:fp_some": {
+  "candidates": 4,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 8
+ },
+ "filters:false_positive": {
+  "candidates": 6,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 12
+ },
+ "filters:tissue_general": {
+  "candidates": 3,
+  "whole": 1,
+  "columns": 1,
+  "column_reads": 2
+ },
+ "filters:numeric": {
+  "candidates": 14,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 28
+ },
+ "filters:numeric_only": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "filters:membership": {
+  "candidates": 6,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 12
+ },
+ "filters:or_columns": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 206
+ },
+ "filters:compound": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 3,
+  "column_reads": 309
+ },
+ "filters:has_any": {
+  "candidates": 10,
+  "whole": 6,
+  "columns": 1,
+  "column_reads": 4
+ },
+ "filters:has_all": {
+  "candidates": 1,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 1
+ },
+ "filters:numeric_range": {
+  "candidates": 14,
+  "whole": 0,
+  "columns": 3,
+  "column_reads": 42
+ },
+ "filters:between": {
+  "candidates": 15,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 30
+ },
+ "filters:not_in": {
+  "candidates": 17,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 34
+ },
+ "filters:prefix": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "filters:substring": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "filters:regex": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "filters:isna": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "filters:wmg": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 4,
+  "column_reads": 412
+ },
+ "filters:all_obs": {
+  "candidates": 103,
+  "whole": 103,
+  "columns": 0,
+  "column_reads": 0
+ },
+ "corpus:documented_narrow:census_data/homo_sapiens": {
+  "candidates": 1,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 1
+ },
+ "corpus:documented_wide:census_data/homo_sapiens": {
+  "candidates": 44,
+  "whole": 32,
+  "columns": 1,
+  "column_reads": 12
+ },
+ "corpus:wmg_production:census_data/homo_sapiens": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 4,
+  "column_reads": 412
+ },
+ "corpus:cell_type_slice:census_data/homo_sapiens": {
+  "candidates": 7,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 7
+ },
+ "corpus:dataset_slice:census_data/homo_sapiens": {
+  "candidates": 1,
+  "whole": 1,
+  "columns": 1,
+  "column_reads": 0
+ },
+ "corpus:tissue_slice:census_data/homo_sapiens": {
+  "candidates": 17,
+  "whole": 7,
+  "columns": 1,
+  "column_reads": 10
+ },
+ "corpus:cell_type_gene_subset:census_data/homo_sapiens": {
+  "candidates": 7,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 7
+ },
+ "corpus:multivalued_disease:census_data/homo_sapiens": {
+  "candidates": 1,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 1
+ },
+ "corpus:both_layers:census_data/homo_sapiens": {
+  "candidates": 7,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 7
+ },
+ "corpus:obs_metadata_only:census_data/homo_sapiens": {
+  "candidates": 7,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 7
+ },
+ "corpus:cell_type_slice:census_spatial_sequencing/homo_sapiens": {
+  "candidates": 23,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 23
+ },
+ "corpus:dataset_slice:census_spatial_sequencing/homo_sapiens": {
+  "candidates": 0,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 0
+ },
+ "corpus:tissue_slice:census_spatial_sequencing/homo_sapiens": {
+  "candidates": 6,
+  "whole": 1,
+  "columns": 1,
+  "column_reads": 5
+ },
+ "corpus:cell_type_gene_subset:census_spatial_sequencing/homo_sapiens": {
+  "candidates": 23,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 23
+ },
+ "corpus:spatial_cell_type:census_spatial_sequencing/homo_sapiens": {
+  "candidates": 23,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 23
+ },
+ "corpus:obs_metadata_only:census_spatial_sequencing/homo_sapiens": {
+  "candidates": 23,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 23
+ },
+ "probe:compound boolean": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 3,
+  "column_reads": 309
+ },
+ "probe:IN": {
+  "candidates": 22,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 22
+ },
+ "probe:NOT IN": {
+  "candidates": 17,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 34
+ },
+ "probe:nulls": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "probe:membership, multi-valued disease": {
+  "candidates": 9,
+  "whole": 5,
+  "columns": 1,
+  "column_reads": 4
+ },
+ "probe:joined value, as Census 1": {
+  "candidates": 9,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 9
+ },
+ "probe:numeric range": {
+  "candidates": 14,
+  "whole": 0,
+  "columns": 3,
+  "column_reads": 42
+ },
+ "probe:numeric range only": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "probe:prefix": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "probe:substring, case-insensitive": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ },
+ "probe:regular expression": {
+  "candidates": 103,
+  "whole": 0,
+  "columns": 1,
+  "column_reads": 103
+ }
+}

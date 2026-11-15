@@ -1,0 +1,65 @@
+{
+ "cells": 2075,
+ "nulls": 415,
+ "is_primary_data": [
+  true
+ ],
+ "terms": [
+  {
+   "query": "~(obs['author_cell_type'] == 'basal cell of epithelium of bronchus')",
+   "cells": 1239,
+   "sql_rule": 1239,
+   "pandas_rule": 1654,
+   "same_as_sql": true
+  },
+  {
+   "query": "obs['author_cell_type'] != 'basal cell of epithelium of bronchus'",
+   "cells": 1239,
+   "sql_rule": 1239,
+   "pandas_rule": 1654,
+   "same_as_sql": true
+  },
+  {
+   "query": "obs['author_cell_type'] == 'basal cell of epithelium of bronchus'",
+   "cells": 421,
+   "sql_rule": 421,
+   "pandas_rule": 421,
+   "same_as_sql": true
+  },
+  {
+   "query": "obs['author_cell_type'].isna()",
+   "cells": 415,
+   "sql_rule": 415,
+   "pandas_rule": 415,
+   "same_as_sql": true
+  },
+  {
+   "query": "obs['author_cell_type'].notna()",
+   "cells": 1660,
+   "sql_rule": 1660,
+   "pandas_rule": 1660,
+   "same_as_sql": true
+  },
+  {
+   "query": "~obs['author_cell_type'].isin(['basal cell of epithelium of bronchus'])",
+   "cells": 1239,
+   "sql_rule": 1239,
+   "pandas_rule": 1654,
+   "same_as_sql": true
+  },
+  {
+   "query": "~((obs['author_cell_type'] == 'basal cell of epithelium of bronchus') & obs.is_primary_data)",
+   "cells": 1239,
+   "sql_rule": 1239,
+   "pandas_rule": 1654,
+   "same_as_sql": true
+  },
+  {
+   "query": "(obs['author_cell_type'] == 'basal cell of epithelium of bronchus') | obs.is_primary_data",
+   "cells": 2075,
+   "sql_rule": 2075,
+   "pandas_rule": 2075,
+   "same_as_sql": true
+  }
+ ]
+}
