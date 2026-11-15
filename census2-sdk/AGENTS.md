@@ -61,7 +61,7 @@ pyarrow evaluates the expression (`obs_read.evaluate`), so the SDK owns no filte
   `if_else(is_valid(x), ..., null)`, so that `isin` follows the three-valued logic of `==`.
 - pyarrow 26 decodes a dictionary array to one string for each cell for `==` and `is_in`, and it
   has no string kernel for a dictionary array. The string methods and `has_any` therefore cast the
-  column to strings first. `has_any` is an RE2 expression over the joined value, about 65 ns for
+  column to strings first. `has_any` is an RE2 expression over the joined value, 65 to 90 ns for
   each cell; see the spike notes for its share of a query.
 - A categorical column of the catalog takes its categories from the catalog row when the store has
   as many categories as the row lists, by the rule of `ColType.CATEGORY`.
