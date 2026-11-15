@@ -47,12 +47,48 @@ For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
 import census2_sdk
 
 census = census2_sdk.open_census(sources=["catalog.parquet"])
-adata = census.get_anndata("homo_sapiens", obs_filter={"tissue": "lung"})
+hs = census.homo_sapiens
+adata = census.get_anndata(hs.obs.cell_type.isin(["neutrophil"]) & (hs.obs.nnz >= 500))
+adata = census.get_anndata(hs.where({"tissue": "lung"}))
+adata = census.get_anndata(hs)  # every human cell
 ```
 
-`obs_filter` maps a column to one value or to a list of values. The SDK selects a cell when every
-column holds one of its values. The columns are the 18 indexed columns and `dataset_id`. The
-`disease` columns are multi-valued, and a value matches when it is one of the members.
+A query selects cells of one organism. `census.homo_sapiens` and `census.mus_musculus` give the
+organisms. Each column of `hs.obs` has a class for its type, with the pandas operators that suit
+the type:
+
+| Column | Operators |
+|---|---|
+| labels, such as `tissue` and `donor_id` | `==`, `!=`, `isin`, `.str.startswith`, `.endswith`, `.contains`, `.match`, `.fullmatch` |
+| `disease`, `disease_ontology_term_id` (multi-valued) | `has_any([...])`, `has_all([...])` |
+| `is_primary_data` | the column as a query, `~`, `==` a bool |
+| `nnz` and the other count statistics | `==`, `!=`, `<`, `<=`, `>`, `>=`, `between` |
+| every column | `isna`, `notna` |
+
+`&`, `|`, and `~` combine queries, as for a pandas mask. `and`, `or`, and `not` raise `TypeError`.
+`hs.where` takes a mapping of a catalog column to one value or to a list of values: the 18 indexed
+columns and `dataset_id`. `hs.obs["name"]` takes a column that the static schema does not name.
+`hs.expression(expr, columns=[...])` takes a `pyarrow.compute.Expression` as it is, with the names of
+its columns, for a test that the builder does not have, such as arithmetic between columns.
+
+Each operator gives a pyarrow expression, and pyarrow evaluates it on the columns of each store.
+Thus the null semantics are pyarrow's, which are SQL's three-valued logic: a comparison with a null
+gives null, and the SDK keeps only the cells where the query is true. `~(obs.x == "a")` drops the
+cells where `x` is null, unlike pandas. `isin` follows the same logic. `isna` is true for a null and
+for a float NaN, as in pandas. The writer stores no null in the columns of the store format, so the
+rule matters only for other columns. A regular expression is RE2, not Python's `re`.
+
+The query also records the columns that it reads and its hints: the allowed values of each catalog
+column, from its top-level `&` of `==`, `isin`, and `has_any` terms. The catalog excludes a dataset
+when its value sets prove that no cell matches the hints. A term under `|` or `~`, a numeric term,
+and a string method give no hint, so they do not exclude a dataset. When a query is exactly its
+hints, and a dataset's value sets lie inside the allowed values, the SDK keeps every cell of the
+store and reads no filter column. That proof relies on the store format's rule that an indexed
+column holds no null. `census.candidates(query)` shows the catalog rows that a query opens, with a
+`whole` column for that proof.
+
+For each other store, the SDK reads only the query's columns, as codes for a categorical column,
+and evaluates the expression with pyarrow. A store that keeps no cell reads nothing more.
 
 The result holds:
 
@@ -61,26 +97,28 @@ The result holds:
   SDK calculates from the counts on read. The SDK does not round them to 15 mantissa bits as
   Census 1 does, so they differ from Census 1 by less than 2^-15 relative.
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
-- `obs`, the columns that all selected stores hold, which include `dataset_id` and
-  `observation_joinid`
+- `obs`, the columns that all stores with a selected cell hold, which include `dataset_id` and
+  `observation_joinid`. A categorical column holds only the categories that the selected cells use.
 - `obs_names`, `<dataset_id>_<observation_joinid>`
-- `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
+- `uns["census2"]`, the sources, the count of catalog rows for the organism, the count of stores
+  opened, and the count of them that the catalog proved whole
 
-When no cell matches, `get_anndata` returns None.
+When no cell matches, `get_anndata` returns None. `census.get_obs(query, columns=[...])` gives the
+`obs` of the same cells and reads no `X`.
 
 ## Count
 
 ```python
-n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
-n = census.count_cells("homo_sapiens", {"tissue": "blood"}, primary_only=True)
+n = census.count_cells(hs.obs.cell_type == "neutrophil")
+n = census.count_cells((hs.obs.tissue == "blood") & hs.obs.is_primary_data)
 ```
 
 `count_cells` sums the cell counts in the catalog rows and opens no store. A cell matches by the
-rule of `get_anndata`, and the catalog excludes the same datasets. Thus, without `primary_only`, the
-count equals the `n_obs` of the result of `get_anndata` when there is one. A count joins no
-matrices, so it does not apply the checks before concatenation. The filter takes the counted columns
-and `dataset_id`, and a filter on another indexed column raises `ValueError`. With `primary_only`,
-the count includes only the cells whose `is_primary_data` is true.
+rule of `get_anndata`, and the catalog excludes the same datasets. Thus the count equals the
+`n_obs` of the result of `get_anndata` when there is one. A count joins no matrices, so it does
+not apply the checks before concatenation. The query must be exactly its hints: a `&` of `==`,
+`isin`, and `has_any` terms on the counted columns and `dataset_id`, and of `is_primary_data`.
+Another query raises `ValueError`.
 
 On the 1,258 stores, the call counts 374,463 human neutrophils, and Census 1 gives the same count.
 On a laptop, `open_census` and the first count take about 40 ms together, and a later count takes

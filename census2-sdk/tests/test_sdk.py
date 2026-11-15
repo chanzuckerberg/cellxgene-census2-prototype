@@ -9,6 +9,7 @@ reference genes, so the others are zero columns.
 
 import shutil
 import threading
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -184,7 +185,7 @@ def expected(
 
 def query(census: census2_sdk.Census, obs_filter: Any) -> anndata.AnnData:
     """A query that must select cells: `get_anndata` returns None when none match."""
-    result = census.get_anndata("homo_sapiens", obs_filter)
+    result = census.get_anndata(census.homo_sapiens.where(obs_filter))
     assert result is not None
     return result
 
@@ -273,12 +274,12 @@ def test_concurrent_reads_match_one_at_a_time(
 
     def overlapping(
         row: dict[str, Any],
-        canonical: Any,
+        q: Any,
         layers: Any = (),
         bucket_clients: Any = None,
-    ) -> anndata.AnnData:
+    ) -> anndata.AnnData | None:
         all_running.wait()
-        part = read_store(row, canonical, layers, bucket_clients)
+        part = read_store(row, q, layers, bucket_clients)
         position = order.index(row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
@@ -287,7 +288,9 @@ def test_concurrent_reads_match_one_at_a_time(
         return part
 
     monkeypatch.setattr(census2_sdk, "_read_store", overlapping)
-    many = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
+    many = census.get_anndata(
+        census.homo_sapiens.where(obs_filter), max_workers=len(STORES)
+    )
     assert many is not None
     assert finished == list(reversed(STORES))
     assert list(many.obs_names) == list(one.obs_names)  # catalog order
@@ -317,7 +320,9 @@ def test_stores_in_one_bucket_share_one_client(
     census.catalog["store_uri"] = [
         f"s3://{'a' if i else 'b'}/out/{name}" for i, name in enumerate(names)
     ]
-    remote = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
+    remote = census.get_anndata(
+        census.homo_sapiens.where(obs_filter), max_workers=len(STORES)
+    )
     assert sorted(made) == ["s3://a", "s3://b"]  # one client for each bucket
     assert remote is not None
     pd.testing.assert_frame_equal(
@@ -357,12 +362,14 @@ def test_max_workers_must_be_positive(
 ) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     with pytest.raises(ValueError, match="max_workers"):
-        census.get_anndata("homo_sapiens", {"tissue": "lung"}, max_workers=max_workers)
+        census.get_anndata(
+            census.homo_sapiens.where({"tissue": "lung"}), max_workers=max_workers
+        )
 
 
 def test_empty_result(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
-    assert census.get_anndata("homo_sapiens", {"tissue": "brain"}) is None
+    assert census.get_anndata(census.homo_sapiens.where({"tissue": "brain"})) is None
 
 
 def test_over_exclusion_is_visible(corpus: dict[str, Path]) -> None:
@@ -405,7 +412,7 @@ def test_store_with_another_var_refused(
     build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
     census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="v-ds-x.zarr: var differs"):
-        census.get_anndata("homo_sapiens")
+        census.get_anndata(census.homo_sapiens)
 
 
 def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
@@ -421,7 +428,7 @@ def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
     frame.to_parquet(path, index=False)
     census = census2_sdk.open_census([path])
     with pytest.raises(census2_sdk.SourceConflict, match="no gene_reference_version"):
-        census.get_anndata("homo_sapiens")
+        census.get_anndata(census.homo_sapiens)
 
 
 def test_absent_column_selects_no_cells(corpus: dict[str, Path]) -> None:
@@ -430,7 +437,10 @@ def test_absent_column_selects_no_cells(corpus: dict[str, Path]) -> None:
     The result is None, as when the catalog excludes every store.
     """
     census = census2_sdk.open_census([corpus["catalog"]])
-    assert census.get_anndata("homo_sapiens", {"tissue_general": "lung"}) is None
+    assert (
+        census.get_anndata(census.homo_sapiens.where({"tissue_general": "lung"}))
+        is None
+    )
 
 
 def test_catalog_without_a_column_keeps_the_dataset(
@@ -460,7 +470,7 @@ def test_catalog_without_a_column_keeps_the_dataset(
     alone = census2_sdk.open_census([tmp_path / "no-tissue.parquet"])
     lung = catalog.canonicalize({"tissue": "lung"})
     assert len(catalog.exclude(alone.catalog, "homo_sapiens", lung)) == 1
-    assert alone.get_anndata("homo_sapiens", {"tissue": "lung"}) is None
+    assert alone.get_anndata(alone.homo_sapiens.where({"tissue": "lung"})) is None
 
     mixed = census2_sdk.open_census(
         [tmp_path / "full.parquet", tmp_path / "no-tissue.parquet"]
@@ -475,11 +485,13 @@ def test_catalog_without_a_column_keeps_the_dataset(
     )
     assert query(unknown, {"tissue": "kidney"}).n_obs == 20
     with pytest.raises(census2_sdk.SourceConflict, match=r"no spatial.*ds-c"):
-        unknown.get_anndata("homo_sapiens", {"dataset_id": ["ds-a", "ds-c"]})
+        unknown.get_anndata(
+            unknown.homo_sapiens.where({"dataset_id": ["ds-a", "ds-c"]})
+        )
 
     unpinned = census2_sdk.open_census([tmp_path / "no-version.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match=r"no gene_reference.*ds-c"):
-        unpinned.get_anndata("homo_sapiens", {"tissue": "kidney"})
+        unpinned.get_anndata(unpinned.homo_sapiens.where({"tissue": "kidney"}))
 
 
 def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
@@ -487,6 +499,36 @@ def test_filter_values_can_be_any_iterable(corpus: dict[str, Path]) -> None:
     generator = (t for t in ["lung", "kidney"])
     result = query(census, {"tissue": generator})
     same(result, expected(corpus, {"tissue": ["lung", "kidney"]}))
+
+
+class LoggedStore(zarr.storage.WrapperStore[Any]):
+    """A local store that records the key of each read in `keys`."""
+
+    keys: list[str]
+
+    async def get(self, key: str, prototype: Any, byte_range: Any = None) -> Any:
+        self.keys.append(key)
+        return await self._store.get(key, prototype, byte_range)
+
+    async def get_partial_values(
+        self, prototype: Any, key_ranges: Iterable[tuple[str, Any]]
+    ) -> list[Any]:
+        key_ranges = list(key_ranges)
+        self.keys.extend(key for key, _ in key_ranges)
+        return list(await self._store.get_partial_values(prototype, key_ranges))
+
+
+def log_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Open each store through a `LoggedStore`, and return the list of its keys."""
+    keys: list[str] = []
+
+    def logged(uri: Any, bucket_clients: Any = None) -> zarr.Group:
+        store = LoggedStore(zarr.storage.LocalStore(str(uri), read_only=True))
+        store.keys = keys
+        return zarr.open_group(store, mode="r")
+
+    monkeypatch.setattr(census2_sdk, "open_store", logged)
+    return keys
 
 
 def test_obs_index_is_not_read(
@@ -499,11 +541,13 @@ def test_obs_index_is_not_read(
         names.append(elem.name)
         return read_elem(elem)
 
-    monkeypatch.setattr(census2_sdk, "read_elem", spy)
-    query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
-    # A read of the whole group would decode the index too.
-    assert "/obs/dataset_id" in names
+    monkeypatch.setattr(census2_sdk.obs_read, "read_elem", spy)
+    keys = log_reads(monkeypatch)
+    census = census2_sdk.open_census([corpus["catalog"]])
+    query(census, {"tissue": "lung"})
     assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
+    assert not [k for k in keys if k.startswith("obs/_index/")]
+    assert [k for k in keys if k.startswith("obs/observation_joinid/values/")]
 
 
 @pytest.mark.parametrize("unused", [False, True])
@@ -512,29 +556,27 @@ def test_categories_come_from_the_catalog_row(
 ) -> None:
     """A listed column reads only its codes, and equals the column that anndata reads.
 
-    A store with a category that the row does not list keeps anndata's read.
+    A store with a category that the row does not list reads its categories. The
+    result keeps only the categories in use.
     """
     adata = make_store("ds-c", 8, REFERENCE_IDS[:3], ["lung"], ["normal"], 4)
     values = ["lung", "kidney", None, "lung", "heart", None, "kidney", "lung"]
     tissue = pd.Categorical(values)
     adata.obs["tissue"] = tissue.add_categories(["liver"]) if unused else tissue
     path = one_store_catalog(tmp_path, adata, "ds-c")
-    names: list[str] = []
-
-    def spy(elem: Any) -> Any:
-        names.append(elem.name)
-        return read_elem(elem)
-
-    monkeypatch.setattr(census2_sdk, "read_elem", spy)
-    result = census2_sdk.open_census([path]).get_anndata("homo_sapiens")
+    keys = log_reads(monkeypatch)
+    census = census2_sdk.open_census([path])
+    result = census.get_anndata(census.homo_sapiens)
     assert result is not None
-    assert ("/obs/tissue" in names) == unused
-    assert "/obs/disease" not in names
+    read = {k.rsplit("/c/", 1)[0] for k in keys if "/c/" in k}
+    assert ("obs/tissue/categories" in read) == unused
+    assert "obs/disease/categories" not in read
+    assert "obs/dataset_id/categories" in read  # the check of the dataset
     store = zarr.open_group(tmp_path / "out" / "v-ds-c.zarr", mode="r")
     stored = cast("pd.DataFrame", read_elem(store["obs"]))
     for column in ("tissue", "disease"):
         pd.testing.assert_extension_array_equal(
-            result.obs[column].array, stored[column].array
+            result.obs[column].array, stored[column].array.remove_unused_categories()
         )
     assert int(result.obs["tissue"].isna().sum()) == 2
 
@@ -579,17 +621,17 @@ def test_cell_key_checked_on_kept_cells(
     stored = column.dtype
     if encoding == "nullable-string-array":
         # An empty selection of a string column reads no key data.
-        monkeypatch.setattr(census2_sdk, "read_elem", None)
-    assert census2_sdk._read_column_rows(node, np.array([], dtype=int)).dtype == stored
+        monkeypatch.setattr(census2_sdk.obs_read, "read_elem", None)
+    assert census2_sdk.obs_read.take_rows(node, np.array([], dtype=int)).dtype == stored
     monkeypatch.undo()
     census = census2_sdk.open_census([catalog])
-    result = census.get_anndata("homo_sapiens", {"tissue": "lung"})
+    result = census.get_anndata(census.homo_sapiens.where({"tissue": "lung"}))
     assert result is not None
     assert list(result.obs["observation_joinid"]) == ["l", "m"]
     assert result.obs["observation_joinid"].dtype == stored
     for tissue in ("kidney", "heart"):
         with pytest.raises(ValueError, match="null or not unique"):
-            census.get_anndata("homo_sapiens", {"tissue": tissue})
+            census.get_anndata(census.homo_sapiens.where({"tissue": tissue}))
 
 
 def test_malformed_store_refused(tmp_path: Path) -> None:
@@ -605,8 +647,8 @@ def test_malformed_store_refused(tmp_path: Path) -> None:
     )
     key.create_group("values")
     key.create_array("mask", shape=(1,), dtype="bool")
-    with pytest.raises(TypeError, match="/key must hold a values and a mask array"):
-        census2_sdk._read_column_rows(key, np.array([0]))
+    with pytest.raises(TypeError, match="/key/values must be an array"):
+        census2_sdk.obs_read.take_rows(key, np.array([0]))
     with pytest.raises(ValueError, match="needs feature_length"):
         census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
 
@@ -650,7 +692,13 @@ def test_rows_read_runs_as_ranges(
 
 
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
-    """A null obs value is absent from the catalog and matches no filter."""
+    """A null obs value is absent from the catalog and matches no term.
+
+    The store format holds no null in an indexed column, and the catalog proof that
+    every cell of a store matches relies on that rule. This store breaks the rule,
+    so a query that is exactly its hints keeps the null cells, and a query that
+    pyarrow evaluates drops them.
+    """
     adata = make_store("ds-n", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 5)
     tissue = adata.obs["tissue"].cat.add_categories(["liver"])
     tissue.iloc[:2] = None
@@ -658,21 +706,16 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     path = one_store_catalog(tmp_path, adata, "ds-n")
     assert list(catalog.load(path)["tissue"][0]) == ["lung"]
     census = census2_sdk.open_census([path])
-    assert census.get_anndata("homo_sapiens", {"tissue": "nan"}) is None
-    assert query(census, {"tissue": "lung"}).n_obs == 4
-
-
-def test_mask_by_category_equals_mask_by_cell() -> None:
-    """The categorical path and the per-cell fallback apply the same rule."""
-    disease = ["normal || flu", "flu", None, "normal", "cold"]
-    obs = pd.DataFrame({"disease": pd.Categorical(disease)})
-    wanted = {"disease": frozenset({"flu"})}
-    expected = np.array([True, True, False, False, False])
-    assert (census2_sdk._mask(obs, wanted) == expected).all()
-    obs["disease"] = obs["disease"].astype(object)
-    assert (census2_sdk._mask(obs, wanted) == expected).all()
-    empty = pd.DataFrame({"disease": pd.Categorical([None, None])})
-    assert not census2_sdk._mask(empty, wanted).any()
+    hs = census.homo_sapiens
+    assert census.get_anndata(hs.where({"tissue": "nan"})) is None
+    assert bool(census.candidates(hs.obs.tissue == "lung")["whole"].iloc[0])
+    assert query(census, {"tissue": "lung"}).n_obs == 6  # the sharp edge
+    evaluated = census.get_anndata(hs.obs.tissue.str.startswith("lung"))
+    assert evaluated is not None and evaluated.n_obs == 4
+    negated = census.get_anndata(~hs.obs.tissue.str.startswith("lung"))
+    assert negated is None  # SQL logic: ~ of a null is null, and drops the cell
+    nulls = census.get_anndata(hs.obs.tissue.isna())
+    assert nulls is not None and nulls.n_obs == 2
 
 
 def test_recorded_reference_must_match_the_pin(
@@ -709,9 +752,9 @@ def test_count_cells_equals_the_query(
     corpus: dict[str, Path], obs_filter: dict[str, Any]
 ) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
-    result = census.get_anndata("homo_sapiens", obs_filter)
+    result = census.get_anndata(census.homo_sapiens.where(obs_filter))
     want = 0 if result is None else result.n_obs
-    assert census.count_cells("homo_sapiens", obs_filter) == want
+    assert census.count_cells(census.homo_sapiens.where(obs_filter)) == want
 
 
 def test_cell_counts_add_up_to_n_obs(corpus: dict[str, Path]) -> None:
@@ -738,24 +781,23 @@ def test_count_cells_with_nulls_and_primary_only(tmp_path: Path) -> None:
     adata.obs["tissue"] = tissue
     adata.obs["is_primary_data"] = np.array([True, False, True, False, True, True])
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-p")])
-    assert census.count_cells("homo_sapiens") == 6
-    assert census.count_cells("homo_sapiens", {"tissue": "lung"}) == 4
-    assert census.count_cells("homo_sapiens", primary_only=True) == 4
-    assert (
-        census.count_cells("homo_sapiens", {"tissue": "lung"}, primary_only=True) == 3
-    )
-    assert census.count_cells("mus_musculus") == 0
+    assert census.count_cells(census.homo_sapiens) == 6
+    assert census.count_cells(census.homo_sapiens.where({"tissue": "lung"})) == 4
+    hs = census.homo_sapiens
+    assert census.count_cells(hs.obs.is_primary_data) == 4
+    assert census.count_cells((hs.obs.tissue == "lung") & hs.obs.is_primary_data) == 3
+    assert census.count_cells(census.mus_musculus) == 0
     # For an organism with no store, a query with a filter gives zero and None.
-    assert census.count_cells("mus_musculus", {"tissue": "lung"}) == 0
-    assert census.get_anndata("mus_musculus", {"tissue": "lung"}) is None
+    assert census.count_cells(census.mus_musculus.where({"tissue": "lung"})) == 0
+    assert census.get_anndata(census.mus_musculus.where({"tissue": "lung"})) is None
 
 
 def test_count_cells_takes_tissue_general(tmp_path: Path) -> None:
     adata = make_store("ds-t", 6, REFERENCE_IDS[:3], ["lung", "retina"], ["normal"], 7)
     adata.obs["tissue_general"] = pd.Categorical(["lung"] * 4 + ["eye"] * 2)
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-t")])
-    assert census.count_cells("homo_sapiens", {"tissue_general": "eye"}) == 2
-    result = census.get_anndata("homo_sapiens", {"tissue_general": "eye"})
+    assert census.count_cells(census.homo_sapiens.where({"tissue_general": "eye"})) == 2
+    result = census.get_anndata(census.homo_sapiens.where({"tissue_general": "eye"}))
     assert result is not None and result.n_obs == 2
 
 
@@ -763,7 +805,9 @@ def test_count_cells_reads_the_catalog_that_open_census_read(
     corpus: dict[str, Path], tmp_path: Path
 ) -> None:
     """A catalog that changes after `open_census` does not change the counts."""
-    want = census2_sdk.open_census([corpus["catalog"]]).count_cells("homo_sapiens")
+    want = census2_sdk.open_census([corpus["catalog"]]).count_cells(
+        census2_sdk.open_census([corpus["catalog"]]).homo_sapiens
+    )
     path = tmp_path / "catalog.parquet"
     shutil.copy(corpus["catalog"], path)
     census = census2_sdk.open_census([path])
@@ -771,14 +815,19 @@ def test_count_cells_reads_the_catalog_that_open_census_read(
     one_store_catalog(
         tmp_path, make_store("ds-z", 2, REFERENCE_IDS, ["lung"], ["normal"], 15), "ds-z"
     )
-    assert census2_sdk.open_census([path]).count_cells("homo_sapiens") == 2
-    assert census.count_cells("homo_sapiens") == want
+    assert (
+        census2_sdk.open_census([path]).count_cells(
+            census2_sdk.open_census([path]).homo_sapiens
+        )
+        == 2
+    )
+    assert census.count_cells(census.homo_sapiens) == want
 
 
 def test_count_cells_refuses_an_uncounted_column(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     with pytest.raises(ValueError, match="development_stage"):
-        census.count_cells("homo_sapiens", {"development_stage": "adult"})
+        census.count_cells(census.homo_sapiens.where({"development_stage": "adult"}))
 
 
 def test_count_cells_needs_the_counts_column(
@@ -787,7 +836,7 @@ def test_count_cells_needs_the_counts_column(
     catalog.load(corpus["catalog"]).to_parquet(tmp_path / "bare.parquet", index=False)
     census = census2_sdk.open_census([tmp_path / "bare.parquet"])
     with pytest.raises(ValueError, match="no cell_counts column"):
-        census.count_cells("homo_sapiens")
+        census.count_cells(census.homo_sapiens)
 
 
 # --- the catalog builder and the summary record -------------------------------
@@ -877,7 +926,7 @@ def test_store_without_a_dataset_id_column_is_refused(tmp_path: Path) -> None:
     adata.obs = cast("pd.DataFrame", adata.obs).drop(columns="dataset_id")
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-n")])
     with pytest.raises(ValueError, match="v-ds-n.zarr: obs has no dataset_id column"):
-        census.get_anndata("homo_sapiens")
+        census.get_anndata(census.homo_sapiens)
 
 
 def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
@@ -885,7 +934,7 @@ def test_store_for_another_dataset_is_refused(tmp_path: Path) -> None:
     adata.obs["dataset_id"] = pd.Categorical(["ds-other"] * adata.n_obs)
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-m")])
     with pytest.raises(ValueError, match="holds \\['ds-other'\\].*names ds-m"):
-        census.get_anndata("homo_sapiens")
+        census.get_anndata(census.homo_sapiens)
 
 
 # --- the normalized layer -----------------------------------------------------
@@ -950,7 +999,7 @@ def test_get_anndata_adds_the_normalized_layer(
 ) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     result = census.get_anndata(
-        "homo_sapiens", {"tissue": "lung"}, layers=["normalized"]
+        census.homo_sapiens.where({"tissue": "lung"}), layers=["normalized"]
     )
     assert result is not None
     none = np.zeros(result.n_obs, dtype=bool)
@@ -967,7 +1016,7 @@ def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
     adata.obs["assay_ontology_term_id"] = pd.Categorical(["EFO:0008931"] * adata.n_obs)
     adata.var["feature_length"] = np.arange(1, len(REFERENCE_IDS) + 1) * 100
     census = census2_sdk.open_census([one_store_catalog(tmp_path, adata, "ds-s")])
-    result = census.get_anndata("homo_sapiens", layers=["normalized"])
+    result = census.get_anndata(census.homo_sapiens, layers=["normalized"])
     assert result is not None
     length = np.asarray(adata.var["feature_length"])
     full_gene = np.ones(result.n_obs, dtype=bool)
@@ -979,4 +1028,4 @@ def test_full_gene_assay_uses_feature_length(tmp_path: Path) -> None:
 def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
-        census.get_anndata("homo_sapiens", layers=["scaled"])
+        census.get_anndata(census.homo_sapiens, layers=["scaled"])

@@ -257,6 +257,29 @@ def excludes(row: Mapping[str, Any], obs_filter: CanonicalFilter) -> bool:
     return False
 
 
+def covers(row: Mapping[str, Any], obs_filter: Mapping[str, frozenset[Any]]) -> bool:
+    """True when the row proves that every cell of the dataset matches `obs_filter`.
+
+    This is the other side of `excludes`. Each filtered column must be `dataset_id`
+    or an indexed column whose value set the row records, and each value of the set
+    must hold a wanted member. The proof relies on the store format's rule that an
+    indexed column holds no null: the value set does not show a null. A column
+    without a value set, such as `is_primary_data`, proves nothing.
+    """
+    for column, wanted in obs_filter.items():
+        if column == "dataset_id":
+            if str(row["dataset_id"]) not in wanted:
+                return False
+            continue
+        values = row.get(column)
+        if column not in INDEXED or unrecorded(values):
+            return False
+        for value in cast("Iterable[Any]", values):
+            if not set(members(str(value), column)) & wanted:
+                return False
+    return True
+
+
 def exclude(
     catalog: pd.DataFrame, organism: str, obs_filter: Filter | None
 ) -> pd.DataFrame:
