@@ -10,7 +10,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 1,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0059,
+   "catalog_seconds": 0.0061,
    "columns": [
     "tissue_general"
    ],
@@ -32,7 +32,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 44,
    "catalog_whole": 32,
-   "catalog_seconds": 0.0056,
+   "catalog_seconds": 0.0066,
    "columns": [
     "tissue_general"
    ],
@@ -52,16 +52,16 @@
    "builder": "obs.is_primary_data & (obs.nnz >= 500) & (obs.cell_type_ontology_term_id != 'unknown') & (obs.tissue_general_ontology_term_id != 'UBERON:0001017') & (obs.tissue_general_ontology_term_id != 'UBERON:0001007') & (obs.tissue_general_ontology_term_id != 'UBERON:0002405') & (obs.tissue_general_ontology_term_id != 'UBERON:0000990') & (obs.tissue_general_ontology_term_id != 'UBERON:0001004') & (obs.tissue_general_ontology_term_id != 'UBERON:0001434')",
    "notes": [],
    "organism": "homo_sapiens",
-   "catalog_candidates": 103,
+   "catalog_candidates": 57,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0037,
+   "catalog_seconds": 0.0095,
    "columns": [
     "cell_type_ontology_term_id",
     "is_primary_data",
     "nnz",
     "tissue_general_ontology_term_id"
    ],
-   "column_reads": 412,
+   "column_reads": 228,
    "hints": [
     "is_primary_data"
    ],
@@ -79,7 +79,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 7,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0062,
+   "catalog_seconds": 0.0064,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -101,7 +101,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 1,
    "catalog_whole": 1,
-   "catalog_seconds": 0.005,
+   "catalog_seconds": 0.0056,
    "columns": [
     "dataset_id"
    ],
@@ -123,7 +123,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 17,
    "catalog_whole": 7,
-   "catalog_seconds": 0.0052,
+   "catalog_seconds": 0.0058,
    "columns": [
     "tissue_general_ontology_term_id"
    ],
@@ -150,7 +150,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 7,
    "catalog_whole": 0,
-   "catalog_seconds": 0.006,
+   "catalog_seconds": 0.0067,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -173,12 +173,12 @@
    ],
    "organism": "homo_sapiens",
    "catalog_candidates": 1,
-   "catalog_whole": 0,
-   "catalog_seconds": 0.0053,
+   "catalog_whole": 1,
+   "catalog_seconds": 0.0062,
    "columns": [
     "disease_ontology_term_id"
    ],
-   "column_reads": 1,
+   "column_reads": 0,
    "hints": [
     "disease_ontology_term_id"
    ],
@@ -201,7 +201,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 7,
    "catalog_whole": 0,
-   "catalog_seconds": 0.005,
+   "catalog_seconds": 0.0057,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -223,7 +223,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 7,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0053,
+   "catalog_seconds": 0.0061,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -587,7 +587,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 23,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0057,
+   "catalog_seconds": 0.0066,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -631,7 +631,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 6,
    "catalog_whole": 1,
-   "catalog_seconds": 0.0048,
+   "catalog_seconds": 0.0054,
    "columns": [
     "tissue_general_ontology_term_id"
    ],
@@ -653,7 +653,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 23,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0057,
+   "catalog_seconds": 0.0072,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -675,7 +675,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 23,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0057,
+   "catalog_seconds": 0.0066,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -697,7 +697,7 @@
    "organism": "homo_sapiens",
    "catalog_candidates": 23,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0057,
+   "catalog_seconds": 0.0066,
    "columns": [
     "cell_type_ontology_term_id"
    ],
@@ -790,15 +790,15 @@
    "note": "",
    "status": "expressible",
    "builder": "((obs.tissue == 'lung') | (obs.tissue_general == 'lung')) & ~(obs.cell_type == 'macrophage')",
-   "catalog_candidates": 103,
-   "catalog_whole": 0,
-   "catalog_seconds": 0.0034,
+   "catalog_candidates": 17,
+   "catalog_whole": 6,
+   "catalog_seconds": 0.0168,
    "columns": [
     "cell_type",
     "tissue",
     "tissue_general"
    ],
-   "column_reads": 309,
+   "column_reads": 33,
    "hints": [],
    "exact": false,
    "cells": 1885447,
@@ -811,7 +811,7 @@
    "builder": "obs.cell_type.isin(['monocyte', 'neutrophil'])",
    "catalog_candidates": 22,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0082,
+   "catalog_seconds": 0.0072,
    "columns": [
     "cell_type"
    ],
@@ -829,13 +829,13 @@
    "status": "expressible",
    "builder": "(obs.tissue_general == 'lung') & ~obs.cell_type.isin(['alveolar macrophage', 'type II pneumocyte'])",
    "catalog_candidates": 17,
-   "catalog_whole": 0,
-   "catalog_seconds": 0.0053,
+   "catalog_whole": 6,
+   "catalog_seconds": 0.0067,
    "columns": [
     "cell_type",
     "tissue_general"
    ],
-   "column_reads": 34,
+   "column_reads": 22,
    "hints": [
     "tissue_general"
    ],
@@ -850,7 +850,7 @@
    "builder": "obs.raw_variance_nnz.isna()",
    "catalog_candidates": 103,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0038,
+   "catalog_seconds": 0.0039,
    "columns": [
     "raw_variance_nnz"
    ],
@@ -867,7 +867,7 @@
    "builder": "obs.disease.has_any(['COVID-19'])",
    "catalog_candidates": 9,
    "catalog_whole": 5,
-   "catalog_seconds": 0.0056,
+   "catalog_seconds": 0.0063,
    "columns": [
     "disease"
    ],
@@ -884,13 +884,13 @@
    "note": "has_all also selects a cell with more members; no exact form of the joined value",
    "status": "expressible",
    "builder": "obs.disease.has_all(['COVID-19', 'normal'])",
-   "catalog_candidates": 9,
+   "catalog_candidates": 0,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0057,
+   "catalog_seconds": 0.007,
    "columns": [
     "disease"
    ],
-   "column_reads": 9,
+   "column_reads": 0,
    "hints": [
     "disease"
    ],
@@ -905,7 +905,7 @@
    "builder": "(obs.cell_type == 'neutrophil') & (obs.nnz >= 2000) & (obs.raw_sum < 20000)",
    "catalog_candidates": 14,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0056,
+   "catalog_seconds": 0.006,
    "columns": [
     "cell_type",
     "nnz",
@@ -926,7 +926,7 @@
    "builder": "obs.nnz >= 8000",
    "catalog_candidates": 103,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0034,
+   "catalog_seconds": 0.004,
    "columns": [
     "nnz"
    ],
@@ -941,13 +941,13 @@
    "note": "",
    "status": "expressible",
    "builder": "obs.cell_type.str.startswith('CD8')",
-   "catalog_candidates": 103,
+   "catalog_candidates": 24,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0037,
+   "catalog_seconds": 0.0063,
    "columns": [
     "cell_type"
    ],
-   "column_reads": 103,
+   "column_reads": 24,
    "hints": [],
    "exact": false,
    "cells": 427977,
@@ -958,13 +958,13 @@
    "note": "",
    "status": "expressible",
    "builder": "obs.cell_type.str.contains('macrophage', case=False, regex=False)",
-   "catalog_candidates": 103,
+   "catalog_candidates": 36,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0038,
+   "catalog_seconds": 0.0065,
    "columns": [
     "cell_type"
    ],
-   "column_reads": 103,
+   "column_reads": 36,
    "hints": [],
    "exact": false,
    "cells": 581205,
@@ -975,13 +975,13 @@
    "note": "",
    "status": "expressible",
    "builder": "obs.cell_type.str.match('CD(4|8)-positive')",
-   "catalog_candidates": 103,
+   "catalog_candidates": 27,
    "catalog_whole": 0,
-   "catalog_seconds": 0.0037,
+   "catalog_seconds": 0.0082,
    "columns": [
     "cell_type"
    ],
-   "column_reads": 103,
+   "column_reads": 27,
    "hints": [],
    "exact": false,
    "cells": 1051329,

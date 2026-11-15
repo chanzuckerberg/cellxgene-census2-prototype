@@ -52,11 +52,14 @@ pyarrow evaluates the expression (`obs_read.evaluate`), so the SDK owns no filte
   columns of a query and its hints, and `Organism.expression` takes the list of columns from the
   caller. The SDK reads only the recorded columns; a column that the expression names and the list
   does not makes pyarrow raise.
-- The hints come only from a top-level `&` of `==`, `isin`, and `has_any` terms. `|`, `~`, a
-  numeric term, and a string method give none, so they exclude no dataset. `catalog.covers` proves
-  a store whole only when the query is exactly its hints (`Query.exact`), and that proof relies on
-  the store format's rule that an indexed column holds no null. A test store with a null shows
-  the sharp edge (`test_null_is_not_a_value`).
+- The hints come only from a top-level `&` of `==`, `isin`, and `has_any` terms, and
+  `catalog.excludes` tests them first. `value_sets.test` then evaluates the query's expression on
+  the combinations of each row's value sets, with a null for a column without a value set. That is
+  sound only for a query whose terms give null for a null value (`Query.null_safe`); `isna`,
+  `notna`, and `Organism.expression` are not, and keep the hint test and `catalog.covers`, as does a
+  row whose table passes `value_sets.MAX_COMBINATIONS`. Both proofs of a whole store rely on the
+  store format's rule that an indexed column holds no null. A test store with a null shows the
+  sharp edge (`test_null_is_not_a_value`).
 - pyarrow's `is_in` gives false for a null, not null. The builder wraps it in
   `if_else(is_valid(x), ..., null)`, so that `isin` follows the three-valued logic of `==`.
 - pyarrow 26 decodes a dictionary array to one string for each cell for `==` and `is_in`, and it

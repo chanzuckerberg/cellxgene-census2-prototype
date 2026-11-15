@@ -32,11 +32,13 @@ from pyarrow import acero
 __all__ = [
     "ENCODINGS",
     "OBS_THREADS",
+    "Arrow",
     "Codes",
     "ColumnData",
     "Elem",
     "Values",
     "evaluate",
+    "mask",
     "read_column",
     "read_columns",
 ]
@@ -143,8 +145,18 @@ class Missing:
         return pa.nulls(self.n, MISSING_TYPES.get(self.kind, pa.null()))
 
 
+@dataclass(frozen=True)
+class Arrow:
+    """A column that is an Arrow array already, as the catalog test makes one."""
+
+    array: Any
+
+    def arrow(self) -> Any:
+        return self.array
+
+
 ColumnData = Codes | Values | Elem
-FilterData = ColumnData | Missing
+FilterData = ColumnData | Missing | Arrow
 
 
 def encoding(node: zarr.Array[Any] | zarr.Group) -> tuple[str, str]:
@@ -227,9 +239,24 @@ def table(data: Mapping[str, FilterData], n: int) -> Any:
 def evaluate(expression: Any, data: Mapping[str, FilterData], n: int) -> np.ndarray:
     """The positions of the cells where `expression` is true, in order.
 
-    Acero projects the expression to one boolean for each cell, in this thread. A
-    null, from a null in a column, keeps no cell.
+    A null, from a null in a column, keeps no cell.
     """
+    mask = _project(expression, data, n)
+    return np.asarray(pc.indices_nonzero(mask).to_numpy(), dtype=np.int64)
+
+
+def mask(
+    expression: Any, data: Mapping[str, FilterData], n: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """`expression` for each row: its value, and True where it is not null."""
+    result = _project(expression, data, n)
+    valid = np.asarray(result.is_valid().to_numpy(zero_copy_only=False), dtype=bool)
+    values = np.asarray(result.fill_null(False).to_numpy(zero_copy_only=False))
+    return values.astype(bool), valid
+
+
+def _project(expression: Any, data: Mapping[str, FilterData], n: int) -> Any:
+    """Acero projects the expression to one boolean for each row, in this thread."""
     plan = acero.Declaration.from_sequence(
         [
             acero.Declaration(
@@ -240,10 +267,10 @@ def evaluate(expression: Any, data: Mapping[str, FilterData], n: int) -> np.ndar
             ),
         ]
     )
-    mask = plan.to_table(use_threads=False)["keep"].combine_chunks()
-    if mask.type != pa.bool_():
-        raise TypeError(f"the query gives {mask.type}, not bool")
-    return np.asarray(pc.indices_nonzero(mask).to_numpy(), dtype=np.int64)
+    result = plan.to_table(use_threads=False)["keep"].combine_chunks()
+    if result.type != pa.bool_():
+        raise TypeError(f"the query gives {result.type}, not bool")
+    return result
 
 
 def take_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:

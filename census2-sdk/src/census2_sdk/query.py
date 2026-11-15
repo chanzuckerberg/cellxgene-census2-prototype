@@ -113,6 +113,10 @@ class Query:
     every cell. `columns` names the columns that the expression reads. `hints` maps
     a column to its allowed values, and `exact` is true when the expression is
     exactly the conjunction of the hints. `text` is the pandas form, for display.
+    `null_safe` is true when each term gives null for a null value, so that the
+    catalog test can put a null in place of a value that it does not know
+    (`census2_sdk.value_sets`). `isna`, `notna`, and `Organism.expression` make it
+    false.
     """
 
     organism: str
@@ -122,6 +126,7 @@ class Query:
     exact: bool = True
     text: str = ""
     level: int = ATOM
+    null_safe: bool = True
 
     def __and__(self, other: "QueryLike") -> "Query":
         return _and(self, as_query(other))
@@ -144,6 +149,7 @@ class Query:
             self.columns,
             exact=False,
             text=f"~{_wrap(self, ATOM)}",
+            null_safe=self.null_safe,
         )
 
     def __bool__(self) -> NoReturn:
@@ -194,6 +200,7 @@ def _and(left: Query, right: Query) -> Query:
         exact,
         text,
         AND,
+        left.null_safe and right.null_safe,
     )
 
 
@@ -209,6 +216,7 @@ def _or(left: Query, right: Query) -> Query:
         exact=False,
         text=text,
         level=OR,
+        null_safe=left.null_safe and right.null_safe,
     )
 
 
@@ -328,6 +336,7 @@ class Column:
         text: str,
         level: int = ATOM,
         hint: frozenset[Any] | None = None,
+        null_safe: bool = True,
     ) -> Query:
         """A query of one term. A hint applies only to a column of `HINT_COLUMNS`."""
         hints = {self.name: hint} if hint is not None else {}
@@ -341,15 +350,18 @@ class Column:
             bool(hints),
             text,
             level,
+            null_safe,
         )
 
     def isna(self) -> Query:
         """True where the value is null, or NaN, as `Series.isna()`."""
-        return self._term(self.field.is_null(nan_is_null=True), f"{self!r}.isna()")
+        expression = self.field.is_null(nan_is_null=True)
+        return self._term(expression, f"{self!r}.isna()", null_safe=False)
 
     def notna(self) -> Query:
         """True where the value is not null and not NaN, as `Series.notna()`."""
-        return self._term(~self.field.is_null(nan_is_null=True), f"{self!r}.notna()")
+        expression = ~self.field.is_null(nan_is_null=True)
+        return self._term(expression, f"{self!r}.notna()", null_safe=False)
 
     def __bool__(self) -> NoReturn:
         raise TypeError(BOOL_HINT)
@@ -610,6 +622,7 @@ class BoolColumn(Column):
             truth.columns,
             exact=False,
             text=f"~{self!r}",
+            null_safe=truth.null_safe,
         )
 
     @overload  # type: ignore[override]

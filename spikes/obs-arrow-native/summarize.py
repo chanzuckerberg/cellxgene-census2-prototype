@@ -24,7 +24,9 @@ def e2e(results: pathlib.Path) -> None:
     )
     for r in rows:
         groups[(r["query"], r["workers"], r["arm"])].append(r)
-    arms = ["main", "pr45", "pr43", "spike"]
+    order = ("main", "pr45", "pr45m", "pr43", "hints", "spike")
+    arms = [a for a in order if any(r["arm"] == a for r in rows)]
+    counted = [a for a in ("main", "pr43", "hints", "spike") if a in arms]
     queries = list(dict.fromkeys(r["query"] for r in rows))
 
     def med(key: tuple[str, int, str], field: str) -> Any:
@@ -34,16 +36,14 @@ def e2e(results: pathlib.Path) -> None:
     for workers in (8, 32):
         print(f"\n### {workers} workers: seconds (CPU seconds), median of 3\n")
         print(
-            "| Query | Cells | Stores opened: mapping / #43 / spike (whole) | "
+            f"| Query | Cells | Stores opened: {' / '.join(counted)} (whole) | "
             + " | ".join(arms)
             + " |"
         )
         print("|---|---|---|" + "---|" * len(arms))
         for q in queries:
             cells = med((q, workers, "spike"), "cells")
-            opened = [
-                med((q, workers, a), "stores_opened") for a in ("main", "pr43", "spike")
-            ]
+            opened = [med((q, workers, a), "stores_opened") for a in counted]
             whole = med((q, workers, "spike"), "stores_whole")
             cols = []
             for a in arms:

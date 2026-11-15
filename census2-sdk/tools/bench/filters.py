@@ -153,6 +153,18 @@ QUERIES: dict[str, Query] = {
             tags=("e2e",),
         ),
         Query(
+            # Cells of unknown sex that are not primary data: two negated terms,
+            # which give no hint.
+            "negation",
+            lambda o: ~o.sex.isin(["female", "male"]) & ~o.is_primary_data,
+            tags=("e2e", "catalog"),
+        ),
+        Query(
+            "prefix_small",
+            lambda o: o.cell_type.str.startswith("mesothelial"),
+            tags=("e2e", "catalog"),
+        ),
+        Query(
             "or_columns",
             lambda o: (o.cell_type == "neutrophil") | (o.tissue_general == "pancreas"),
             tags=("e2e", "catalog"),

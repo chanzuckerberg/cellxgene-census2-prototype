@@ -79,13 +79,15 @@ for a float NaN, as in pandas. The writer stores no null in the columns of the s
 rule matters only for other columns. A regular expression is RE2, not Python's `re`.
 
 The query also records the columns that it reads and its hints: the allowed values of each catalog
-column, from its top-level `&` of `==`, `isin`, and `has_any` terms. The catalog excludes a dataset
-when its value sets prove that no cell matches the hints. A term under `|` or `~`, a numeric term,
-and a string method give no hint, so they do not exclude a dataset. When a query is exactly its
-hints, and a dataset's value sets lie inside the allowed values, the SDK keeps every cell of the
-store and reads no filter column. That proof relies on the store format's rule that an indexed
-column holds no null. `census.candidates(query)` shows the catalog rows that a query opens, with a
-`whole` column for that proof.
+column, from its top-level `&` of `==`, `isin`, and `has_any` terms. Two tests then run on the
+catalog. The hints exclude a dataset whose value sets prove that no cell matches them. Then pyarrow
+evaluates the query on every combination of each remaining dataset's value sets, with a null for a
+column that the catalog does not know, such as `nnz`. A dataset where every combination gives false
+is excluded, so `|`, `~`, and the string methods exclude datasets too. A dataset where every
+combination gives true, with no unknown column, is whole: the SDK keeps every cell of the store and
+reads no filter column. That proof relies on the store format's rule that an indexed column holds no
+null. A query with `isna`, `notna`, or `hs.expression` keeps only the hint test.
+`census.candidates(query)` shows the catalog rows that a query opens, with a `whole` column.
 
 For each other store, the SDK reads only the query's columns, as codes for a categorical column,
 and evaluates the expression with pyarrow. A store that keeps no cell reads nothing more.

@@ -10,8 +10,10 @@ only a typed, pandas-style wrapper that builds the expressions, and a record of 
 catalog. For this corpus, yes. The cell keys equal #43's for all 25 of its recorded queries, and
 every mapping query equals `main` value for value. pyarrow's evaluation on the dictionary arrays
 takes 2% to 10% of a store's read and evaluation, and it does not show in the end-to-end time of a
-query. The cost is the catalog pruning that #43's proof engine gives: with `|`, `~`, a string
-method, or WMG's filter, this branch opens up to 6 times as many stores (12 of 57 queries).
+query. pyarrow also tests the catalog: it evaluates the query on the combinations of each row's
+value sets, and so opens the same stores as #43's proof engine in all 57 queries of #43's corpus,
+with no tree of our own. A first version with hints only opened up to 6 times as many stores with
+`|`, `~`, a string method, or WMG's filter (section 11).
 
 ## 1. Why this spike
 
@@ -36,8 +38,10 @@ Two causes moved it:
 This spike takes the other direction. pyarrow is the expression language and the evaluator. The SDK
 code (1) wraps pyarrow expressions in a typed, pandas-style builder, and (2) records, while it
 builds, the columns of a query and the top-level `&` of `isin` and `==` terms as hints for the
-catalog. There is no normalizer, no proof engine, and no tree of our own. `|`, `~`, and numeric
-terms do not exclude a dataset in the catalog. That is safe, and section 11 measures what it costs.
+catalog. There is no normalizer, no proof engine, and no tree of our own. A first version let
+`|`, `~`, numeric terms, and string methods exclude no dataset, which is safe; section 11 measures
+what it cost. The catalog test of section 5, pyarrow on the value sets, then removed most of that
+cost.
 The null semantics are pyarrow's, which are SQL's three-valued logic, not the pandas rule.
 
 ## 2. What the spike built
@@ -49,8 +53,10 @@ The null semantics are pyarrow's, which are SQL's three-valued logic, not the pa
   fails when the two differ.
 - `census2_sdk.obs_read`: the read of `obs` columns from Zarr into Arrow arrays, the evaluation of
   the expression, and the result columns of the kept cells.
+- `census2_sdk.value_sets`: the catalog test by pyarrow on the combinations of each row's value
+  sets.
 - `catalog.covers`: the proof that every cell of a dataset matches the hints, the other side of the
-  existing `catalog.excludes`.
+  existing `catalog.excludes`, for the rows that pyarrow cannot test.
 - `Census.homo_sapiens` and `Census.mus_musculus` (`Organism`), and `get_anndata(query)`,
   `get_obs(query)`, `count_cells(query)`, and `candidates(query)`. The organism-string form of
   `get_anndata` and `count_cells` is gone, and its callers use the query: the harness adapter, the
@@ -121,9 +127,10 @@ Our code owns three things:
 
 - **The typed wrapper.** The column classes, their operators, the refusals, the display, and the
   RE2 pattern of `has_any`.
-- **The hint bookkeeping.** The columns and the hints of each query, and the rules of `&`, `|`, and
-  `~` for them. The catalog test reuses `main`'s `catalog.canonicalize`, `exclude`, and `excludes`
-  on the hints, and adds `covers`.
+- **The hint bookkeeping and the catalog tables.** The columns, the hints, and the null safety of
+  each query, and the rules of `&`, `|`, and `~` for them. The catalog test reuses `main`'s
+  `catalog.canonicalize`, `exclude`, and `excludes` on the hints, adds `covers`, and builds the
+  tables of value sets on which pyarrow evaluates the query.
 - **The codes-first reads.** The read of the query's columns from Zarr as codes and values, the
   categories from the catalog row, the `DictionaryArray`s, and the result columns of the kept
   cells.
@@ -132,33 +139,70 @@ pyarrow owns the operators, the evaluation, and the null semantics. It evaluates
 the kernels of its version, on the columns of each store. The SDK does not walk, rewrite, or
 simplify an expression.
 
-Code lines (no blank line, comment, or docstring): `query.py` and `obs_read.py` have 669, against
-1,272 in #43's `obs_filter.py`, `obs_plan.py`, and `obs_arrow.py`. `__init__.py` grows by 123 lines
-over `main`, and `catalog.py` by 13 (`covers`).
+Code lines (no blank line, comment, or docstring): `query.py`, `obs_read.py`, and
+`value_sets.py` have 789, against 1,272 in #43's `obs_filter.py`, `obs_plan.py`, and
+`obs_arrow.py`. `__init__.py` grows by 130 lines over `main`, and `catalog.py` by 13 (`covers`).
 
-## 5. The catalog side: hints, `exact`, and whole stores
+## 5. The catalog side: hints, value sets, and whole stores
 
-A term gives a hint when it is `==` or `isin` on a catalog column (the 18 indexed columns and
-`dataset_id`), `has_any` on a `disease` column, or a term on `is_primary_data`. The rules:
+Two tests run on the catalog, and a row must pass both. Neither walks the expression.
+
+**The hints.** A term gives a hint when it is `==` or `isin` on a catalog column (the 18 indexed
+columns and `dataset_id`), `has_any` on a `disease` column, or a term on `is_primary_data`:
 
 - `&` keeps the hints of both sides. When both sides give the same single-valued column, the
   allowed values are the intersection. For a `disease` column, `has_any(A) & has_any(B)` is not
   `has_any(A ∩ B)`, so the query keeps the smaller set, which is a correct hint alone, and it is no
   longer exact.
 - `|` and `~` keep the columns and drop the hints.
-- `exact` is true when the expression is exactly the conjunction of the hints: every term is a hint,
-  and no `disease` column has two sets.
+- `exact` is true when the expression is exactly the conjunction of the hints.
 
-The catalog excludes a dataset by `main`'s `excludes` on the hints of the catalog columns. It does
-not use `is_primary_data`, as #43 did not. When a query is exact and the dataset's value sets lie
-inside the allowed values (`covers`), the store is whole: the SDK reads no filter column and keeps
-all of its cells. That check relies on the store format's rule that an indexed column holds no
-null, because a value set does not show a null. A test store with a null shows the sharp edge
-(`test_null_is_not_a_value`).
+`main`'s `excludes` removes a row whose value sets prove the hints false. This costs little and
+runs first.
 
-Over the 57 queries of #43's corpus (section 11), the check proves 161 of 2,089 candidates whole,
-in 12 queries. In each exact query, it proves as many stores whole as #43's proof engine does. #43
-proves 27 more, all in queries with `|`, `~`, or `has_all`.
+**The value sets** (`census2_sdk.value_sets`). For each remaining row, pyarrow evaluates the
+query's own expression on a table of every combination of the row's value sets, for the query's
+columns. Each cell of the store holds one of the combinations.
+
+- A column without a value set (`nnz` and the other numbers, `donor_id`, `obs["name"]`, or a column
+  that the row does not record) is a null in each combination: a value that the catalog does not
+  know. `dataset_id` holds the row's identity, `is_primary_data` the catalog's summary (`all_true`,
+  `all_false`, `mixed`), and a `disease` column the row's joined values, as the store does.
+- The row is excluded when every combination gives false. A null or a true keeps it.
+- The row is whole when every combination gives true and no column is unknown. The SDK then reads
+  no filter column and keeps all of the store's cells.
+- The test is sound when each term gives null for a null value, because a cell that matches then
+  makes its combination true or null, never false. The builder records that (`Query.null_safe`).
+  `isna`, `notna`, and `Organism.expression` are not null-safe, so their rows keep the hint test
+  and `catalog.covers`.
+- A row whose table passes 100,000 combinations (`MAX_COMBINATIONS`) keeps the hint test. The
+  largest table in the corpus has 99,456 rows (`compound`, on one store); no row passes the limit.
+
+The whole verdict relies on the store format's rule that an indexed column holds no null, as
+`covers` does, because a value set does not show a null. A test store with a null shows the sharp
+edge (`test_null_is_not_a_value`). The exclusion does not rely on it: a store with a null in a
+column holds a non-null value there too, or records no value set, which is unknown.
+
+**The cost of the test** (`catalog_time.py`, laptop, medians of 5 runs; the 2,060-row catalog
+repeats the 103 stores under new dataset identities):
+
+| Catalog rows | Median query, ms: both tests / hints only | Largest, ms | Rows of all tables, largest query |
+|---|---|---|---|
+| 103 | 3.1 / 2.7 | 10.6 (`compound`) | 182,747 |
+| 2,060 | 35.5 / 30.6 | 189.9 (`compound`) | 3,654,940 |
+
+At 2,060 rows the hint test alone takes 31 ms for a median query, in the Python loop of
+`excludes`; the value sets add 5 ms. `compound` (`|` and `~` over three columns) builds the largest
+tables and takes 190 ms; it then reads 1.9 million cells from 17 stores.
+
+**The decision: keep the hint test.** It runs first and removes most rows before the tables are
+made, it decides the rows that pyarrow cannot test (a query that is not null-safe, a table above the
+limit, a query that pyarrow refuses on the catalog's types), and `count_cells` needs its exact
+hints. `value_sets.py` has 94 code lines, and the change adds 33 more in `query.py`, `obs_read.py`,
+and `__init__.py`, with no new dependency.
+
+Over the 57 queries of #43's corpus (section 11), the two tests keep the same candidates as #43's
+proof engine in every query, and prove the same stores whole (188 of 1,286 candidates).
 
 ## 6. The store side
 
@@ -308,107 +352,127 @@ pyarrow takes 19 to 119 ms (`membership`), and #43 0.0 to 7.5 ms.
   both branches: 0 to 443,561 cells, with every part equal. This branch keeps only the categories in
   use in each categorical column; `main` keeps the categories of the stores. That is the one
   expected difference, and the digest of the values as strings does not see it.
-- **Tests.** 194 tests pass (146 on `main`), and mypy `--strict` and ruff are clean.
+- **The catalog test by pyarrow.** With the value sets of section 5, `keys.py` gives the same
+  cell keys as the hint test for all 33 queries of `bench/filters.py`, and the harness corpus and
+  the probes give the same cells (27 of 27). The two versions open 1,286 and 2,089 stores over
+  #43's corpus, so a row that holds a matching cell and that the value sets excluded would show
+  as a missing cell. `test_the_catalog_test_keeps_every_store_with_a_cell` compares 40 random
+  queries of `&`, `|`, `~`, `.str`, `has_any`, `has_all`, and unknown columns with a scan of every
+  test store.
+- **Tests.** 197 tests pass (146 on `main`), and mypy `--strict` and ruff are clean.
 
 ## 10. End-to-end measures
 
 One m6in.4xlarge (16 vCPU, 64 GiB) in the region of the bucket, Amazon Linux 2023, Python 3.13,
 anndata 0.13.4, zarr 3.4.2, obstore 0.12.1, pandas 3.1.1, NumPy 2.5.4, pyarrow 26.0.1. Each run is a
-new process (`e2e.py`). Median of 3, the arms interleaved in each repeat. The arms:
+new process (`e2e.py`), with a watchdog that stops a run above 48 GiB of RSS. Median of 3, the five
+arms interleaved in each repeat, all in one session. The arms:
 
 - `main`: `main` at 5db8999, mapping filters.
-- #45: #45's branch, mapping filters (the codes-first read of the categorical columns).
-- #43: #43's builder, from its branch, over the same stores.
-- spike: this branch.
+- #45 on `main`: a local merge of #45's branch into `main` at 5db8999, mapping filters. It stands
+  for `main` after #45 merges; it is the first commit of this branch, and no branch of its own was
+  pushed.
+- #43: #43's builder, from its branch, over the same stores. That branch starts from `main` before
+  #40 (the read of runs of kept rows as ranges of `X`) and #44 (one obstore client for each
+  bucket), so its read of `X` is the older one. A difference between #43 and the other arms in a
+  query that reads much of `X` comes from that, not from the filter.
+- spike, hints only: this branch before the catalog test of section 5 (9566b07).
+- spike: this branch, with the hints and pyarrow on the value sets.
 
-The branches of #45 and #43 start from `main` before #40 (the read of runs of kept rows as ranges
-of `X`) and #44 (one obstore client for each bucket). Their reads of `X` are the older ones. A
-difference between them and `main` or this branch in a query that reads much of `X` comes from that,
-not from the filter. `main` and this branch read `X` with the same code.
-
-The count of requests wraps `zarr.storage.ObjectStore`, which every branch uses, so it counts each
-read of each branch the same way: each `get` is one request. `main` and #45 cannot express the `|`
-and numeric queries (–).
+`main`, #45 on `main`, and both versions of this branch read `X` with the same code. The count of
+requests wraps `zarr.storage.ObjectStore`, which every branch uses, so it counts each read of each
+branch the same way: each `get` is one request. A mapping cannot express the `|`, `~`, `.str`, and
+numeric queries (–). `negation` is `~obs.sex.isin(['female', 'male']) & ~obs.is_primary_data`, and
+`prefix_small` is `obs.cell_type.str.startswith('mesothelial')`.
 
 **8 workers: seconds (CPU seconds), median of 3**
 
-| Query | Cells | Stores opened: `main` / #43 / spike (whole) | `main` | #45 | #43 | spike |
-|---|---|---|---|---|---|---|
-| (d1) `fp_none` | 0 | 4 / 4 / 4 (0) | 2.27 (1.1) | 1.85 (1.1) | 0.26 (0.2) | 0.24 (0.2) |
-| (d2) `fp_some` | 111 | 4 / 4 / 4 (0) | 4.79 (2.3) | 3.89 (2.1) | 2.47 (1.6) | 2.90 (1.8) |
-| `membership` (`has_any`) | 1,258 | 6 / 6 / 6 (0) | 3.28 (4.2) | 2.36 (3.5) | 1.98 (3.6) | 2.25 (4.2) |
-| Crohn disease | 171,271 | 5 / 5 / 5 (0) | 6.16 (9.8) | 10.04 (14.9) | 7.41 (12.8) | 5.02 (10.1) |
-| 10x 3' v1 | 85,549 | 6 / 6 / 6 (0) | 4.75 (5.9) | 5.80 (8.0) | 4.29 (6.8) | 3.62 (5.8) |
-| neutrophil | 35,795 | 14 / 14 / 14 (0) | 10.08 (17.6) | 8.00 (16.7) | 7.20 (16.6) | 7.63 (17.9) |
-| `or_columns` (`\|`) | 48,610 | – / 17 / 103 (0) | – | – | 8.58 (20.6) | 10.19 (23.0) |
-| `numeric_only` | 17,003 | – / 103 / 103 (0) | – | – | 36.73 (83.8) | 32.96 (85.4) |
-| liver tissue | 397,528 | 12 / 12 / 12 (2) | 19.54 (58.9) | 37.34 (83.0) | 33.08 (74.1) | 18.97 (59.0) |
-| CD4 T cell | 443,561 | 12 / 12 / 12 (0) | 32.33 (108.8) | 31.32 (110.1) | 28.40 (106.6) | 30.49 (111.1) |
-| macrophage | 322,590 | 24 / 24 / 24 (0) | 44.63 (161.9) | 42.97 (161.2) | 41.00 (157.3) | 42.23 (164.5) |
+| Query | Cells | Stores opened: `main` / #43 / hints only / spike (whole) | `main` | #45 on `main` | #43 | spike, hints only | spike |
+|---|---|---|---|---|---|---|---|
+| (d1) `fp_none` | 0 | 4 / 4 / 4 / 4 (0) | 2.18 (1.2) | 1.53 (1.1) | 0.31 (0.2) | 0.25 (0.2) | 0.24 (0.2) |
+| (d2) `fp_some` | 111 | 4 / 4 / 4 / 4 (0) | 4.42 (2.3) | 3.69 (2.2) | 2.44 (1.6) | 2.85 (1.8) | 2.75 (1.8) |
+| `membership` (`has_any`) | 1,258 | 6 / 6 / 6 / 6 (0) | 3.33 (4.2) | 2.50 (4.2) | 2.10 (3.6) | 2.21 (4.2) | 2.22 (4.2) |
+| Crohn disease | 171,271 | 5 / 5 / 5 / 5 (0) | 6.08 (9.9) | 5.44 (9.9) | 7.67 (13.1) | 5.09 (10.2) | 5.07 (10.1) |
+| 10x 3' v1 | 85,549 | 6 / 6 / 6 / 6 (0) | 4.60 (5.9) | 4.17 (5.9) | 4.31 (6.8) | 3.68 (6.0) | 3.64 (5.9) |
+| neutrophil | 35,795 | 14 / 14 / 14 / 14 (0) | 9.44 (18.0) | 7.86 (18.0) | 7.10 (16.9) | 7.18 (18.2) | 7.24 (18.1) |
+| `or_columns` (`\|`) | 48,610 | – / 17 / 103 / 17 (1) | – | – | 8.69 (20.9) | 10.38 (23.5) | 8.31 (21.5) |
+| `negation` (`~`) | 65,509 | – / 7 / 103 / 7 (0) | – | – | 4.59 (7.2) | 5.71 (8.3) | 3.37 (6.1) |
+| `prefix_small` (`.str`) | 7,155 | – / 11 / 103 / 11 (0) | – | – | 7.50 (20.4) | 10.08 (23.5) | 7.01 (21.6) |
+| `numeric_only` | 17,003 | – / 103 / 103 / 103 (0) | – | – | 33.37 (85.1) | 29.96 (86.8) | 29.26 (86.7) |
+| liver tissue | 397,528 | 12 / 12 / 12 / 12 (2) | 19.76 (59.7) | 19.31 (59.5) | 33.33 (74.6) | 19.05 (59.3) | 19.06 (59.5) |
+| CD4 T cell | 443,561 | 12 / 12 / 12 / 12 (0) | 31.10 (110.6) | 30.31 (111.6) | 27.26 (106.8) | 30.08 (112.4) | 29.85 (111.9) |
+| macrophage | 322,590 | 24 / 24 / 24 / 24 (0) | 43.97 (164.7) | 42.95 (165.3) | 40.47 (158.7) | 42.05 (165.3) | 42.38 (167.7) |
 
 **8 workers: requests / MB read / peak RSS GiB, median of 3**
 
-| Query | `main` | #45 | #43 | spike |
-|---|---|---|---|---|
-| (d1) `fp_none` | 283 / 59 / 0.6 | 211 / 59 / 0.6 | 24 / 2 / 0.2 | 28 / 2 / 0.3 |
-| (d2) `fp_some` | 1,163 / 94 / 0.5 | 836 / 112 / 0.5 | 674 / 78 / 0.4 | 1,023 / 64 / 0.4 |
-| `membership` (`has_any`) | 1,138 / 255 / 0.5 | 470 / 229 / 0.5 | 514 / 228 / 0.6 | 1,030 / 255 / 0.5 |
-| Crohn disease | 1,033 / 422 / 3.9 | 937 / 423 / 6.9 | 642 / 396 / 5.6 | 943 / 422 / 3.8 |
-| 10x 3' v1 | 1,437 / 250 / 1.9 | 1,328 / 250 / 2.9 | 855 / 208 / 2.3 | 1,329 / 250 / 1.8 |
-| neutrophil | 4,300 / 1,187 / 1.5 | 2,786 / 1,178 / 1.6 | 2,907 / 1,176 / 1.4 | 4,048 / 1,187 / 1.5 |
-| `or_columns` (`\|`) | – | – | 3,363 / 1,297 / 2.8 | 5,023 / 1,319 / 2.6 |
-| `numeric_only` | – | – | 14,242 / 9,432 / 4.2 | 19,471 / 9,063 / 4.7 |
-| liver tissue | 3,102 / 2,638 / 19.3 | 2,787 / 2,645 / 31.0 | 2,406 / 2,607 / 23.4 | 2,886 / 2,638 / 19.4 |
-| CD4 T cell | 2,944 / 6,420 / 14.9 | 2,728 / 6,420 / 15.0 | 2,876 / 6,418 / 11.8 | 2,728 / 6,420 / 15.0 |
-| macrophage | 9,512 / 10,914 / 20.8 | 7,168 / 10,886 / 21.1 | 7,422 / 10,879 / 17.1 | 9,080 / 10,914 / 21.8 |
+| Query | `main` | #45 on `main` | #43 | spike, hints only | spike |
+|---|---|---|---|---|---|
+| (d1) `fp_none` | 283 / 59 / 0.6 | 211 / 59 / 0.6 | 24 / 2 / 0.2 | 28 / 2 / 0.3 | 28 / 2 / 0.3 |
+| (d2) `fp_some` | 1,163 / 94 / 0.6 | 1,091 / 94 / 0.5 | 674 / 78 / 0.4 | 1,023 / 64 / 0.4 | 1,023 / 64 / 0.4 |
+| `membership` (`has_any`) | 1,138 / 255 / 0.5 | 1,030 / 255 / 0.5 | 514 / 228 / 0.5 | 1,030 / 255 / 0.5 | 1,030 / 255 / 0.5 |
+| Crohn disease | 1,033 / 422 / 3.9 | 943 / 422 / 3.9 | 642 / 396 / 5.5 | 943 / 422 / 3.8 | 943 / 422 / 3.9 |
+| 10x 3' v1 | 1,437 / 250 / 2.0 | 1,329 / 250 / 2.0 | 855 / 208 / 2.5 | 1,329 / 250 / 1.8 | 1,329 / 250 / 1.8 |
+| neutrophil | 4,300 / 1,187 / 1.6 | 4,048 / 1,187 / 1.6 | 2,907 / 1,176 / 1.6 | 4,048 / 1,187 / 1.5 | 4,048 / 1,187 / 1.5 |
+| `or_columns` (`\|`) | – | – | 3,363 / 1,297 / 2.7 | 5,023 / 1,319 / 2.5 | 4,498 / 1,308 / 3.0 |
+| `negation` (`~`) | – | – | 577 / 210 / 3.2 | 1,713 / 268 / 2.0 | 1,124 / 257 / 2.1 |
+| `prefix_small` (`.str`) | – | – | 4,201 / 1,885 / 1.5 | 6,363 / 1,790 / 1.6 | 5,898 / 1,778 / 1.6 |
+| `numeric_only` | – | – | 14,242 / 9,432 / 4.3 | 19,471 / 9,063 / 4.7 | 19,471 / 9,063 / 4.4 |
+| liver tissue | 3,102 / 2,638 / 19.0 | 2,886 / 2,638 / 19.2 | 2,406 / 2,607 / 23.7 | 2,886 / 2,638 / 19.3 | 2,886 / 2,638 / 19.1 |
+| CD4 T cell | 2,944 / 6,420 / 14.9 | 2,728 / 6,420 / 15.1 | 2,876 / 6,418 / 11.8 | 2,728 / 6,420 / 14.9 | 2,728 / 6,420 / 14.9 |
+| macrophage | 9,512 / 10,914 / 20.9 | 9,080 / 10,914 / 21.4 | 7,422 / 10,879 / 17.1 | 9,080 / 10,914 / 21.4 | 9,080 / 10,914 / 22.2 |
 
 **32 workers: seconds (CPU seconds), median of 3**
 
-| Query | Cells | Stores opened: `main` / #43 / spike (whole) | `main` | #45 | #43 | spike |
-|---|---|---|---|---|---|---|
-| (d1) `fp_none` | 0 | 4 / 4 / 4 (0) | 2.28 (1.2) | 1.54 (1.1) | 0.26 (0.2) | 0.24 (0.2) |
-| (d2) `fp_some` | 111 | 4 / 4 / 4 (0) | 4.63 (2.3) | 3.72 (2.1) | 2.83 (1.6) | 2.79 (1.8) |
-| `membership` (`has_any`) | 1,258 | 6 / 6 / 6 (0) | 3.35 (4.1) | 2.65 (3.5) | 1.93 (3.6) | 2.21 (4.2) |
-| Crohn disease | 171,271 | 5 / 5 / 5 (0) | 6.39 (9.9) | 9.91 (14.9) | 7.51 (12.9) | 5.04 (10.0) |
-| 10x 3' v1 | 85,549 | 6 / 6 / 6 (0) | 4.78 (5.8) | 5.84 (8.0) | 4.36 (6.7) | 3.65 (5.9) |
-| neutrophil | 35,795 | 14 / 14 / 14 (0) | 8.82 (18.1) | 7.31 (16.8) | 6.56 (16.6) | 6.84 (18.1) |
-| `or_columns` (`\|`) | 48,610 | – / 17 / 103 (0) | – | – | 8.30 (20.9) | 9.89 (23.5) |
-| `numeric_only` | 17,003 | – / 103 / 103 (0) | – | – | 36.72 (83.5) | 31.53 (85.8) |
-| liver tissue | 397,528 | 12 / 12 / 12 (2) | 19.84 (58.9) | 36.59 (85.9) | 33.52 (73.9) | 19.22 (59.0) |
-| CD4 T cell | 443,561 | 12 / 12 / 12 (0) | 31.86 (112.7) | 30.78 (112.0) | 27.83 (107.2) | 31.06 (112.8) |
-| macrophage | 322,590 | 24 / 24 / 24 (0) | 43.90 (167.0) | 42.17 (164.0) | 38.75 (160.5) | 42.98 (166.8) |
+| Query | Cells | Stores opened: `main` / #43 / hints only / spike (whole) | `main` | #45 on `main` | #43 | spike, hints only | spike |
+|---|---|---|---|---|---|---|---|
+| (d1) `fp_none` | 0 | 4 / 4 / 4 / 4 (0) | 2.18 (1.2) | 1.51 (1.1) | 0.26 (0.2) | 0.24 (0.2) | 0.23 (0.2) |
+| (d2) `fp_some` | 111 | 4 / 4 / 4 / 4 (0) | 4.33 (2.3) | 3.65 (2.2) | 2.41 (1.6) | 2.71 (1.8) | 2.80 (1.8) |
+| `membership` (`has_any`) | 1,258 | 6 / 6 / 6 / 6 (0) | 3.03 (4.2) | 2.50 (4.2) | 1.94 (3.6) | 2.27 (4.2) | 2.27 (4.2) |
+| Crohn disease | 171,271 | 5 / 5 / 5 / 5 (0) | 6.18 (10.0) | 5.56 (9.9) | 7.85 (13.0) | 5.03 (10.1) | 5.05 (10.2) |
+| 10x 3' v1 | 85,549 | 6 / 6 / 6 / 6 (0) | 4.73 (5.9) | 4.12 (5.9) | 4.40 (6.8) | 3.66 (5.9) | 3.72 (5.9) |
+| neutrophil | 35,795 | 14 / 14 / 14 / 14 (0) | 8.09 (18.4) | 7.18 (18.3) | 6.47 (16.8) | 6.81 (18.4) | 6.98 (18.3) |
+| `or_columns` (`\|`) | 48,610 | – / 17 / 103 / 17 (1) | – | – | 8.15 (21.1) | 9.85 (23.8) | 8.10 (21.6) |
+| `negation` (`~`) | 65,509 | – / 7 / 103 / 7 (0) | – | – | 4.45 (7.0) | 5.45 (8.5) | 3.96 (6.1) |
+| `prefix_small` (`.str`) | 7,155 | – / 11 / 103 / 11 (0) | – | – | 7.85 (20.3) | 8.96 (23.5) | 7.15 (21.5) |
+| `numeric_only` | 17,003 | – / 103 / 103 / 103 (0) | – | – | 33.27 (85.4) | 30.51 (87.4) | 30.72 (88.0) |
+| liver tissue | 397,528 | 12 / 12 / 12 / 12 (2) | 20.23 (59.5) | 19.68 (59.2) | 33.42 (74.3) | 19.44 (59.5) | 19.38 (59.7) |
+| CD4 T cell | 443,561 | 12 / 12 / 12 / 12 (0) | 30.74 (113.5) | 30.24 (113.8) | 27.23 (108.6) | 30.64 (113.8) | 30.33 (113.7) |
+| macrophage | 322,590 | 24 / 24 / 24 / 24 (0) | 43.50 (168.1) | 43.07 (167.1) | 39.07 (161.1) | 43.35 (168.0) | 43.22 (168.6) |
 
-The requests and the bytes do not depend on the workers. The peak RSS at 32 workers is within 3
-GiB of the peak at 8.
+The requests and the bytes do not depend on the workers. The peak RSS at 32 workers is within 3 GiB of the peak at 8.
 
+- **The catalog test by pyarrow makes `|`, `~`, and `.str` faster.** With the value sets,
+  `or_columns` opens 17 stores in place of 103 and takes 8.3 s in place of 10.4 s at 8 workers
+  (-20%), `negation` opens 7 and takes 3.4 s in place of 5.7 s (-41%), and `prefix_small` opens 11
+  and takes 7.0 s in place of 10.1 s (-30%). At 32 workers the gains are 18%, 27%, and 20%. The
+  CPU time falls by 2 s for each, and the requests by 465 to 589.
+- **It costs nothing elsewhere.** For the other 10 queries the two versions of this branch open
+  the same stores, and their times differ by less than the spread of the repeats (at most 3%,
+  and in both directions). The CPU time is the same within 2%.
 - **A catalog false positive costs least on the builders.** (d1) selects no cell in the 4 stores
-  that the catalog keeps. It takes 0.24 s and 28 requests on this branch, 0.26 s and 24 requests on
-  #43, against 2.27 s and 283 requests on `main` and 1.85 s and 211 on #45. Each store reads the
-  codes of `tissue` and `cell_type`, finds no cell, and reads nothing more. This branch makes 4
-  more requests than #43, one for each store, because it keeps `main`'s open, which does not name
-  the Zarr format.
-- **Against `main`, the reads of `obs` give the difference.** Both read `X` with the same code.
-  This branch reads the filter's columns first, and the other columns of a store that keeps cells
-  8 at the same time; `main` reads every column of each store, one after another, before its
-  filter. Neutrophils take 7.6 s against 10.1 s, Crohn disease 5.0 s against 6.2 s, and 10x 3' v1
-  3.6 s against 4.8 s, at 8 workers. For the queries that read hundreds of thousands of cells
-  (liver, CD4 T cells, macrophages), `X` decides, and the two are within 6%. For the queries that
-  read `X`, the CPU time is the same within 3%, and so is the peak RSS.
+  that the catalog keeps. It takes 0.24 s and 28 requests on this branch and 0.31 s and 24 requests
+  on #43, against 2.18 s and 283 requests on `main` and 1.53 s and 211 on #45 on `main`. Each store
+  reads the codes of `tissue` and `cell_type`, finds no cell, and reads nothing more. This branch
+  makes 4 more requests than #43, one for each store, because it keeps `main`'s open, which does
+  not name the Zarr format.
+- **#45 on `main` saves 0.4 to 1.6 s against `main`** on the queries with few cells, because it
+  reads codes, not strings, for the categorical columns. This branch saves more on the same
+  queries (neutrophils 7.2 s against 7.9 s and 9.4 s on `main`; (d2) 2.8 s against 3.7 s and 4.4 s),
+  because it reads the filter's columns first and the other columns 8 at the same time. For the
+  queries that read hundreds of thousands of cells (liver, CD4 T cells, macrophages), `X` decides,
+  and `main`, #45 on `main`, and this branch are within 5%, with the same CPU time and peak RSS.
 - **pyarrow on the dictionary arrays does not show end to end.** `has_any` is the costliest term
   (section 8). Crohn disease evaluates it on 2.2 million cells, which is about 0.2 s of CPU at 88 ns
-  for each cell; the query takes 10.1 s of CPU on this branch and 9.8 s on `main`, and less wall
-  time on this branch.
-- **The extra stores of `|` cost about 1.6 s.** `or_columns` opens 103 stores on this branch and
-  17 on #43. It takes 10.2 s against 8.6 s at 8 workers (9.9 s against 8.3 s at 32), with 5,023
-  requests against 3,363 and 23.0 s of CPU against 20.6 s. Each of the 86 extra stores opens and
-  reads 2 columns.
+  for each cell; the query takes 10.1 s of CPU on this branch and 9.9 s on `main` and on #45 on
+  `main`.
 - **Against #43, the read of `X` decides.** #43 is faster on (d2), `membership`, and neutrophils
-  by 6 to 15%, with fewer requests: 674 against 1,023 for (d2), and 2,907 against 4,048 for
-  neutrophils. (d1), which reads no `X`, makes 24 against 28 requests, so the difference is in the
-  read of `X` of a few scattered cells, where `main`'s `_rows` (#40), which this branch keeps, reads
-  two ranges for each run of kept rows. #43 is slower on liver (33.1 s against 19.0 s) and Crohn
-  disease (7.4 s against 5.0 s), where #40's read of runs helps. On CD4 T cells and macrophages the
-  two are within 3 to 7%. `numeric_only` opens 103 stores on both branches.
+  by 2 to 11%, with fewer requests: 674 against 1,023 for (d2). (d1), which reads no `X`, makes 24
+  against 28 requests, so the difference is in the read of `X` of a few scattered cells, where
+  `main`'s `_rows` (#40) reads two ranges for each run of kept rows. #43 is faster on CD4 T cells
+  and macrophages by 4 to 10%, and slower on liver (33.3 s against 19.1 s), Crohn disease, and
+  `numeric_only`. With the value sets, this branch is faster than #43 on all three queries that
+  only the builders express: `or_columns` 8.3 s against 8.7 s, `negation` 3.4 s against 4.6 s,
+  and `prefix_small` 7.0 s against 7.5 s.
 - **The workers.** From 8 to 32 workers, the times change by less than 15%: on these queries the
   slowest store, or a few large stores, decide.
 
@@ -419,43 +483,42 @@ named queries of `bench/filters.py`, the 16 human queries of the harness corpus,
 with a builder form. #43 refuses one of the 58, so 57 compare. For each query it counts the
 candidates, the whole stores, and the filter columns read, summed over the candidates.
 
-Of the 57 queries, this branch opens more stores than #43 in 12, 803 stores in all, and reads
-more filter columns in 20, 1,940 column reads in all. It never opens fewer. In the other 37 queries
-the two agree on the candidates, the whole stores, and the column reads. The table lists the 20
-queries that differ; a probe or a corpus query shares the row of the named query that it repeats.
-The last column is an estimate for an open question (section 14): pyarrow evaluates the query on
-every combination of each row's value sets (`valuesets.py`).
+| Catalog test | Candidates | Whole | Filter-column reads | Queries with more stores than #43 | With more reads |
+|---|---|---|---|---|---|
+| #43: its proof engine | 1,286 | 188 | 1,275 | – | – |
+| hints only (the first version of this branch) | 2,089 | 161 | 3,215 | 12 (+803 stores) | 20 (+1,940) |
+| hints, then pyarrow on the value sets | 1,286 | 188 | 1,642 | 0 | 11 (+367) |
 
-| Query | Candidates: spike / #43 | Whole: spike / #43 | Column reads: spike / #43 | pyarrow on the value sets: candidates / whole |
-|---|---|---|---|---|
-| `lung_macrophage_primary` | 5 / 5 | 0 / 0 | 15 / 9 | 5 / 0 |
-| `lung_macrophage` | 5 / 5 | 0 / 0 | 10 / 7 | 5 / 0 |
-| `membership` | 6 / 6 | 0 / 0 | 12 / 7 | 6 / 0 |
-| `or_columns` (`\|` across columns) | 103 / 17 | 0 / 1 | 206 / 16 | 17 / 1 |
-| `compound` (`\|` and `~`), and its probe | 103 / 17 | 0 / 6 | 309 / 22 | 17 / 6 |
-| `has_all`, and the corpus's `multivalued_disease` | 1 / 1 | 0 / 1 | 1 / 0 | 1 / 1 |
-| `between` | 15 / 15 | 0 / 0 | 30 / 19 | – (`nnz`) |
-| `not_in`, and its probe | 17 / 17 | 0 / 6 | 34 / 13 | 17 / 6 |
-| `prefix`, and its probe | 103 / 24 | 0 / 0 | 103 / 24 | 24 / 0 |
-| `substring`, and its probe | 103 / 36 | 0 / 0 | 103 / 36 | 36 / 0 |
-| `regex`, and its probe | 103 / 27 | 0 / 0 | 103 / 27 | 27 / 0 |
-| `wmg`, and the corpus's `wmg_production` | 103 / 57 | 0 / 0 | 412 / 85 | – (`nnz`) |
-| the probe "joined value, as Census 1" | 9 / 0 | 0 / 0 | 9 / 0 | 0 / 0 |
+With the value sets, this branch opens the same stores as #43 in all 57 queries, and proves the
+same stores whole. `prefix` opens 24 stores in place of 103, `or_columns` and `compound` 17, and
+WMG's production filter 57: its `nnz` term is unknown in the catalog, but `is_primary_data`,
+`cell_type_ontology_term_id != 'unknown'`, and the excluded tissues decide the other rows.
 
-- **Extra stores come from `|`, `~`, the string methods, and WMG's filter.** A string method gives
-  no hint, so `prefix` opens all 103 stores where #43 opens 24. WMG's production filter
-  (`is_primary_data & (nnz >= 500) & (cell_type_ontology_term_id != 'unknown') & ~...isin(...)`)
-  has no hint on a catalog column, so it opens 103 stores where #43 opens 57.
-- **Extra column reads also come from exact terms beside other terms.** #43 drops a term from a
-  store's residual when the catalog proves it for every cell. This branch reads every column of a
-  query from each store that is not whole: 15 reads against 9 for `lung_macrophage_primary`.
-- **What it costs in time.** `or_columns` takes 10.2 s on this branch against 8.6 s on #43 at 8
-  workers (+19%), with 1,660 more requests (section 10). Each of the 86 extra stores costs its open and a read of the
-  query's 2 columns: about 28 ms of CPU each, from these runs, and the wall time of the reads
-  spread over the workers.
-- **`is_primary_data`.** Neither branch uses the catalog's `is_primary_data` summary (`all_true`,
-  `all_false`, `mixed`). With it, WMG's filter would open 60 stores, because 43 of the 103 datasets
-  hold no primary cell.
+The cost that remains is in the column reads of 11 queries. #43 drops a term from a store's
+residual filter when the catalog proves it for every cell; this branch reads every column of the
+query from each store that is not whole. WMG's filter reads 228 columns against 85, and
+`lung_macrophage_primary` 15 against 9. Each extra read is one or two requests of a column that
+the store reads at the same time as the others, so section 10 shows no time for it.
+
+| Query | Candidates: hints / value sets / #43 | Whole: hints / value sets / #43 | Column reads: hints / value sets / #43 |
+|---|---|---|---|
+| `or_columns` (`\|` across columns) | 103 / 17 / 17 | 0 / 1 / 1 | 206 / 32 / 16 |
+| `compound` (`\|` and `~`), and its probe | 103 / 17 / 17 | 0 / 6 / 6 | 309 / 33 / 22 |
+| `not_in`, and its probe | 17 / 17 / 17 | 0 / 6 / 6 | 34 / 22 / 13 |
+| `prefix`, and its probe | 103 / 24 / 24 | 0 / 0 / 0 | 103 / 24 / 24 |
+| `substring`, and its probe | 103 / 36 / 36 | 0 / 0 / 0 | 103 / 36 / 36 |
+| `regex`, and its probe | 103 / 27 / 27 | 0 / 0 / 0 | 103 / 27 / 27 |
+| `wmg`, and the corpus's `wmg_production` | 103 / 57 / 57 | 0 / 0 / 0 | 412 / 228 / 85 |
+| `has_all`, and the corpus's `multivalued_disease` | 1 / 1 / 1 | 0 / 1 / 1 | 1 / 0 / 0 |
+| the probe "joined value, as Census 1" | 9 / 0 / 0 | 0 / 0 / 0 | 9 / 0 / 0 |
+| `lung_macrophage_primary` | 5 / 5 / 5 | 0 / 0 / 0 | 15 / 15 / 9 |
+| `lung_macrophage` | 5 / 5 / 5 | 0 / 0 / 0 | 10 / 10 / 7 |
+| `membership` | 6 / 6 / 6 | 0 / 0 / 0 | 12 / 12 / 7 |
+| `between` | 15 / 15 / 15 | 0 / 0 / 0 | 30 / 30 / 19 |
+
+The two queries that section 10 adds give no hint at all: `negation`
+(`~obs.sex.isin(['female', 'male']) & ~obs.is_primary_data`) opens 7 stores in place of 103, and
+`prefix_small` (`obs.cell_type.str.startswith('mesothelial')`) 11.
 
 ## 12. What the builder can and cannot express
 
@@ -470,8 +533,8 @@ Against #43's builder and #42's SQL:
 | Regular expressions | RE2 (pyarrow) | Python `re` | DuckDB's RE2 |
 | Arithmetic between columns | `Organism.expression` with a pyarrow expression | no | yes |
 | Ontology closure | no (a caller passes `isin` of the descendant terms) | no | yes, in the SQL spike |
-| Catalog pruning of `\|`, `~`, numeric terms, and string methods | no | `\|`, `~`, and string methods, by proof | `\|`, `~`, and string methods, by its catalog test |
-| A store proved whole | exact queries only | any query, by proof | – (it scans `obs` fragments) |
+| Catalog pruning of `\|`, `~`, and string methods | yes, pyarrow on the value sets (a numeric term is unknown) | yes, by proof | yes, by its catalog test |
+| A store proved whole | any null-safe query with no unknown column | any query, by proof | – (it scans `obs` fragments) |
 | Static types for each column | yes | yes | no |
 | A text form for other clients | no (pyarrow's Substrait, not for dictionary fields) | no | yes |
 
@@ -479,7 +542,7 @@ Against #43's builder and #42's SQL:
 
 - **#45** (approved, open): this branch merges #45's branch and reads the categories of a catalog
   column from the catalog row by #45's rule, for the filter columns and for the result columns
-  alike. #45 keeps `read_elem` for `dataset_id` and for a column whose category count differs; this
+  alike. Section 10 measures `main` with #45 merged as an arm of its own. #45 keeps `read_elem` for `dataset_id` and for a column whose category count differs; this
   branch reads the store's `categories` array in those cases. The reads of the other columns run 8
   at the same time here, and one after another in #45.
 - **#43**: this branch keeps #43's API shape (the organism namespace, the column classes, the
@@ -492,28 +555,31 @@ Against #43's builder and #42's SQL:
 
 ## 14. Open questions
 
-1. **Should pyarrow also test the catalog?** For a query whose columns all have value sets, pyarrow
-   can evaluate the query on every combination of a row's values (`valuesets.py`). No true
-   combination proves that no cell matches; all true combinations prove that every cell matches.
-   That needs no tree and no proof engine of our own, and on these 103 rows it gives #43's
-   candidates and whole stores for all 46 such queries of the corpus, in 18 to 119 ms for each
-   query (one small table for each row; one table for all rows would cost less). It recovers the
-   pruning of `|`, `~`, and the string methods. It does not apply to a query with `nnz` or another
-   column without a value set, such as WMG's filter, and a combination table can grow with the
-   product of the value-set sizes (99,456 rows for `compound` on one store).
-2. **Should `is_primary_data` give catalog hints?** The catalog already holds `all_true`,
-   `all_false`, or `mixed`. A primary-only query would then skip 43 of the 103 datasets.
-3. **Is `has_any` as RE2 over the joined value acceptable?** It costs about 88 ns for each cell,
-   which is a small part of a store's time (section 8), but it is the costliest term. A dictionary
-   kernel in pyarrow, or a store format with the members in a list column, would remove it.
-4. **Keep the wrapper of `isin`?** pyarrow's `is_in` is two-valued for a null. The wrapper makes
-   `isin` agree with `==` under `~`, at the cost of a second kernel for each cell.
-5. **Keep `Organism.expression`?** It gives every pyarrow kernel to a caller. The caller must list
-   the columns, and pyarrow reports a missing one at the first store, not when the query is built.
-6. **A text form for other clients.** A query here is a Python object. `Expression.to_substrait`
+1. **Drop proven terms from a store's evaluation?** The catalog test now opens #43's stores, but
+   this branch still reads every column of the query from each store that is not whole (11
+   queries read more columns than #43, 367 reads in all). A per-store residual needs a rewrite of
+   the expression, which pyarrow does not offer and this branch does not do. Section 10 shows no
+   time for the extra reads.
+2. **The size of the tables at a larger catalog.** At 2,060 rows the largest query builds 3.65
+   million rows and takes 190 ms. One table for each query is cheap; a query over many columns
+   with large value sets could pass the limit of 100,000 combinations for one row, and its rows
+   then keep the hint test. A cap on the rows of all tables is a choice to make with the real
+   catalog.
+3. **A whole store with an unknown column.** The rule here proves a store whole only when no
+   column is unknown, as asked. For a null-safe query, every combination true with unknowns as
+   nulls would also prove it; the spike does not take that step.
+4. **Is `has_any` as RE2 over the joined value acceptable?** It costs about 88 ns for each cell,
+   a small part of a store's time (section 8), but it is the costliest term. A dictionary kernel in
+   pyarrow, or a store format with the members in a list column, would remove it.
+5. **Keep the wrapper of `isin`?** pyarrow's `is_in` is two-valued for a null. The wrapper makes
+   `isin` agree with `==` under `~`, and it keeps `isin` null-safe for the catalog test.
+6. **Keep `Organism.expression`?** It gives every pyarrow kernel to a caller. The caller must list
+   the columns, pyarrow reports a missing one at the first store, and the catalog excludes no
+   dataset for it.
+7. **A text form for other clients.** A query here is a Python object. `Expression.to_substrait`
    works against a schema of plain strings, so an R client could share a query if the SDK
    serialized it against such a schema. The spike does not try it.
-7. **Keep `get_obs` and `candidates`?** The measures need them. They are small, but they are new
+8. **Keep `get_obs` and `candidates`?** The measures need them. They are small, but they are new
    public API.
 
 ## 15. Reproduce
@@ -533,14 +599,17 @@ python $S/dictionary.py --where ec2 --out dictionary.jsonl
 python $S/bind.py $C --tools $T --pr43 <pr43>/census2-sdk/src/census2_sdk \
     --queries neutrophil,fp_some,membership,lung_macrophage_primary,numeric_range,wmg,regex \
     --repeats 3 --where ec2 --out bind.jsonl
+# <pr45m>: a local merge of feat/sdk-codes-only-obs into main at 5db8999.
+# <hints>: this branch at 9566b07, before the catalog test by the value sets.
 python $S/e2e.py matrix --catalog $C --tools $T --arm main=<main>/python:mapping \
-    --arm pr45=<pr45>/python:mapping --arm pr43=<pr43>/python:pr43 --arm spike=python:spike \
-    --queries fp_none,fp_some,membership,crohn,assay_v1,neutrophil,or_columns,numeric_only,liver,cd4,macrophage \
+    --arm pr45m=<pr45m>/python:mapping --arm pr43=<pr43>/python:pr43 \
+    --arm hints=<hints>/python:spike --arm spike=python:spike \
+    --queries fp_none,fp_some,membership,crohn,assay_v1,neutrophil,or_columns,negation,prefix_small,numeric_only,liver,cd4,macrophage \
     --workers 8,32 --repeats 3 --where ec2 --out e2e.jsonl
 python $S/cost.py run --api spike --catalog $C --tools $T --filters $T/bench/filters.py --out cost-spike.json
 <pr43>/python $S/cost.py run --api pr43 --catalog $C --tools <pr43>/$T --filters $T/bench/filters.py --out cost-pr43.json
 python $S/cost.py compare cost-spike.json cost-pr43.json --out cost.json
-python $S/valuesets.py $C --tools $T --out valuesets.json
+python $S/catalog_time.py catalog-2060.parquet --tools $T --out catalog-time-2060.json
 python $S/summarize.py census2-sdk/tools/results/obs_arrow_native
 ```
 

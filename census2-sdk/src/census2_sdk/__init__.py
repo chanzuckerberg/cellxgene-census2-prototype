@@ -21,10 +21,12 @@ column holds one of its values.
 A query also records the columns that it reads, and, from its top-level `&` of `==`,
 `isin`, and `has_any` terms on catalog columns, the allowed values of each column (its
 hints). The catalog excludes a dataset whose value sets prove that no cell matches the
-hints. When the query is exactly its hints and the value sets prove that every cell
-matches, the SDK reads no filter column of the store and keeps all of its cells. For
-every other candidate store, the SDK reads only the query's columns, as codes for a
-categorical column, and evaluates the expression with pyarrow (`census2_sdk.obs_read`).
+hints. Then pyarrow evaluates the query on the combinations of each remaining dataset's
+value sets (`census2_sdk.value_sets`): it excludes a dataset where no cell can match, and
+proves a dataset whole where every cell matches. For a whole dataset, the SDK reads no
+filter column of the store and keeps all of its cells. For every other candidate store,
+the SDK reads only the query's columns, as codes for a categorical column, and
+evaluates the expression with pyarrow (`census2_sdk.obs_read`).
 
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
 has the columns that all stores with a selected cell hold. A categorical column has
@@ -69,6 +71,7 @@ from anndata.io import read_elem, sparse_dataset
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
 from census2_sdk import obs_read
+from census2_sdk import value_sets as _value_sets
 from census2_sdk.catalog import Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 from census2_sdk.obs_columns import KINDS, Obs
@@ -129,8 +132,9 @@ class Organism(HasQuery):
         """The query of a pyarrow expression, which reads the `obs` columns `columns`.
 
         The SDK reads only `columns` from each store, because a pyarrow expression
-        cannot tell its columns. The query has no hint, so the catalog excludes no
-        dataset for it. It combines with the other queries of the organism.
+        cannot tell its columns. The query has no hint and is not null-safe, so the
+        catalog excludes no dataset for it. It combines with the other queries of the
+        organism.
         """
         if not isinstance(expression, pc.Expression):
             raise TypeError(
@@ -145,6 +149,7 @@ class Organism(HasQuery):
             frozenset(names),
             exact=False,
             text=f"expression({expression}, columns={sorted(names)!r})",
+            null_safe=False,
         )
 
     def __repr__(self) -> str:
@@ -186,10 +191,14 @@ class Census:
     def candidates(self, query: QueryLike) -> pd.DataFrame:
         """The catalog rows that can hold a selected cell, with a `whole` column.
 
-        The catalog excludes a row by the query's hints (`catalog.excludes`). `whole`
-        is true when the query is exactly its hints and the row's value sets prove
-        that every cell of the dataset matches (`catalog.covers`). That proof relies
-        on the store format's rule that the indexed columns hold no null.
+        Two tests run, and a row must pass both. First the query's hints exclude a
+        row (`catalog.excludes`), which costs little. Then pyarrow evaluates the
+        query on every combination of each remaining row's value sets
+        (`census2_sdk.value_sets`), which also tests `|`, `~`, and the string
+        methods. `whole` is true when every combination matches; for a row that
+        pyarrow cannot test, when the query is exactly its hints and the value sets
+        lie inside them (`catalog.covers`). Both proofs of `whole` rely on the store
+        format's rule that the indexed columns hold no null.
         """
         q = as_query(query)
         catalog_hints = {
@@ -199,11 +208,16 @@ class Census:
         }
         rows = _catalog.exclude(self.catalog, q.organism, catalog_hints)
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        whole = [
-            q.expression is None or (q.exact and _catalog.covers(row, q.hints))
-            for row in records
-        ]
-        return rows.assign(whole=np.array(whole, dtype=bool))
+        keep, whole, tested = _value_sets.test(records, q)
+        hinted = np.array(
+            [
+                q.expression is None or (q.exact and _catalog.covers(row, q.hints))
+                for row in records
+            ],
+            dtype=bool,
+        )
+        whole = np.where(tested, whole, hinted)
+        return rows[keep].assign(whole=whole[keep])
 
     def get_anndata(
         self,
@@ -296,9 +310,8 @@ class Census:
         """Return the number of cells that `query` selects.
 
         The SDK sums the cell counts in the catalog rows and opens no store. A
-        cell matches by the rule of `get_anndata`, and the catalog excludes the
-        same datasets. Thus the count equals the `n_obs` of the result of
-        `get_anndata` when there is one. The count does not apply the checks of
+        cell matches by the rule of `get_anndata`. Thus the count equals the `n_obs`
+        of the result of `get_anndata` when there is one. The count does not apply the checks of
         design 4.3, because a count joins no matrices.
 
         The query must be exactly its hints (`Query.exact`): a `&` of `==`, `isin`,

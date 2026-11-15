@@ -20,7 +20,9 @@ import pytest
 from test_sdk import STORES, X, corpus, expected, make_store, one_store_catalog
 
 import census2_sdk
-from census2_sdk import obs_read
+from census2_sdk import obs_read, value_sets
+from census2_sdk.catalog import open_store
+from census2_sdk.obs_columns import KINDS
 from census2_sdk.query import Query, as_query, members_pattern
 
 __all__ = ["corpus"]  # the fixture of test_sdk
@@ -384,14 +386,17 @@ def test_whole_stores_read_no_filter_column(corpus: dict[str, Path]) -> None:
     assert result is not None
     assert result.uns["census2"]["stores_whole"] == 2
     assert result.n_obs == 30 + 25
-    # A term that is not a hint, or a column that the catalog does not record, is
-    # never whole.
+    # A column without a value set (nnz), or that the catalog does not record
+    # (tissue_general), is never whole. The catalog's is_primary_data summary is a
+    # value set: every cell of the test stores is primary.
     for q in [
         hs.where({"tissue": ["lung", "liver"]}) & (hs.obs.nnz > 0),
-        hs.where({"tissue": ["lung", "liver"]}) & hs.obs.is_primary_data,
         hs.obs.tissue_general == "lung",
     ]:
         assert not census.candidates(q)["whole"].any()
+    primary = hs.where({"tissue": ["lung", "liver"]}) & hs.obs.is_primary_data
+    assert census.candidates(primary)["whole"].all()
+    assert census.candidates(~hs.obs.is_primary_data).empty
     assert census.candidates(hs)["whole"].all()
 
 
@@ -507,3 +512,102 @@ def test_every_combination_of_two_terms(corpus: dict[str, Path]) -> None:
             result = census.get_anndata(q)
             got = set() if result is None else set(result.obs_names)
             assert got == brute_force(corpus, test), (a, op, b)
+
+
+# --- the catalog test by pyarrow on the value sets --------------------------------
+
+
+def scan(census: census2_sdk.Census, q: Query) -> set[str]:
+    """The cell keys of `q` from every store of the organism, with no catalog test."""
+    keys: set[str] = set()
+    rows = census.catalog[census.catalog["organism"] == q.organism]
+    for row in cast("list[dict[str, Any]]", rows.to_dict("records")):
+        group = open_store(str(row["store_uri"]))
+        obs = cast("Any", group["obs"])
+        n = census2_sdk._n_obs(group)
+        held = set(obs.attrs["column-order"])
+        data: dict[str, obs_read.FilterData] = dict(
+            obs_read.read_columns(obs, [c for c in q.columns if c in held], {})
+        )
+        for c in q.columns - held:
+            data[c] = obs_read.Missing(n, KINDS.get(c, ""))
+        kept = obs_read.evaluate(q.expression, data, n)
+        joinids = np.asarray(obs_read.take_rows(obs["observation_joinid"], kept))
+        keys |= {f"{row['dataset_id']}_{j}" for j in joinids}
+    return keys
+
+
+def random_query(o: Any, rng: random.Random) -> Query:
+    terms = [
+        o.tissue == "lung",
+        o.tissue.isin(["liver", "kidney"]),
+        o.tissue.str.startswith("l"),
+        o.disease.has_any(["flu"]),
+        o.disease.has_all(["normal", "flu"]),
+        as_query(o.is_primary_data),
+        o.nnz > 3,  # no store holds nnz: unknown in the catalog, null in the stores
+        o.dataset_id == "ds-b",
+        o.donor_id == "d",  # no value set, and absent from the stores
+    ]
+    q: Query = rng.choice(terms)
+    for _ in range(rng.randint(0, 3)):
+        other: Query = rng.choice(terms)
+        if rng.random() < 0.3:
+            other = ~other
+        q = q & other if rng.random() < 0.5 else q | other
+    return ~q if rng.random() < 0.3 else q
+
+
+def test_the_catalog_test_keeps_every_store_with_a_cell(
+    corpus: dict[str, Path],
+) -> None:
+    """For random queries, the result through the catalog equals a scan of all stores.
+
+    A whole store keeps all of its cells, so a wrong whole verdict shows too.
+    """
+    census = census2_sdk.open_census([corpus["catalog"]])
+    o = census.homo_sapiens.obs
+    rng = random.Random(1)
+    for _ in range(40):
+        q = random_query(o, rng)
+        result = census.get_anndata(q)
+        got = set() if result is None else set(result.obs_names)
+        assert got == scan(census, q), q
+
+
+def test_the_value_sets_prune_or_not_and_string_methods(
+    corpus: dict[str, Path],
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    o = census.homo_sapiens.obs
+
+    def ids(q: Query) -> list[str]:
+        return list(census.candidates(q)["dataset_id"])
+
+    assert ids((o.tissue == "kidney") | o.disease.has_any(["flu"])) == ["ds-b", "ds-c"]
+    assert ids(~o.tissue.isin(["lung", "liver"])) == ["ds-c"]
+    assert ids(o.tissue.str.startswith("kid")) == ["ds-c"]
+    assert ids(o.disease.has_all(["normal", "flu"])) == ["ds-b"]
+    assert ids((o.nnz > 3) & (o.tissue == "kidney")) == ["ds-c"]
+    rows = census.candidates(o.tissue.str.startswith("kid") | (o.nnz > 3))
+    assert len(rows) == 3  # null | false is null, so each row stays
+    # True for every combination of ds-c, but nnz is unknown: not whole.
+    assert not rows["whole"].any()
+
+
+def test_the_value_sets_give_way_to_the_hints(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Above the size limit, or for a query that is not null-safe, the hints decide."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    hs = census.homo_sapiens
+    prefix = hs.obs.tissue.str.startswith("kid")
+    assert len(census.candidates(prefix)) == 1
+    assert len(census.candidates(prefix | hs.obs.tissue.isna())) == 3
+    raw = hs.expression(pc.field("tissue") == "kidney", columns=["tissue"])
+    assert len(census.candidates(raw)) == 3
+    monkeypatch.setattr(value_sets, "MAX_COMBINATIONS", 0)
+    assert len(census.candidates(prefix)) == 3
+    row: dict[str, Any] = {"dataset_id": "d", "tissue": [], "n_obs": 4}
+    assert value_sets.value_set(row, "tissue") is None  # the cells hold nulls
+    assert value_sets.value_set({**row, "n_obs": 0}, "tissue") == []

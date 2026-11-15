@@ -18,6 +18,8 @@ import build_catalog
 import census2_dataset_writer
 import numpy as np
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 import pytest
 import scipy.sparse as sp
 import zarr
@@ -181,6 +183,13 @@ def expected(
         var = cast("pd.DataFrame", sub.var)
         parts.append(anndata.AnnData(X=X(sub), obs=obs, var=var))
     return anndata.concat(parts, join="inner")
+
+
+def query_of(census: census2_sdk.Census, q: Any) -> anndata.AnnData:
+    """A query that must select cells, in builder form."""
+    result = census.get_anndata(q)
+    assert result is not None
+    return result
 
 
 def query(census: census2_sdk.Census, obs_filter: Any) -> anndata.AnnData:
@@ -694,10 +703,10 @@ def test_rows_read_runs_as_ranges(
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     """A null obs value is absent from the catalog and matches no term.
 
-    The store format holds no null in an indexed column, and the catalog proof that
-    every cell of a store matches relies on that rule. This store breaks the rule,
-    so a query that is exactly its hints keeps the null cells, and a query that
-    pyarrow evaluates drops them.
+    The store format holds no null in an indexed column, and the catalog proofs that
+    every cell of a store matches rely on that rule. This store breaks the rule, so
+    a store that the hints or the value sets prove whole keeps the null cells, and a
+    query that pyarrow evaluates on the store drops them.
     """
     adata = make_store("ds-n", 6, REFERENCE_IDS[:3], ["lung"], ["normal"], 5)
     tissue = adata.obs["tissue"].cat.add_categories(["liver"])
@@ -710,10 +719,15 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     assert census.get_anndata(hs.where({"tissue": "nan"})) is None
     assert bool(census.candidates(hs.obs.tissue == "lung")["whole"].iloc[0])
     assert query(census, {"tissue": "lung"}).n_obs == 6  # the sharp edge
-    evaluated = census.get_anndata(hs.obs.tissue.str.startswith("lung"))
-    assert evaluated is not None and evaluated.n_obs == 4
-    negated = census.get_anndata(~hs.obs.tissue.str.startswith("lung"))
-    assert negated is None  # SQL logic: ~ of a null is null, and drops the cell
+    prefix = hs.obs.tissue.str.startswith("lung")
+    assert bool(census.candidates(prefix)["whole"].iloc[0])  # the value sets
+    assert query_of(census, prefix).n_obs == 6  # the same sharp edge
+    raw = pc.starts_with(pc.field("tissue").cast(pa.string()), "lung")
+    evaluated = query_of(census, hs.expression(raw, columns=["tissue"]))
+    assert evaluated.n_obs == 4  # not null-safe, so the store decides
+    # SQL logic: ~ of a null is null, and drops the cell. The value sets agree.
+    assert census.get_anndata(~prefix) is None
+    assert census.candidates(~prefix).empty
     nulls = census.get_anndata(hs.obs.tissue.isna())
     assert nulls is not None and nulls.n_obs == 2
 

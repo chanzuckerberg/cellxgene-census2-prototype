@@ -100,7 +100,7 @@
   "same": true,
   "cells": 48610,
   "their_cells": 48610,
-  "candidates": 103,
+  "candidates": 17,
   "their_candidates": 17
  },
  {
@@ -108,7 +108,7 @@
   "same": true,
   "cells": 1885447,
   "their_cells": 1885447,
-  "candidates": 103,
+  "candidates": 17,
   "their_candidates": 17
  },
  {
@@ -156,7 +156,7 @@
   "same": true,
   "cells": 427977,
   "their_cells": 427977,
-  "candidates": 103,
+  "candidates": 24,
   "their_candidates": 24
  },
  {
@@ -164,7 +164,7 @@
   "same": true,
   "cells": 581205,
   "their_cells": 581205,
-  "candidates": 103,
+  "candidates": 36,
   "their_candidates": 36
  },
  {
@@ -172,7 +172,7 @@
   "same": true,
   "cells": 1051329,
   "their_cells": 1051329,
-  "candidates": 103,
+  "candidates": 27,
   "their_candidates": 27
  },
  {
@@ -188,7 +188,7 @@
   "same": true,
   "cells": 8365927,
   "their_cells": 8365927,
-  "candidates": 103,
+  "candidates": 57,
   "their_candidates": 57
  },
  {
