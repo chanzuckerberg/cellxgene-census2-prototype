@@ -136,7 +136,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         built = query.build(hs.obs)
         q = hs if built is None else built
         adata = census.get_anndata(q, max_workers=args.workers)
-        rows = census.candidates(q)
+        rows = census._candidates(q)
         opened, whole = len(rows), int(rows["whole"].sum())
     seconds = time.monotonic() - t0
     end_user, end_system = usage()

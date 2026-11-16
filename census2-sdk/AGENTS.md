@@ -49,22 +49,22 @@ This branch is the spike `spike/obs-arrow-native`; `spikes/obs-arrow-native.md` 
 pyarrow evaluates the expression (`obs_read.evaluate`), so the SDK owns no filter language.
 
 - A pyarrow expression has no public API to walk it. Thus the builder records, as it builds, the
-  columns of a query and its hints, and `Organism.expression` takes the list of columns from the
-  caller. The SDK reads only the recorded columns; a column that the expression names and the list
-  does not makes pyarrow raise.
+  columns of a query and its hints. The SDK reads only the recorded columns. A store that lacks one
+  of them raises `ValueError`, and so does an `obs` encoding outside `obs_read.ENCODINGS`.
 - The hints come only from a top-level `&` of `==`, `isin`, and `has_any` terms, and
   `catalog.excludes` tests them first. `value_sets.test` then evaluates the query's expression on
   the combinations of each row's value sets, with a null for a column without a value set. That is
-  sound only for a query whose terms give null for a null value (`Query.null_safe`); `isna`,
-  `notna`, and `Organism.expression` are not, and keep the hint test and `catalog.covers`, as does a
-  row whose table passes `value_sets.MAX_COMBINATIONS`. Both proofs of a whole store rely on the
-  store format's rule that an indexed column holds no null. A test store with a null shows the
-  sharp edge (`test_null_is_not_a_value`).
+  sound because every term of the builder gives null for a null value; a term that treats a null
+  as a value, such as a null test, would break it. A row whose table passes
+  `value_sets.MAX_COMBINATIONS` keeps the hint test and `catalog.covers`. Both proofs of a whole
+  store rely on the store format's rule that an indexed column holds no null. A test store with a
+  null shows the sharp edge (`test_null_is_not_a_value`).
 - pyarrow's `is_in` gives false for a null, not null. The builder wraps it in
-  `if_else(is_valid(x), ..., null)`, so that `isin` follows the three-valued logic of `==`.
+  `if_else(is_valid(x), ..., null)`, so that `isin` follows the three-valued logic of `==`, and
+  gives null on a column that the catalog test does not know.
 - pyarrow 26 decodes a dictionary array to one string for each cell for `==` and `is_in`, and it
-  has no string kernel for a dictionary array. The string methods and `has_any` therefore cast the
-  column to strings first. `has_any` is an RE2 expression over the joined value, 65 to 90 ns for
+  has no string kernel for a dictionary array. `has_any` therefore casts the column to strings
+  first. `has_any` is an RE2 expression over the joined value, 65 to 90 ns for
   each cell; see the spike notes for its share of a query.
 - A categorical column of the catalog takes its categories from the catalog row when the store has
   as many categories as the row lists, by the rule of `ColType.CATEGORY`.

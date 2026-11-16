@@ -18,8 +18,6 @@ import build_catalog
 import census2_dataset_writer
 import numpy as np
 import pandas as pd
-import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
-import pyarrow.compute as pc  # type: ignore[import-untyped]
 import pytest
 import scipy.sparse as sp
 import zarr
@@ -440,16 +438,11 @@ def test_row_without_a_recorded_reference_refused(tmp_path: Path) -> None:
         census.get_anndata(census.homo_sapiens)
 
 
-def test_absent_column_selects_no_cells(corpus: dict[str, Path]) -> None:
-    """The catalog keeps a store whose obs lacks the column; the read then matches none.
-
-    The result is None, as when the catalog excludes every store.
-    """
+def test_absent_column_raises(corpus: dict[str, Path]) -> None:
+    """The catalog keeps a store whose obs lacks the column; the read then raises."""
     census = census2_sdk.open_census([corpus["catalog"]])
-    assert (
+    with pytest.raises(ValueError, match="obs has no column \\['tissue_general'\\]"):
         census.get_anndata(census.homo_sapiens.where({"tissue_general": "lung"}))
-        is None
-    )
 
 
 def test_catalog_without_a_column_keeps_the_dataset(
@@ -543,18 +536,10 @@ def log_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_obs_index_is_not_read(
     corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The SDK decodes no source cell name, and no key of a dropped cell."""
-    names: list[str] = []
-
-    def spy(elem: Any) -> Any:
-        names.append(elem.name)
-        return read_elem(elem)
-
-    monkeypatch.setattr(census2_sdk.obs_read, "read_elem", spy)
+    """The SDK decodes no source cell name."""
     keys = log_reads(monkeypatch)
     census = census2_sdk.open_census([corpus["catalog"]])
     query(census, {"tissue": "lung"})
-    assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
     assert not [k for k in keys if k.startswith("obs/_index/")]
     assert [k for k in keys if k.startswith("obs/observation_joinid/values/")]
 
@@ -628,16 +613,14 @@ def test_cell_key_checked_on_kept_cells(
     assert node.attrs["encoding-type"] == encoding
     column: Any = read_elem(node)
     stored = column.dtype
-    if encoding == "nullable-string-array":
-        # An empty selection of a string column reads no key data.
-        monkeypatch.setattr(census2_sdk.obs_read, "read_elem", None)
-    assert census2_sdk.obs_read.take_rows(node, np.array([], dtype=int)).dtype == stored
-    monkeypatch.undo()
+    empty = census2_sdk.obs_read.take_rows(node, np.array([], dtype=int))
+    assert str(empty.dtype) == str(stored)
     census = census2_sdk.open_census([catalog])
     result = census.get_anndata(census.homo_sapiens.where({"tissue": "lung"}))
     assert result is not None
     assert list(result.obs["observation_joinid"]) == ["l", "m"]
-    assert result.obs["observation_joinid"].dtype == stored
+    # A categorical key keeps only the categories of the kept cells.
+    assert str(result.obs["observation_joinid"].dtype) == str(stored)
     for tissue in ("kidney", "heart"):
         with pytest.raises(ValueError, match="null or not unique"):
             census.get_anndata(census.homo_sapiens.where({"tissue": tissue}))
@@ -717,19 +700,16 @@ def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
     census = census2_sdk.open_census([path])
     hs = census.homo_sapiens
     assert census.get_anndata(hs.where({"tissue": "nan"})) is None
-    assert bool(census.candidates(hs.obs.tissue == "lung")["whole"].iloc[0])
+    assert bool(census._candidates(hs.obs.tissue == "lung")["whole"].iloc[0])
     assert query(census, {"tissue": "lung"}).n_obs == 6  # the sharp edge
-    prefix = hs.obs.tissue.str.startswith("lung")
-    assert bool(census.candidates(prefix)["whole"].iloc[0])  # the value sets
-    assert query_of(census, prefix).n_obs == 6  # the same sharp edge
-    raw = pc.starts_with(pc.field("tissue").cast(pa.string()), "lung")
-    evaluated = query_of(census, hs.expression(raw, columns=["tissue"]))
-    assert evaluated.n_obs == 4  # not null-safe, so the store decides
+    # observation_joinid has no value set, so the store is not whole, and pyarrow
+    # evaluates the query on it: isin gives null for a null, and drops the cell.
+    lung = hs.obs.tissue.isin(["lung"])
+    evaluated = query_of(census, lung & (hs.obs.observation_joinid != ""))
+    assert evaluated.n_obs == 4
     # SQL logic: ~ of a null is null, and drops the cell. The value sets agree.
-    assert census.get_anndata(~prefix) is None
-    assert census.candidates(~prefix).empty
-    nulls = census.get_anndata(hs.obs.tissue.isna())
-    assert nulls is not None and nulls.n_obs == 2
+    assert census.get_anndata(~lung) is None
+    assert census._candidates(~lung).empty
 
 
 def test_recorded_reference_must_match_the_pin(
@@ -757,7 +737,6 @@ COUNT_FILTERS: list[dict[str, Any]] = [
     {"dataset_id": "ds-b", "tissue": "lung"},
     {"assay_ontology_term_id": "EFO:0009922"},
     {"tissue": "brain"},  # no store holds the value
-    {"cell_type": "T cell"},  # no store holds the column
 ]
 
 
@@ -769,6 +748,15 @@ def test_count_cells_equals_the_query(
     result = census.get_anndata(census.homo_sapiens.where(obs_filter))
     want = 0 if result is None else result.n_obs
     assert census.count_cells(census.homo_sapiens.where(obs_filter)) == want
+
+
+def test_count_cells_of_a_column_that_no_store_holds(corpus: dict[str, Path]) -> None:
+    """The count is zero; a read of the stores raises, because they lack the column."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    q = census.homo_sapiens.where({"cell_type": "T cell"})
+    assert census.count_cells(q) == 0
+    with pytest.raises(ValueError, match="obs has no column"):
+        census.get_anndata(q)
 
 
 def test_cell_counts_add_up_to_n_obs(corpus: dict[str, Path]) -> None:

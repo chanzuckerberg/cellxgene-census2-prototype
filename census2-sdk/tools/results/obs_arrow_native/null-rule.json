@@ -27,20 +27,6 @@
    "same_as_sql": true
   },
   {
-   "query": "obs['author_cell_type'].isna()",
-   "cells": 415,
-   "sql_rule": 415,
-   "pandas_rule": 415,
-   "same_as_sql": true
-  },
-  {
-   "query": "obs['author_cell_type'].notna()",
-   "cells": 1660,
-   "sql_rule": 1660,
-   "pandas_rule": 1660,
-   "same_as_sql": true
-  },
-  {
    "query": "~obs['author_cell_type'].isin(['basal cell of epithelium of bronchus'])",
    "cells": 1239,
    "sql_rule": 1239,

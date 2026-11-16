@@ -160,11 +160,6 @@ QUERIES: dict[str, Query] = {
             tags=("e2e", "catalog"),
         ),
         Query(
-            "prefix_small",
-            lambda o: o.cell_type.str.startswith("mesothelial"),
-            tags=("e2e", "catalog"),
-        ),
-        Query(
             "or_columns",
             lambda o: (o.cell_type == "neutrophil") | (o.tissue_general == "pancreas"),
             tags=("e2e", "catalog"),
@@ -210,16 +205,6 @@ QUERIES: dict[str, Query] = {
             ),
             mode="keys",
         ),
-        Query("prefix", lambda o: o.cell_type.str.startswith("CD8"), mode="keys"),
-        Query(
-            "substring",
-            lambda o: o.cell_type.str.contains("macrophage", case=False, regex=False),
-            mode="keys",
-        ),
-        Query(
-            "regex", lambda o: o.cell_type.str.match(r"CD(4|8)-positive"), mode="keys"
-        ),
-        Query("isna", lambda o: o.raw_variance_nnz.isna()),
         Query("wmg", _wmg, mode="keys", tags=("shared",)),
         Query("all_obs", lambda o: None, mode="keys", tags=("shared",)),
     ]

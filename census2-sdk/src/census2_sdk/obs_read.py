@@ -1,12 +1,13 @@
 """Read `obs` columns of one store as Arrow arrays, and evaluate a query on them.
 
 1. **Read.** `read_columns` reads the named columns directly with zarr. It follows
-   anndata's on-disk format: it checks `encoding-type` and `encoding-version`, and
-   reads an encoding that it does not know with `anndata.io.read_elem`. A categorical
-   column gives its codes and its categories (`Codes`), and no string for each cell.
-   A categorical column of the catalog takes its categories from the catalog row, by
-   the rule of the store format (see `read_column`). A numeric or boolean column
-   gives its values (`Values`).
+   anndata's on-disk format: it checks `encoding-type` and `encoding-version`, and an
+   encoding outside `ENCODINGS` raises `ValueError`. A categorical column gives its
+   codes and its categories (`Codes`), and no string for each cell. A categorical
+   column of the catalog takes its categories from the catalog row, by the rule of the
+   store format (see `read_column`). A numeric or boolean column gives its values
+   (`Values`), and a string column, such as `observation_joinid`, its strings
+   (`Strings`).
 2. **Evaluate.** `evaluate` puts the columns in an Arrow table, as
    `DictionaryArray`s over the codes, and projects the query's pyarrow expression to
    one boolean for each cell with Acero. The cells where it is true are kept. pyarrow
@@ -19,14 +20,13 @@
 from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 import zarr
-from anndata.io import read_elem
 from pyarrow import acero
 
 __all__ = [
@@ -35,7 +35,7 @@ __all__ = [
     "Arrow",
     "Codes",
     "ColumnData",
-    "Elem",
+    "Strings",
     "Values",
     "evaluate",
     "mask",
@@ -50,19 +50,12 @@ ENCODINGS = frozenset(
         ("array", "0.2.0"),
         ("nullable-integer", "0.1.0"),
         ("nullable-boolean", "0.1.0"),
+        ("string-array", "0.2.0"),
+        ("nullable-string-array", "0.1.0"),
     }
 )
 # The columns of one store that the SDK reads at the same time.
 OBS_THREADS = 8
-# The Arrow type of a column that a store lacks, by the kind of `obs_columns.KINDS`.
-MISSING_TYPES = {
-    "category": pa.string(),
-    "multi": pa.string(),
-    "string": pa.string(),
-    "bool": pa.bool_(),
-    "int": pa.int64(),
-    "float": pa.float64(),
-}
 
 
 @dataclass(frozen=True)
@@ -119,30 +112,22 @@ class Values:
 
 
 @dataclass(frozen=True)
-class Elem:
-    """A column that `read_elem` read, in an encoding that `read_column` does not read."""
+class Strings:
+    """Strings, with `mask` true for a null, or None when none is null."""
 
-    value: Any
+    values: np.ndarray
+    mask: np.ndarray | None
+    dtype: Any
 
     def arrow(self) -> Any:
-        return pa.array(self.value, from_pandas=True)
+        return pa.array(self.values, type=pa.string(), mask=self.mask)
 
     def take(self, keep: np.ndarray) -> Any:
-        taken = pd.array(self.value)[keep]
-        if isinstance(taken, pd.Categorical):
-            return taken.remove_unused_categories()
-        return taken
-
-
-@dataclass(frozen=True)
-class Missing:
-    """A column that the store does not hold: a null for each cell."""
-
-    n: int
-    kind: str
-
-    def arrow(self) -> Any:
-        return pa.nulls(self.n, MISSING_TYPES.get(self.kind, pa.null()))
+        """The kept strings, with the dtype that `anndata` reads."""
+        result: Any = pd.array(self.values[keep], dtype=self.dtype)
+        if self.mask is not None:
+            result[self.mask[keep]] = pd.NA
+        return result
 
 
 @dataclass(frozen=True)
@@ -155,8 +140,8 @@ class Arrow:
         return self.array
 
 
-ColumnData = Codes | Values | Elem
-FilterData = ColumnData | Missing | Arrow
+ColumnData = Codes | Values | Strings
+FilterData = ColumnData | Arrow
 
 
 def encoding(node: zarr.Array[Any] | zarr.Group) -> tuple[str, str]:
@@ -186,7 +171,10 @@ def read_column(
     """
     kind, version = encoding(node)
     if (kind, version) not in ENCODINGS:
-        return Elem(read_elem(node))
+        raise ValueError(
+            f"{node.store_path}: the SDK does not read the obs encoding "
+            f"{kind or '(none)'} {version}"
+        )
     if kind == "categorical" and isinstance(node, zarr.Group):
         codes, categories = _array(node, "codes"), _array(node, "categories")
         ordered = bool(node.attrs.get("ordered", False))
@@ -198,13 +186,19 @@ def read_column(
     if kind == "array" and isinstance(node, zarr.Array):
         values = np.asarray(node[...])
         if values.dtype.kind not in "biuf":
-            return Elem(read_elem(node))
+            raise ValueError(f"{node.store_path}: an array of {values.dtype}")
         return Values(values, None)
-    if isinstance(node, zarr.Group):  # nullable-integer, nullable-boolean
-        values = np.asarray(_array(node, "values")[...])
-        mask = np.asarray(_array(node, "mask")[...], dtype=bool)
-        return Values(values, mask if mask.any() else None)
-    return Elem(read_elem(node))
+    if kind == "string-array" and isinstance(node, zarr.Array):
+        return Strings(np.asarray(node[...]), None, object)
+    if not isinstance(node, zarr.Group):
+        raise TypeError(f"{node.store_path}: {kind} must be an encoded group")
+    values = np.asarray(_array(node, "values")[...])
+    mask = np.asarray(_array(node, "mask")[...], dtype=bool)
+    if kind == "nullable-string-array":
+        na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
+        dtype = pd.StringDtype(na_value=na_value)
+        return Strings(values, mask if mask.any() else None, dtype)
+    return Values(values, mask if mask.any() else None)
 
 
 def read_columns(
@@ -277,10 +271,11 @@ def take_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
     """The values of one string column at the row positions `rows`.
 
     For a nullable string column, the SDK makes strings for these rows only. The
-    dtype is the one that `anndata` reads for the same column.
+    dtype is the one that `anndata` reads for the same column. A column in another
+    encoding is read whole with `read_column`.
     """
     if node.attrs.get("encoding-type") != "nullable-string-array":
-        return pd.array(cast("Any", read_elem(node)))[rows]
+        return read_column(node).take(rows)
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded group")
     na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA

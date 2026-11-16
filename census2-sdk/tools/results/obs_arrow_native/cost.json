@@ -1,11 +1,11 @@
 {
  "summary": {
-  "queries": 57,
+  "queries": 50,
   "more_stores": 0,
   "fewer_stores": 0,
-  "more_column_reads": 11,
+  "more_column_reads": 12,
   "extra_stores": 0,
-  "extra_column_reads": 367
+  "extra_column_reads": 370
  },
  "queries": [
   {
@@ -171,6 +171,15 @@
    "pr43_column_reads": 7
   },
   {
+   "query": "filters:negation",
+   "candidates": 7,
+   "pr43_candidates": 7,
+   "whole": 0,
+   "pr43_whole": 0,
+   "column_reads": 14,
+   "pr43_column_reads": 11
+  },
+  {
    "query": "filters:or_columns",
    "candidates": 17,
    "pr43_candidates": 17,
@@ -232,42 +241,6 @@
    "pr43_whole": 6,
    "column_reads": 22,
    "pr43_column_reads": 13
-  },
-  {
-   "query": "filters:prefix",
-   "candidates": 24,
-   "pr43_candidates": 24,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 24,
-   "pr43_column_reads": 24
-  },
-  {
-   "query": "filters:substring",
-   "candidates": 36,
-   "pr43_candidates": 36,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 36,
-   "pr43_column_reads": 36
-  },
-  {
-   "query": "filters:regex",
-   "candidates": 27,
-   "pr43_candidates": 27,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 27,
-   "pr43_column_reads": 27
-  },
-  {
-   "query": "filters:isna",
-   "candidates": 103,
-   "pr43_candidates": 103,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 103,
-   "pr43_column_reads": 103
   },
   {
    "query": "filters:wmg",
@@ -450,15 +423,6 @@
    "pr43_column_reads": 13
   },
   {
-   "query": "probe:nulls",
-   "candidates": 103,
-   "pr43_candidates": 103,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 103,
-   "pr43_column_reads": 103
-  },
-  {
    "query": "probe:membership, multi-valued disease",
    "candidates": 9,
    "pr43_candidates": 9,
@@ -493,33 +457,6 @@
    "pr43_whole": 0,
    "column_reads": 103,
    "pr43_column_reads": 103
-  },
-  {
-   "query": "probe:prefix",
-   "candidates": 24,
-   "pr43_candidates": 24,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 24,
-   "pr43_column_reads": 24
-  },
-  {
-   "query": "probe:substring, case-insensitive",
-   "candidates": 36,
-   "pr43_candidates": 36,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 36,
-   "pr43_column_reads": 36
-  },
-  {
-   "query": "probe:regular expression",
-   "candidates": 27,
-   "pr43_candidates": 27,
-   "whole": 0,
-   "pr43_whole": 0,
-   "column_reads": 27,
-   "pr43_column_reads": 27
   }
  ]
 }

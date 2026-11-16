@@ -14,7 +14,6 @@ import anndata
 import generate_obs_columns
 import numpy as np
 import pandas as pd
-import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 import pytest
 from test_sdk import STORES, X, corpus, expected, make_store, one_store_catalog
@@ -22,7 +21,6 @@ from test_sdk import STORES, X, corpus, expected, make_store, one_store_catalog
 import census2_sdk
 from census2_sdk import obs_read, value_sets
 from census2_sdk.catalog import open_store
-from census2_sdk.obs_columns import KINDS
 from census2_sdk.query import Query, as_query, members_pattern
 
 __all__ = ["corpus"]  # the fixture of test_sdk
@@ -86,7 +84,7 @@ def test_only_catalog_columns_give_hints() -> None:
     assert not (obs.donor_id == "x").hints
     assert not (obs.donor_id == "x").exact
     assert (obs["tissue"] == "lung").hints == {"tissue": {"lung"}}
-    assert not obs.cell_type.str.startswith("CD8").hints
+    assert not (obs.cell_type != "B cell").hints
 
 
 def test_where_builds_the_mapping() -> None:
@@ -143,8 +141,6 @@ def test_refused_operators() -> None:
         obs.is_primary_data == 1  # type: ignore[deprecated]  # noqa: B015
     with pytest.raises(TypeError, match="not one str"):
         obs.tissue.isin("lung")
-    with pytest.raises(ValueError, match="RE2 refuses"):
-        obs.cell_type.str.match("(unclosed")
     with pytest.raises(TypeError, match="not with int"):
         (obs.tissue == "lung") & cast("Any", 3)
 
@@ -161,7 +157,7 @@ def test_repr_is_the_pandas_form() -> None:
     assert (
         q.text == "obs.cell_type.isin(['a']) & (obs.nnz >= 500) & obs.is_primary_data"
     )
-    assert obs["x"].isna().text == "obs['x'].isna()"
+    assert obs["x"].isin(["a"]).text == "obs['x'].isin(['a'])"
     assert obs.nnz.between(1, 5, inclusive="left").text == (
         "obs.nnz.between(1, 5, inclusive='left')"
     )
@@ -215,8 +211,6 @@ def test_nulls_follow_three_valued_logic() -> None:
     flag = obs["flag"]
     assert kept(flag == True) == [0, 3, 5]
     assert kept(~flag) == [1, 4, 6]  # the null cell 2 is in neither
-    assert kept(flag.isna()) == [2]
-    assert kept(flag.notna()) == [0, 1, 3, 4, 5, 6]
     has = obs.disease.has_any(["flu"])
     assert kept(~has) == [3, 4, 5]  # the null disease of cell 2 drops
     isin = obs["disease"].isin(["flu"])
@@ -231,64 +225,8 @@ def test_nulls_follow_three_valued_logic() -> None:
 def test_numeric_terms_and_nan() -> None:
     assert kept(obs.nnz.between(2, 5)) == [1, 3, 5, 6]
     assert kept(obs.nnz.between(2, 5, inclusive="neither")) == [3, 6]
-    assert kept(obs.raw_variance_nnz.isna()) == [1, 4]  # NaN, as in pandas
     assert kept(obs.raw_variance_nnz > 1.5) == [3, 5, 6]  # NaN compares false
     assert kept(~(obs.raw_variance_nnz > 1.5)) == [0, 1, 2, 4]
-
-
-def test_a_missing_column_is_null() -> None:
-    data = {"tissue": obs_read.Missing(3, "category")}
-    q = obs.tissue == "lung"
-    assert list(obs_read.evaluate(q.expression, data, 3)) == []
-    assert list(obs_read.evaluate((~q).expression, data, 3)) == []
-    assert list(obs_read.evaluate(obs.tissue.isna().expression, data, 3)) == [0, 1, 2]
-    unknown = {"x": obs_read.Missing(2, "")}
-    assert list(obs_read.evaluate((obs["x"] > 3).expression, unknown, 2)) == []
-
-
-def test_string_methods() -> None:
-    labels = ["CD8-positive T cell", "cd4 T cell", "B cell", "CD4-positive x"]
-    data = {
-        "cell_type": obs_read.Codes(
-            np.array([0, 1, 2, 3], np.int8), sorted(labels), False
-        )
-    }
-    by_label = {label: i for i, label in enumerate(sorted(labels))}
-
-    def labels_of(q: Query) -> set[str]:
-        found = obs_read.evaluate(q.expression, data, 4)
-        return {sorted(labels)[int(i)] for i in found} & set(by_label)
-
-    ct = obs.cell_type
-    assert labels_of(ct.str.startswith("CD")) == {
-        "CD8-positive T cell",
-        "CD4-positive x",
-    }
-    assert labels_of(ct.str.startswith("cd", case=False)) == {
-        "CD8-positive T cell",
-        "cd4 T cell",
-        "CD4-positive x",
-    }
-    assert labels_of(ct.str.endswith(("x", "B cell"))) == {"CD4-positive x", "B cell"}
-    assert labels_of(ct.str.contains("T c", regex=False)) == {
-        "CD8-positive T cell",
-        "cd4 T cell",
-    }
-    assert labels_of(ct.str.match(r"CD(4|8)-positive")) == {
-        "CD8-positive T cell",
-        "CD4-positive x",
-    }
-    assert labels_of(ct.str.fullmatch("B cell")) == {"B cell"}
-
-
-def test_expression_takes_a_pyarrow_expression() -> None:
-    ratio = pc.divide(pc.field("nnz").cast(pa.float64()), pc.scalar(2.0)) > 2
-    q = hs.expression(ratio, columns=["nnz"]) & obs.disease.has_any(["flu"])
-    assert q.columns == {"nnz", "disease"}
-    assert q.hints == {"disease": {"flu"}} and not q.exact
-    assert kept(q) == [1]
-    with pytest.raises(TypeError, match="pyarrow Expression"):
-        hs.expression("nnz > 3", columns=["nnz"])
 
 
 # --- queries over the test stores -------------------------------------------------
@@ -321,7 +259,6 @@ CASES: list[tuple[str, Any, Any]] = [
      lambda f: _members(f["disease"]).map(lambda m: {"normal", "flu"} <= m)),
     ("primary", lambda o: o.is_primary_data & (o.dataset_id == "ds-b"),
      lambda f: f["is_primary_data"] & (f["dataset_id"] == "ds-b")),
-    ("prefix", lambda o: o.tissue.str.startswith("l"), lambda f: f["tissue"].astype(str).str.startswith("l")),
 ]  # fmt: skip
 
 
@@ -362,7 +299,8 @@ def test_mapping_equals_the_builder(
     for term in terms[1:]:
         built = built & term
     left = census.get_anndata(census.homo_sapiens.where(mapping))
-    right = census.get_anndata(built & (o.tissue.notna()))  # evaluated, not whole
+    # observation_joinid has no value set, so no store is whole and each evaluates.
+    right = census.get_anndata(built & (o.observation_joinid != ""))
     assert left is not None and right is not None
     assert list(left.obs_names) == list(right.obs_names)
     pd.testing.assert_frame_equal(
@@ -377,7 +315,7 @@ def test_whole_stores_read_no_filter_column(corpus: dict[str, Path]) -> None:
     """A store whose value sets lie within the hints keeps all of its cells."""
     census = census2_sdk.open_census([corpus["catalog"]])
     hs = census.homo_sapiens
-    rows = census.candidates(hs.where({"tissue": ["lung", "liver"]}))
+    rows = census._candidates(hs.where({"tissue": ["lung", "liver"]}))
     assert dict(zip(rows["dataset_id"], rows["whole"], strict=True)) == {
         "ds-a": True,
         "ds-b": True,
@@ -393,11 +331,11 @@ def test_whole_stores_read_no_filter_column(corpus: dict[str, Path]) -> None:
         hs.where({"tissue": ["lung", "liver"]}) & (hs.obs.nnz > 0),
         hs.obs.tissue_general == "lung",
     ]:
-        assert not census.candidates(q)["whole"].any()
+        assert not census._candidates(q)["whole"].any()
     primary = hs.where({"tissue": ["lung", "liver"]}) & hs.obs.is_primary_data
-    assert census.candidates(primary)["whole"].all()
-    assert census.candidates(~hs.obs.is_primary_data).empty
-    assert census.candidates(hs)["whole"].all()
+    assert census._candidates(primary)["whole"].all()
+    assert census._candidates(~hs.obs.is_primary_data).empty
+    assert census._candidates(hs)["whole"].all()
 
 
 def test_a_store_that_selects_no_cell_reads_nothing_more(
@@ -413,11 +351,10 @@ def test_a_store_that_selects_no_cell_reads_nothing_more(
         return original(group, names, listed)
 
     monkeypatch.setattr(obs_read, "read_columns", spy)
-    # The catalog keeps the two lung stores. The stores hold no nnz column, so each
-    # cell holds a null, and no cell matches.
-    q = (hs.obs.tissue == "lung") & (hs.obs.nnz > 0)
+    # The catalog keeps the two lung stores, and no cell holds the key "none".
+    q = (hs.obs.tissue == "lung") & (hs.obs.observation_joinid == "none")
     assert census.get_anndata(q) is None
-    assert read == ["tissue", "tissue"]
+    assert sorted(read) == ["observation_joinid"] * 2 + ["tissue"] * 2
 
 
 def test_get_obs_reads_no_x(
@@ -426,14 +363,14 @@ def test_get_obs_reads_no_x(
     census = census2_sdk.open_census([corpus["catalog"]])
     hs = census.homo_sapiens
     monkeypatch.setattr(census2_sdk, "_rows", None)
-    frame = census.get_obs(hs.where({"tissue": "lung"}), columns=["dataset_id"])
+    frame = census._get_obs(hs.where({"tissue": "lung"}), columns=["dataset_id"])
     full = census.get_anndata
     monkeypatch.undo()
     result = full(hs.where({"tissue": "lung"}))
     assert result is not None
     assert list(frame.columns) == ["dataset_id", "observation_joinid"]
     assert list(frame.index) == list(result.obs_names)
-    assert census.get_obs(hs.where({"tissue": "brain"})).empty
+    assert census._get_obs(hs.where({"tissue": "brain"})).empty
 
 
 def test_categories_are_the_labels_in_use(corpus: dict[str, Path]) -> None:
@@ -525,12 +462,9 @@ def scan(census: census2_sdk.Census, q: Query) -> set[str]:
         group = open_store(str(row["store_uri"]))
         obs = cast("Any", group["obs"])
         n = census2_sdk._n_obs(group)
-        held = set(obs.attrs["column-order"])
         data: dict[str, obs_read.FilterData] = dict(
-            obs_read.read_columns(obs, [c for c in q.columns if c in held], {})
+            obs_read.read_columns(obs, sorted(q.columns), {})
         )
-        for c in q.columns - held:
-            data[c] = obs_read.Missing(n, KINDS.get(c, ""))
         kept = obs_read.evaluate(q.expression, data, n)
         joinids = np.asarray(obs_read.take_rows(obs["observation_joinid"], kept))
         keys |= {f"{row['dataset_id']}_{j}" for j in joinids}
@@ -541,13 +475,13 @@ def random_query(o: Any, rng: random.Random) -> Query:
     terms = [
         o.tissue == "lung",
         o.tissue.isin(["liver", "kidney"]),
-        o.tissue.str.startswith("l"),
         o.disease.has_any(["flu"]),
         o.disease.has_all(["normal", "flu"]),
         as_query(o.is_primary_data),
-        o.nnz > 3,  # no store holds nnz: unknown in the catalog, null in the stores
         o.dataset_id == "ds-b",
-        o.donor_id == "d",  # no value set, and absent from the stores
+        # No value set: unknown in the catalog.
+        o.observation_joinid.isin(["ds-a-1", "ds-b-2", "ds-c-3"]),
+        o.observation_joinid != "ds-b-4",
     ]
     q: Query = rng.choice(terms)
     for _ in range(rng.randint(0, 3)):
@@ -575,39 +509,60 @@ def test_the_catalog_test_keeps_every_store_with_a_cell(
         assert got == scan(census, q), q
 
 
-def test_the_value_sets_prune_or_not_and_string_methods(
+def test_the_value_sets_prune_or_and_not(
     corpus: dict[str, Path],
 ) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     o = census.homo_sapiens.obs
 
     def ids(q: Query) -> list[str]:
-        return list(census.candidates(q)["dataset_id"])
+        return list(census._candidates(q)["dataset_id"])
 
     assert ids((o.tissue == "kidney") | o.disease.has_any(["flu"])) == ["ds-b", "ds-c"]
     assert ids(~o.tissue.isin(["lung", "liver"])) == ["ds-c"]
-    assert ids(o.tissue.str.startswith("kid")) == ["ds-c"]
     assert ids(o.disease.has_all(["normal", "flu"])) == ["ds-b"]
-    assert ids((o.nnz > 3) & (o.tissue == "kidney")) == ["ds-c"]
-    rows = census.candidates(o.tissue.str.startswith("kid") | (o.nnz > 3))
+    joinid = o.observation_joinid == "ds-a-1"  # unknown in the catalog
+    assert ids(joinid & (o.tissue == "kidney")) == ["ds-c"]
+    rows = census._candidates((o.tissue == "kidney") | joinid)
     assert len(rows) == 3  # null | false is null, so each row stays
-    # True for every combination of ds-c, but nnz is unknown: not whole.
+    # True for every combination of ds-c, but a column is unknown: not whole.
     assert not rows["whole"].any()
 
 
-def test_the_value_sets_give_way_to_the_hints(
+def test_the_value_sets_give_way_to_the_hints_above_the_limit(
     corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Above the size limit, or for a query that is not null-safe, the hints decide."""
+    """Above the size limit, the hints decide."""
     census = census2_sdk.open_census([corpus["catalog"]])
     hs = census.homo_sapiens
-    prefix = hs.obs.tissue.str.startswith("kid")
-    assert len(census.candidates(prefix)) == 1
-    assert len(census.candidates(prefix | hs.obs.tissue.isna())) == 3
-    raw = hs.expression(pc.field("tissue") == "kidney", columns=["tissue"])
-    assert len(census.candidates(raw)) == 3
+    negated = ~hs.obs.tissue.isin(["lung", "liver"])
+    assert len(census._candidates(negated)) == 1
     monkeypatch.setattr(value_sets, "MAX_COMBINATIONS", 0)
-    assert len(census.candidates(prefix)) == 3
+    assert len(census._candidates(negated)) == 3
     row: dict[str, Any] = {"dataset_id": "d", "tissue": [], "n_obs": 4}
     assert value_sets.value_set(row, "tissue") is None  # the cells hold nulls
     assert value_sets.value_set({**row, "n_obs": 0}, "tissue") == []
+
+
+def test_a_store_without_the_column_raises(corpus: dict[str, Path]) -> None:
+    """The escape hatch names a column that the test stores do not hold."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    x = census.homo_sapiens.obs["author_cell_type"]
+    for q in [x == "T cell", x.isin(["T cell"]), x > 3]:
+        # The catalog knows no value of the column, so it keeps every row.
+        assert len(census._candidates(q)) == 3
+        with pytest.raises(
+            ValueError, match="obs has no column \\['author_cell_type'\\]"
+        ):
+            census.get_anndata(q)
+
+
+def test_an_unknown_encoding_raises(tmp_path: Path) -> None:
+    """The SDK reads the encodings that it knows, and names any other one."""
+    import zarr
+
+    group = zarr.open_group(tmp_path / "x.zarr", mode="w")
+    node = group.create_array("c", shape=(2,), dtype="i4")
+    node.attrs.update({"encoding-type": "array", "encoding-version": "9.9.9"})
+    with pytest.raises(ValueError, match="does not read the obs encoding array 9.9.9"):
+        obs_read.read_column(node)

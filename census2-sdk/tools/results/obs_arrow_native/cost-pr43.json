@@ -107,6 +107,12 @@
   "columns": 2,
   "column_reads": 7
  },
+ "filters:negation": {
+  "candidates": 7,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 11
+ },
  "filters:or_columns": {
   "candidates": 17,
   "whole": 1,
@@ -148,30 +154,6 @@
   "whole": 6,
   "columns": 2,
   "column_reads": 13
- },
- "filters:prefix": {
-  "candidates": 24,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 24
- },
- "filters:substring": {
-  "candidates": 36,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 36
- },
- "filters:regex": {
-  "candidates": 27,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 27
- },
- "filters:isna": {
-  "candidates": 103,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 103
  },
  "filters:wmg": {
   "candidates": 57,

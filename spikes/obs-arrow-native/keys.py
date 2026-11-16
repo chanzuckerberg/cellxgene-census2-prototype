@@ -88,12 +88,12 @@ def main() -> int:
             built = QUERIES[name].build(hs.obs)
             q = hs if built is None else built
             t0 = time.monotonic()
-            frame = census.get_obs(q, columns=["dataset_id"], max_workers=args.workers)
+            frame = census._get_obs(q, columns=["dataset_id"], max_workers=args.workers)
             seconds = time.monotonic() - t0
             ids = frame["dataset_id"].astype(str) if len(frame) else []
             joins = frame["observation_joinid"].astype(str) if len(frame) else []
             value, keys = digest(ids, joins)
-            rows = census.candidates(q)
+            rows = census._candidates(q)
             record = {
                 "query": name,
                 "path": "spike",

@@ -183,7 +183,7 @@ def main() -> int:
     queries = [QUERIES[name] for name in args.queries.split(",")]
     c43 = vendor(args.pr43)
     census = census2_sdk.open_census([args.catalog])
-    rows = census.candidates(census.homo_sapiens).to_dict("records")[: args.limit]
+    rows = census._candidates(census.homo_sapiens).to_dict("records")[: args.limit]
     clients = census2_sdk.catalog.clients(str(r["store_uri"]) for r in rows)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("a") as fh:

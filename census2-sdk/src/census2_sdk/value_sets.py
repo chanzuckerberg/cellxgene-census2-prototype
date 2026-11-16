@@ -6,8 +6,9 @@ sets. `test` makes a table of every combination of a row's value sets, for the
 query's columns, and evaluates the query's own pyarrow expression on it with
 `obs_read.evaluate`. The SDK does not walk the expression.
 
-- A column without a value set in the row, such as `nnz`, `donor_id`, or a column
-  that the row does not record, is a null in each combination: a value that the
+- A column without a value set in the row, such as `nnz`, `donor_id`,
+  `observation_joinid`, or a column that the row does not record, is a null in each
+  combination: a value that the
   catalog does not know. pyarrow follows SQL's three-valued logic, so a term on it
   gives null, unless the other terms decide.
 - The row is excluded when every combination gives false. A null, or a true,
@@ -19,12 +20,11 @@ query's columns, and evaluates the query's own pyarrow expression on it with
 (`all_true`, `all_false`, or `mixed`). A multi-valued column holds the row's joined
 values, as the store does.
 
-The test is sound when each term gives null for a null value (`Query.null_safe`):
-then a cell that matches makes its combination true or null, never false. `isna`,
-`notna`, and `Organism.expression` are not null-safe, so their rows keep the hint
-test (`catalog.excludes` and `catalog.covers`). A row whose table would pass
-`MAX_COMBINATIONS` rows keeps the hint test too. The whole verdict relies on the
-store format's rule that an indexed column holds no null, as `catalog.covers` does.
+The test is sound because each term of the builder gives null for a null value:
+a cell that matches makes its combination true or null, never false. A row whose
+table would pass `MAX_COMBINATIONS` rows keeps the hint test (`catalog.excludes` and
+`catalog.covers`). The whole verdict relies on the store format's rule that an
+indexed column holds no null, as `catalog.covers` does.
 """
 
 from collections.abc import Sequence
@@ -43,6 +43,15 @@ __all__ = ["MAX_COMBINATIONS", "test"]
 # The largest table of one row. Above it the row keeps the hint test.
 MAX_COMBINATIONS = 100_000
 PRIMARY = {"all_true": [True], "all_false": [False], "mixed": [True, False]}
+# The Arrow type of the nulls of a column that no row knows, by `obs_columns.KINDS`.
+NULL_TYPES = {
+    "category": pa.string(),
+    "multi": pa.string(),
+    "string": pa.string(),
+    "bool": pa.bool_(),
+    "int": pa.int64(),
+    "float": pa.float64(),
+}
 
 
 def value_set(row: dict[str, Any], column: str) -> list[Any] | None:
@@ -74,7 +83,7 @@ def test(
     keep = np.ones(n, dtype=bool)
     whole = np.zeros(n, dtype=bool)
     tested = np.zeros(n, dtype=bool)
-    if not n or not q.null_safe or q.expression is None:
+    if not n or q.expression is None:
         return keep, whole, tested
     columns = sorted(q.columns)
     sets = [[value_set(row, c) for c in columns] for row in rows]
@@ -86,11 +95,7 @@ def test(
     data: dict[str, obs_read.FilterData] = {}
     for j, column in enumerate(columns):
         data[column] = _column(column, [sets[i] for i in chosen], j, counts, total)
-    try:
-        values, valid = obs_read.mask(q.expression, data, total)
-    except (TypeError, ValueError, NotImplementedError):
-        # pyarrow refuses the query on these types; the hints decide every row.
-        return keep, whole, np.zeros(n, dtype=bool)
+    values, valid = obs_read.mask(q.expression, data, total)
     owner = np.repeat(np.arange(len(chosen)), counts)
     true = np.bincount(owner, weights=values & valid, minlength=len(chosen))
     false = np.bincount(owner, weights=~values & valid, minlength=len(chosen))
@@ -110,7 +115,8 @@ def _column(
     """Column `j` of the combination tables of the rows, one after another."""
     known = [r[j] for r in sets if r[j] is not None]
     if not known:
-        return obs_read.Missing(total, KINDS.get(column, ""))
+        null_type = NULL_TYPES.get(KINDS.get(column, ""), pa.null())
+        return obs_read.Arrow(pa.nulls(total, null_type))
     parts: list[np.ndarray] = []
     nulls: list[np.ndarray] = []
     labels: dict[Any, int] = {}

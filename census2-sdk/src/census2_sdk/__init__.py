@@ -56,14 +56,13 @@ store whose `dataset_id` differs from the dataset of its catalog row.
 """
 
 import os
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 
 import anndata
 import numpy as np
 import pandas as pd
-import pyarrow.compute as pc  # type: ignore[import-untyped]  # pyarrow has no types
 import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem, sparse_dataset
@@ -74,7 +73,7 @@ from census2_sdk import obs_read
 from census2_sdk import value_sets as _value_sets
 from census2_sdk.catalog import Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
-from census2_sdk.obs_columns import KINDS, Obs
+from census2_sdk.obs_columns import Obs
 from census2_sdk.query import HasQuery, Query, QueryLike, as_query
 
 __all__ = [
@@ -128,30 +127,6 @@ class Organism(HasQuery):
             query = query & term
         return query
 
-    def expression(self, expression: Any, *, columns: Iterable[str]) -> Query:
-        """The query of a pyarrow expression, which reads the `obs` columns `columns`.
-
-        The SDK reads only `columns` from each store, because a pyarrow expression
-        cannot tell its columns. The query has no hint and is not null-safe, so the
-        catalog excludes no dataset for it. It combines with the other queries of the
-        organism.
-        """
-        if not isinstance(expression, pc.Expression):
-            raise TypeError(
-                f"expression takes a pyarrow Expression, not {expression!r}"
-            )
-        names = [columns] if isinstance(columns, str) else list(columns)
-        if not all(isinstance(c, str) for c in names):
-            raise TypeError("columns takes the names of the expression's columns")
-        return Query(
-            self.name,
-            expression,
-            frozenset(names),
-            exact=False,
-            text=f"expression({expression}, columns={sorted(names)!r})",
-            null_safe=False,
-        )
-
     def __repr__(self) -> str:
         return f"<Organism {self.name}>"
 
@@ -159,7 +134,7 @@ class Organism(HasQuery):
 class Census:
     """`Census` holds a set of opened sources.
 
-    Each call to `get_anndata`, `get_obs`, or `count_cells` runs one query over them.
+    Each call to `get_anndata` or `count_cells` runs one query over them.
     """
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
@@ -188,16 +163,16 @@ class Census:
     def mus_musculus(self) -> Organism:
         return Organism("mus_musculus")
 
-    def candidates(self, query: QueryLike) -> pd.DataFrame:
+    def _candidates(self, query: QueryLike) -> pd.DataFrame:
         """The catalog rows that can hold a selected cell, with a `whole` column.
 
         Two tests run, and a row must pass both. First the query's hints exclude a
         row (`catalog.excludes`), which costs little. Then pyarrow evaluates the
         query on every combination of each remaining row's value sets
-        (`census2_sdk.value_sets`), which also tests `|`, `~`, and the string
-        methods. `whole` is true when every combination matches; for a row that
-        pyarrow cannot test, when the query is exactly its hints and the value sets
-        lie inside them (`catalog.covers`). Both proofs of `whole` rely on the store
+        (`census2_sdk.value_sets`), which also tests `|` and `~`. `whole` is true when
+        every combination matches; for a row whose table passes the size limit, when
+        the query is exactly its hints and the value sets lie inside them
+        (`catalog.covers`). Both proofs of `whole` rely on the store
         format's rule that the indexed columns hold no null.
         """
         q = as_query(query)
@@ -243,7 +218,7 @@ class Census:
         if unknown:
             raise ValueError(f"no layer {unknown}; the one layer is 'normalized'")
         q = as_query(query)
-        rows = self.candidates(q)
+        rows = self._candidates(q)
         _check_composition(rows, ORGANISMS[q.organism]["version"])
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         uris = [str(u) for u in rows["store_uri"]]
@@ -276,20 +251,21 @@ class Census:
         }
         return result
 
-    def get_obs(
+    def _get_obs(
         self,
         query: QueryLike,
         *,
         columns: Sequence[str] | None = None,
         max_workers: int = 1,
     ) -> pd.DataFrame:
-        """Return the `obs` of the cells that `query` selects, and read no `X`.
+        """The `obs` of the cells that `query` selects, with no read of `X`.
 
         The frame is the `obs` of `get_anndata`, with only `columns` when given. A
-        query that selects no cell gives a frame with no rows.
+        query that selects no cell gives a frame with no rows. The measure tools use
+        it.
         """
         q = as_query(query)
-        rows = self.candidates(q)
+        rows = self._candidates(q)
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
         bucket_clients = _catalog.clients(str(u) for u in rows["store_uri"])
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
@@ -440,8 +416,9 @@ def _select(
 
     A row that the catalog proved whole keeps every cell and reads no column. For
     the other rows, the SDK reads the query's columns and evaluates the expression.
-    A column that the store does not hold is a null in each cell. The columns that
-    it read go back with the positions of the kept cells, for the result.
+    A column that the query names and the store does not hold raises `ValueError`.
+    The columns that it read go back with the positions of the kept cells, for the
+    result.
     """
     uri = str(row["store_uri"])
     group = open_store(uri, bucket_clients)
@@ -453,10 +430,12 @@ def _select(
         return (group, np.arange(n), {}) if n else None
     held = set(cast("list[str]", obs.attrs["column-order"]))
     names = sorted(q.columns)
-    data = obs_read.read_columns(obs, [c for c in names if c in held], _listed(row))
-    missing = {c: obs_read.Missing(n, KINDS.get(c, "")) for c in names if c not in held}
+    missing = [c for c in names if c not in held]
+    if missing:
+        raise ValueError(f"{uri}: obs has no column {missing}, which {q.text} reads")
+    data = obs_read.read_columns(obs, names, _listed(row))
     try:
-        keep = obs_read.evaluate(q.expression, {**data, **missing}, n)
+        keep = obs_read.evaluate(q.expression, data, n)
     except (TypeError, ValueError, NotImplementedError) as error:
         raise ValueError(f"{uri}: pyarrow cannot evaluate {q.text}: {error}") from error
     if not keep.size:
@@ -557,13 +536,13 @@ def _check_dataset_id(
     The store format gives a categorical column no unused category, so the store's
     categories are the values of every cell, and a code of -1 is a null.
     """
+    n = len(column.codes if isinstance(column, obs_read.Codes) else column.values)
     if isinstance(column, obs_read.Codes):
         found = {str(c) for c in column.categories}
         if (column.codes < 0).any():
             found.add("nan")
     else:
-        values = column.values if isinstance(column, obs_read.Values) else column.value
-        found = {str(v) for v in pd.Series(values).unique()}
+        found = {str(v) for v in pd.Series(column.take(np.arange(n))).unique()}
     if found != {dataset_id}:
         raise ValueError(
             f"{store_uri}: obs dataset_id holds {sorted(found)}, and the catalog row "

@@ -26,17 +26,16 @@ Each column has a class for its type (`CategoryColumn`, `MultiValueColumn`,
 `BoolColumn`, `IntColumn`, `FloatColumn`, `StringColumn`), with only the operators
 that suit the type. `census2_sdk.obs_columns` generates the attributes of `obs` from
 the store format. `obs["name"]` gives an `AnyColumn` with every operator, for a column
-that the static schema does not name. `Organism.expression` takes a pyarrow expression
-as it is, with the list of its columns and no hint.
+that the static schema does not name.
 
 The null semantics are those of pyarrow, which are SQL's three-valued logic: a
 comparison with a null gives null, `~` of null is null, `&` and `|` follow Kleene
 logic, and the store keeps only the cells where the expression is true. Thus
 `~(obs.x == "a")` and `obs.x != "a"` drop the cells where `x` is null, unlike pandas.
 pyarrow's `is_in` gives false for a null, not null, so `isin` here gives null for a
-null, as `==` does. `isna()` is true for a null and, in a float column, for NaN, as in
-pandas. The writer stores no null in the columns of the store format, so the rule
-matters only for other columns.
+null, as `==` does. Thus every term gives null for a null, which the catalog test
+needs (`census2_sdk.value_sets`). The writer stores no null in the columns of the
+store format, so the rule matters only for other columns.
 """
 
 import re
@@ -70,7 +69,6 @@ __all__ = [
     "Query",
     "QueryLike",
     "Refused",
-    "StrMethods",
     "StringColumn",
     "as_query",
 ]
@@ -113,10 +111,6 @@ class Query:
     every cell. `columns` names the columns that the expression reads. `hints` maps
     a column to its allowed values, and `exact` is true when the expression is
     exactly the conjunction of the hints. `text` is the pandas form, for display.
-    `null_safe` is true when each term gives null for a null value, so that the
-    catalog test can put a null in place of a value that it does not know
-    (`census2_sdk.value_sets`). `isna`, `notna`, and `Organism.expression` make it
-    false.
     """
 
     organism: str
@@ -126,7 +120,6 @@ class Query:
     exact: bool = True
     text: str = ""
     level: int = ATOM
-    null_safe: bool = True
 
     def __and__(self, other: "QueryLike") -> "Query":
         return _and(self, as_query(other))
@@ -149,7 +142,6 @@ class Query:
             self.columns,
             exact=False,
             text=f"~{_wrap(self, ATOM)}",
-            null_safe=self.null_safe,
         )
 
     def __bool__(self) -> NoReturn:
@@ -200,7 +192,6 @@ def _and(left: Query, right: Query) -> Query:
         exact,
         text,
         AND,
-        left.null_safe and right.null_safe,
     )
 
 
@@ -216,7 +207,6 @@ def _or(left: Query, right: Query) -> Query:
         exact=False,
         text=text,
         level=OR,
-        null_safe=left.null_safe and right.null_safe,
     )
 
 
@@ -308,14 +298,6 @@ def members_pattern(values: Iterable[str]) -> str:
     return rf"(?:^|{sep})\s*(?:{either})\s*(?:{sep}|$)"
 
 
-def _check_regex(pattern: str) -> None:
-    """Raise `ValueError` now for a pattern that RE2 refuses, not at the first store."""
-    try:
-        pc.match_substring_regex(pa.array([""]), pattern=pattern)
-    except pa.ArrowInvalid as error:
-        raise ValueError(f"RE2 refuses the pattern {pattern!r}: {error}") from error
-
-
 class Column:
     """One `obs` column of one organism, the start of a term."""
 
@@ -336,7 +318,6 @@ class Column:
         text: str,
         level: int = ATOM,
         hint: frozenset[Any] | None = None,
-        null_safe: bool = True,
     ) -> Query:
         """A query of one term. A hint applies only to a column of `HINT_COLUMNS`."""
         hints = {self.name: hint} if hint is not None else {}
@@ -350,18 +331,7 @@ class Column:
             bool(hints),
             text,
             level,
-            null_safe,
         )
-
-    def isna(self) -> Query:
-        """True where the value is null, or NaN, as `Series.isna()`."""
-        expression = self.field.is_null(nan_is_null=True)
-        return self._term(expression, f"{self!r}.isna()", null_safe=False)
-
-    def notna(self) -> Query:
-        """True where the value is not null and not NaN, as `Series.notna()`."""
-        expression = ~self.field.is_null(nan_is_null=True)
-        return self._term(expression, f"{self!r}.notna()", null_safe=False)
 
     def __bool__(self) -> NoReturn:
         raise TypeError(BOOL_HINT)
@@ -381,8 +351,11 @@ class Column:
 
     def _isin(self, values: Iterable[str]) -> Query:
         labels = _labels(values, self.name, "isin")
+        # `obs["name"]` has no type in the catalog test, where its nulls have the null
+        # type; pyarrow's `is_in` then needs strings.
+        f = self.field.cast(pa.string()) if self.hatch else self.field
         return self._term(
-            _is_in(self.field, labels), f"{self!r}.isin({list(labels)!r})", ATOM,
+            _is_in(f, labels), f"{self!r}.isin({list(labels)!r})", ATOM,
             frozenset(labels),
         )  # fmt: skip
 
@@ -435,86 +408,8 @@ class Column:
         )
 
 
-class StrMethods:
-    """The pandas `.str` methods of a query, for a column of labels.
-
-    pyarrow evaluates each method, with RE2 for a regular expression, not Python's
-    `re`. pyarrow 26 has no string kernel for a dictionary array, so each method
-    first casts the column to strings, one for each cell.
-    """
-
-    __slots__ = ("_column",)
-
-    def __init__(self, column: Column) -> None:
-        self._column = column
-
-    def _query(self, expression: Any, call: str) -> Query:
-        return self._column._term(expression, f"{self._column!r}.str.{call}")
-
-    @property
-    def _strings(self) -> Any:
-        return self._column.field.cast(pa.string())
-
-    def startswith(self, pat: str | tuple[str, ...], case: bool = True) -> Query:
-        """The value starts with `pat`, or with one of the strings of a tuple."""
-        return self._affix(pc.starts_with, "startswith", pat, case)
-
-    def endswith(self, pat: str | tuple[str, ...], case: bool = True) -> Query:
-        """The value ends with `pat`, or with one of the strings of a tuple."""
-        return self._affix(pc.ends_with, "endswith", pat, case)
-
-    def contains(self, pat: str, case: bool = True, regex: bool = True) -> Query:
-        """`pat` occurs in the value: an RE2 expression unless `regex` is false."""
-        pattern = self._pattern(pat, "contains")
-        function = pc.match_substring_regex if regex else pc.match_substring
-        if regex:
-            _check_regex(pattern)
-        expression = function(self._strings, pattern=pattern, ignore_case=not case)
-        args = [repr(pattern)] + ([] if case else ["case=False"])
-        args += [] if regex else ["regex=False"]
-        return self._query(expression, f"contains({', '.join(args)})")
-
-    def match(self, pat: str, case: bool = True) -> Query:
-        """The value starts with a match of the RE2 expression `pat`."""
-        return self._regex("match", pat, f"^(?:{pat})", case)
-
-    def fullmatch(self, pat: str, case: bool = True) -> Query:
-        """The whole value matches the RE2 expression `pat`."""
-        return self._regex("fullmatch", pat, f"^(?:{pat})$", case)
-
-    def _pattern(self, pat: object, method: str) -> str:
-        if not isinstance(pat, str):
-            raise TypeError(f".str.{method} takes a str pattern, not {pat!r}")
-        return pat
-
-    def _regex(self, method: str, pat: str, anchored: str, case: bool) -> Query:
-        self._pattern(pat, method)
-        _check_regex(anchored)
-        expression = pc.match_substring_regex(
-            self._strings, pattern=anchored, ignore_case=not case
-        )
-        args = repr(pat) + ("" if case else ", case=False")
-        return self._query(expression, f"{method}({args})")
-
-    def _affix(
-        self, function: Any, method: str, pat: str | tuple[str, ...], case: bool
-    ) -> Query:
-        patterns = pat if isinstance(pat, tuple) else (pat,)
-        for p in patterns:
-            self._pattern(p, method)
-        expression = reduce(
-            lambda a, b: a | b,
-            (
-                function(self._strings, pattern=p, ignore_case=not case)
-                for p in patterns
-            ),
-        )
-        args = repr(pat) + ("" if case else ", case=False")
-        return self._query(expression, f"{method}({args})")
-
-
 class CategoryColumn(Column):
-    """A column of labels, such as `tissue`: `==`, `!=`, `isin`, and `.str`."""
+    """A column of labels, such as `tissue`: `==`, `!=`, and `isin`."""
 
     __slots__ = ()
 
@@ -537,10 +432,6 @@ class CategoryColumn(Column):
     def isin(self, values: Iterable[str]) -> Query:
         """The value is one of `values`, as `Series.isin`."""
         return self._isin(values)
-
-    @property
-    def str(self) -> StrMethods:
-        return StrMethods(self)
 
 
 class StringColumn(CategoryColumn):
@@ -622,7 +513,6 @@ class BoolColumn(Column):
             truth.columns,
             exact=False,
             text=f"~{self!r}",
-            null_safe=truth.null_safe,
         )
 
     @overload  # type: ignore[override]
@@ -700,8 +590,8 @@ class AnyColumn(BoolColumn):
     """A column that the static schema does not name: `obs["name"]`.
 
     It has the operators of every column type, and pyarrow checks the operator
-    against the column's type in each store. A store without the column holds a
-    null for each cell.
+    against the column's type in each store. A store without the column raises
+    `ValueError`.
     """
 
     __slots__ = ()
@@ -755,10 +645,6 @@ class AnyColumn(BoolColumn):
 
     def has_all(self, values: Iterable[str]) -> Query:
         return self._has_all(values)
-
-    @property
-    def str(self) -> StrMethods:
-        return StrMethods(self)
 
 
 QueryLike = Query | BoolColumn | HasQuery

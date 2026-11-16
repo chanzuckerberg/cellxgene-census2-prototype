@@ -61,7 +61,7 @@ def main() -> int:
         times, rows = [], None
         for _ in range(args.repeats):
             t0 = time.perf_counter()
-            rows = census.candidates(q)
+            rows = census._candidates(q)
             times.append(time.perf_counter() - t0)
         return round(statistics.median(times) * 1e3, 2), rows
 
@@ -87,7 +87,6 @@ def main() -> int:
             "whole": int(rows["whole"].sum()),
             "hint_candidates": len(hint_rows),
             "hint_whole": int(hint_rows["whole"].sum()),
-            "null_safe": q.null_safe,
             "largest_table": max(sizes),
             "table_rows": int(
                 sum(s for s in sizes if s <= value_sets.MAX_COMBINATIONS)

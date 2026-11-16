@@ -107,6 +107,12 @@
   "columns": 2,
   "column_reads": 12
  },
+ "filters:negation": {
+  "candidates": 7,
+  "whole": 0,
+  "columns": 2,
+  "column_reads": 14
+ },
  "filters:or_columns": {
   "candidates": 17,
   "whole": 1,
@@ -148,30 +154,6 @@
   "whole": 6,
   "columns": 2,
   "column_reads": 22
- },
- "filters:prefix": {
-  "candidates": 24,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 24
- },
- "filters:substring": {
-  "candidates": 36,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 36
- },
- "filters:regex": {
-  "candidates": 27,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 27
- },
- "filters:isna": {
-  "candidates": 103,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 103
  },
  "filters:wmg": {
   "candidates": 57,
@@ -299,12 +281,6 @@
   "columns": 2,
   "column_reads": 22
  },
- "probe:nulls": {
-  "candidates": 103,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 103
- },
  "probe:membership, multi-valued disease": {
   "candidates": 9,
   "whole": 5,
@@ -328,23 +304,5 @@
   "whole": 0,
   "columns": 1,
   "column_reads": 103
- },
- "probe:prefix": {
-  "candidates": 24,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 24
- },
- "probe:substring, case-insensitive": {
-  "candidates": 36,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 36
- },
- "probe:regular expression": {
-  "candidates": 27,
-  "whole": 0,
-  "columns": 1,
-  "column_reads": 27
  }
 }

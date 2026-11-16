@@ -73,15 +73,13 @@ def main() -> int:
         (~(col == common), ~sql_eq, ~(label == common)),
         (col != common, sql_eq.map(lambda v: pd.NA if v is pd.NA else not v).astype("boolean"), label != common),
         (col == common, sql_eq, label == common),
-        (col.isna(), label.isna(), label.isna()),
-        (col.notna(), label.notna(), label.notna()),
         (~col.isin([common]), ~sql_eq, ~label.isin([common])),
         (~((col == common) & hs.obs.is_primary_data), ~(sql_eq & primary), ~((label == common) & frame["is_primary_data"])),
         ((col == common) | hs.obs.is_primary_data, sql_eq | primary, (label == common) | frame["is_primary_data"]),
     ]  # fmt: skip
     rows = []
     for built, sql, pandas_rule in cases:
-        got = census.get_obs(built, columns=["dataset_id"])
+        got = census._get_obs(built, columns=["dataset_id"])
         keys = list(got["observation_joinid"].astype(str))
         sql_mask = np.asarray(pd.array(sql, dtype="boolean").fillna(False), dtype=bool)
         want = list(frame["observation_joinid"][sql_mask].astype(str))

@@ -13,7 +13,7 @@ two tables compare row for row:
 With `--catalog`, the script also tests each query against the catalog: the
 candidates, the candidates that the catalog proves whole, and the `obs` columns that
 the SDK reads from the other candidates. With `--count`, it also selects the cells
-over the stores with `get_obs`, which reads no `X`.
+over the stores with `Census._get_obs`, which reads no `X`.
 
     python -m harness.filter_language_builder --catalog catalog-103.parquet \\
         --out results/obs_arrow_native/filter_language.json
@@ -135,7 +135,7 @@ PROBES: list[Probe] = [
         ),
         "",
     ),
-    ("nulls", lambda o: o.raw_variance_nnz.isna(), ""),
+    ("nulls", None, "no null test: no column of the store format holds a null"),
     ("membership, multi-valued disease", lambda o: o.disease.has_any(["COVID-19"]), ""),
     (
         "joined value, as Census 1",
@@ -148,13 +148,9 @@ PROBES: list[Probe] = [
         "",
     ),
     ("numeric range only", lambda o: o.nnz >= 8000, ""),
-    ("prefix", lambda o: o.cell_type.str.startswith("CD8"), ""),
-    (
-        "substring, case-insensitive",
-        lambda o: o.cell_type.str.contains("macrophage", case=False, regex=False),
-        "",
-    ),
-    ("regular expression", lambda o: o.cell_type.str.match(r"CD(4|8)-positive"), ""),
+    ("prefix", None, "no string function, as in Census 1"),
+    ("substring, case-insensitive", None, "no string function, as in Census 1"),
+    ("regular expression", None, "no string function, as in Census 1"),
     (
         "ontology closure (T cell)",
         None,
@@ -163,10 +159,7 @@ PROBES: list[Probe] = [
     (
         "arithmetic",
         None,
-        (
-            "Organism.expression takes a pyarrow expression, such as "
-            "raw_sum / nnz > 3, with the list of its columns"
-        ),
+        "no arithmetic between columns; a caller filters the result in pandas",
     ),
 ]
 
@@ -194,7 +187,7 @@ def classify(query: BoundQuery) -> dict[str, Any]:
 def test_catalog(census: Any, q: Query, count: bool) -> dict[str, Any]:
     """The candidates, the whole ones, the column reads, and the cells of `q`."""
     t0 = time.monotonic()
-    rows = census.candidates(q)
+    rows = census._candidates(q)
     seconds = time.monotonic() - t0
     whole = int(rows["whole"].sum())
     out: dict[str, Any] = {
@@ -207,7 +200,7 @@ def test_catalog(census: Any, q: Query, count: bool) -> dict[str, Any]:
         "exact": q.exact,
     }
     if count:
-        frame = census.get_obs(q, columns=["dataset_id"], max_workers=8)
+        frame = census._get_obs(q, columns=["dataset_id"], max_workers=8)
         ids = frame["dataset_id"].astype(str) if len(frame) else []
         out.update(cells=len(frame), datasets_with_cells=len(set(ids)))
     return out

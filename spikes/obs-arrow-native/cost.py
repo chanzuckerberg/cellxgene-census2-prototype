@@ -35,7 +35,7 @@ def spike_cost(census: Any, built: Any) -> dict[str, Any]:
     from census2_sdk.query import as_query
 
     q = as_query(census.homo_sapiens if built is None else built)
-    rows = census.candidates(q)
+    rows = census._candidates(q)
     whole = int(rows["whole"].sum())
     return {
         "candidates": len(rows),

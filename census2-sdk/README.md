@@ -59,35 +59,31 @@ the type:
 
 | Column | Operators |
 |---|---|
-| labels, such as `tissue` and `donor_id` | `==`, `!=`, `isin`, `.str.startswith`, `.endswith`, `.contains`, `.match`, `.fullmatch` |
+| labels, such as `tissue` and `donor_id` | `==`, `!=`, `isin` |
 | `disease`, `disease_ontology_term_id` (multi-valued) | `has_any([...])`, `has_all([...])` |
 | `is_primary_data` | the column as a query, `~`, `==` a bool |
 | `nnz` and the other count statistics | `==`, `!=`, `<`, `<=`, `>`, `>=`, `between` |
-| every column | `isna`, `notna` |
 
 `&`, `|`, and `~` combine queries, as for a pandas mask. `and`, `or`, and `not` raise `TypeError`.
 `hs.where` takes a mapping of a catalog column to one value or to a list of values: the 18 indexed
-columns and `dataset_id`. `hs.obs["name"]` takes a column that the static schema does not name.
-`hs.expression(expr, columns=[...])` takes a `pyarrow.compute.Expression` as it is, with the names of
-its columns, for a test that the builder does not have, such as arithmetic between columns.
+columns and `dataset_id`. `hs.obs["name"]` takes a column that the static schema does not name;
+a store that lacks the column raises `ValueError`.
 
 Each operator gives a pyarrow expression, and pyarrow evaluates it on the columns of each store.
 Thus the null semantics are pyarrow's, which are SQL's three-valued logic: a comparison with a null
 gives null, and the SDK keeps only the cells where the query is true. `~(obs.x == "a")` drops the
-cells where `x` is null, unlike pandas. `isin` follows the same logic. `isna` is true for a null and
-for a float NaN, as in pandas. The writer stores no null in the columns of the store format, so the
-rule matters only for other columns. A regular expression is RE2, not Python's `re`.
+cells where `x` is null, unlike pandas. `isin` follows the same logic. The writer stores no null in
+the columns of the store format, so the rule matters only for other columns.
 
 The query also records the columns that it reads and its hints: the allowed values of each catalog
 column, from its top-level `&` of `==`, `isin`, and `has_any` terms. Two tests then run on the
 catalog. The hints exclude a dataset whose value sets prove that no cell matches them. Then pyarrow
 evaluates the query on every combination of each remaining dataset's value sets, with a null for a
 column that the catalog does not know, such as `nnz`. A dataset where every combination gives false
-is excluded, so `|`, `~`, and the string methods exclude datasets too. A dataset where every
-combination gives true, with no unknown column, is whole: the SDK keeps every cell of the store and
-reads no filter column. That proof relies on the store format's rule that an indexed column holds no
-null. A query with `isna`, `notna`, or `hs.expression` keeps only the hint test.
-`census.candidates(query)` shows the catalog rows that a query opens, with a `whole` column.
+is excluded, so `|` and `~` exclude datasets too. A dataset where every combination gives true,
+with no unknown column, is whole: the SDK keeps every cell of the store and reads no filter column.
+That proof relies on the store format's rule that an indexed column holds no null. A dataset whose
+table would pass 100,000 combinations keeps only the hint test.
 
 For each other store, the SDK reads only the query's columns, as codes for a categorical column,
 and evaluates the expression with pyarrow. A store that keeps no cell reads nothing more.
@@ -105,8 +101,7 @@ The result holds:
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, the count of stores
   opened, and the count of them that the catalog proved whole
 
-When no cell matches, `get_anndata` returns None. `census.get_obs(query, columns=[...])` gives the
-`obs` of the same cells and reads no `X`.
+When no cell matches, `get_anndata` returns None.
 
 ## Count
 
