@@ -74,12 +74,13 @@ corpus can be presented as the answer for them.
 
 ## The store format module
 
-`store_format.py` names what a store holds beyond AnnData-Zarr: the `obs` schema (`OBS_COLUMNS`,
-with the `dataset_id` column), and the summary record and its check. It keeps those definitions out
-of `__init__.py`, and the package re-exports them, so a caller writes
-`census2_dataset_writer.SummaryRecord`. The module imports only the standard library, and a test
-enforces that: a reader could then depend on it without the writer's dependencies. Keep it so. A
-definition that needs anndata, zarr, or numpy belongs elsewhere.
+The `obs` schema is in the SDK, `census2_sdk.schema`: one typed attribute for each column, from
+which `OBS_COLUMNS`, `ColType`, `DATASET_ID_COLUMN`, and the multi-valued columns follow, and
+`MEASURED_COLUMN`. The writer imports it, so the writer depends on `census2-sdk`, and no second
+list of the columns exists. `store_format.py` names the rest of what a store holds beyond
+AnnData-Zarr: `DERIVED_OBS_COLUMNS`, and the summary record and its check. It keeps those
+definitions out of `__init__.py`, and the package re-exports them, so a caller writes
+`census2_dataset_writer.SummaryRecord`.
 
 ## Sharp edges: types
 

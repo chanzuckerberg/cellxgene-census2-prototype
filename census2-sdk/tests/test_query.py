@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import anndata
-import generate_obs_columns
 import numpy as np
 import pandas as pd
 import pyarrow.compute as pc  # type: ignore[import-untyped]
@@ -21,17 +20,16 @@ from test_sdk import STORES, X, corpus, expected, make_store, one_store_catalog
 import census2_sdk
 from census2_sdk import obs_read, value_sets
 from census2_sdk.catalog import open_store
-from census2_sdk.query import Query, as_query, members_pattern
+from census2_sdk.query import (
+    Query,
+    as_query,
+    members_pattern,
+)
 
 __all__ = ["corpus"]  # the fixture of test_sdk
 
 hs = census2_sdk.Organism("homo_sapiens")
 obs = hs.obs
-
-
-def test_obs_columns_match_the_store_format() -> None:
-    """The generated copy of the schema has each store column, with its class."""
-    assert generate_obs_columns.current() == generate_obs_columns.expected()
 
 
 # --- hints and columns ----------------------------------------------------------
@@ -77,14 +75,15 @@ def test_or_and_not_keep_the_columns_and_drop_the_hints() -> None:
     assert q.columns == {"tissue", "cell_type"}
 
 
-def test_only_catalog_columns_give_hints() -> None:
+def test_label_and_boolean_terms_give_hints() -> None:
+    """The catalog uses the hints on its own columns, and ignores the others."""
     assert (obs.dataset_id == "d").hints == {"dataset_id": {"d"}}
     assert obs.is_primary_data._truth().hints == {"is_primary_data": {True}}
     assert (obs.is_primary_data == False).hints == {"is_primary_data": {False}}
-    assert not (obs.donor_id == "x").hints
-    assert not (obs.donor_id == "x").exact
+    assert (obs.donor_id == "x").hints == {"donor_id": {"x"}}
     assert (obs["tissue"] == "lung").hints == {"tissue": {"lung"}}
     assert not (obs.cell_type != "B cell").hints
+    assert not (obs.nnz > 3).hints
 
 
 def test_where_builds_the_mapping() -> None:

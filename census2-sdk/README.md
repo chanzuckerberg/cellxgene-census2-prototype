@@ -171,7 +171,8 @@ mypy
 
 The catalog builder in `tools/` imports `census2-dataset-writer` for the summary record: its type,
 its location in the store, and the check of its fields. The tests and mypy therefore need the
-writer installed. The SDK package itself does not depend on it.
+writer installed. The SDK package itself does not depend on it; the writer depends on the SDK,
+which defines the `obs` schema (`census2_sdk.schema`).
 
 Run both from this directory. `pytest` and `mypy` read their settings from `pyproject.toml` here. The tests write
 small stores to a temporary directory and need no network and no credentials. Lint and format with `pipx run ruff check --fix .` and `pipx run ruff format .` from the

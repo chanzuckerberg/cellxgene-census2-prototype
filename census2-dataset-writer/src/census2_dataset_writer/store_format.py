@@ -1,23 +1,20 @@
-"""The format of a Census 2 store: the names and records that a reader relies on.
+"""The format of a Census 2 store: the records that a reader relies on.
 
-A store is an AnnData-Zarr group. This module names what Census 2 adds to that
-format, so that the writer and a reader of a store use one definition:
+A store is an AnnData-Zarr group. The schema of its `obs`, and the `var` column of
+the assayed genes, are in the SDK (`census2_sdk.schema`), which the writer and every
+reader import. This module names the rest of what Census 2 adds to the format:
 
-- `DATASET_ID_COLUMN`, the `obs` column that names each cell's dataset.
-- `OBS_COLUMNS`, the columns of a store's `obs`, in order, each with its
-  `ColType`, and `DERIVED_OBS_COLUMNS`, the ones that the writer computes.
-- `MEASURED_COLUMN`, the `var` column of the dataset's assayed genes.
+- `DERIVED_OBS_COLUMNS`, the `obs` columns that the writer computes.
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
 
-The module imports only the standard library, so a reader could depend on it
-without the writer's dependencies. The package re-exports these names. The SDK
-repeats some of them today, because it does not depend on the writer.
+The package re-exports these names.
 """
 
-from enum import Enum
 from typing import TypedDict, cast
+
+from census2_sdk.schema import DATASET_ID_COLUMN
 
 # Where the summary record is: a key of the root group's attributes, and a key
 # under it. The namespace keeps the record clear of anndata's own attributes.
@@ -27,10 +24,6 @@ SUMMARY_KEY = "summary"
 # The format of the summary record. Raise it when a field changes meaning or
 # goes away. A reader refuses a version that it does not know.
 SUMMARY_VERSION = 1
-
-# The `obs` column that names each cell's dataset. `build` adds it after
-# harmonization, so a cell keeps its dataset when stores are concatenated.
-DATASET_ID_COLUMN = "dataset_id"
 
 
 class SummaryRecord(TypedDict):
@@ -83,67 +76,8 @@ def validate_summary(obj: object) -> SummaryRecord:
     return cast("SummaryRecord", obj)
 
 
-class ColType(Enum):
-    """The type of a store column, which a reader can rely on in every store.
-
-    It is the store format's contract, not a pandas dtype. Each comment says how
-    pandas holds the type.
-    """
-
-    # A pandas categorical whose categories are strings: the observed values,
-    # sorted, with no unused category.
-    CATEGORY = "category"
-    # NumPy bool.
-    BOOL = "bool"
-    # Plain strings, not categorical.
-    STRING = "string"
-    # NumPy int64.
-    INT64 = "int64"
-    # NumPy float64.
-    FLOAT64 = "float64"
-
-
-# The columns of a store's `obs`, in Census 1's order: `dataset_id`, the columns
-# that Census 1 copies from every CxG h5ad, the `tissue_general` pair, and five
-# statistics of the counts. A store holds no other `obs` column yet. Census 1 also
-# writes `soma_joinid`, a corpus-wide number that a store for one dataset cannot
-# assign. No value is null.
-OBS_COLUMNS: tuple[tuple[str, ColType], ...] = (
-    (DATASET_ID_COLUMN, ColType.CATEGORY),
-    ("assay", ColType.CATEGORY),
-    ("assay_ontology_term_id", ColType.CATEGORY),
-    ("cell_type", ColType.CATEGORY),
-    ("cell_type_ontology_term_id", ColType.CATEGORY),
-    ("development_stage", ColType.CATEGORY),
-    ("development_stage_ontology_term_id", ColType.CATEGORY),
-    ("disease", ColType.CATEGORY),
-    ("disease_ontology_term_id", ColType.CATEGORY),
-    ("donor_id", ColType.CATEGORY),
-    ("is_primary_data", ColType.BOOL),
-    ("observation_joinid", ColType.STRING),
-    ("self_reported_ethnicity", ColType.CATEGORY),
-    ("self_reported_ethnicity_ontology_term_id", ColType.CATEGORY),
-    ("sex", ColType.CATEGORY),
-    ("sex_ontology_term_id", ColType.CATEGORY),
-    ("suspension_type", ColType.CATEGORY),
-    ("tissue", ColType.CATEGORY),
-    ("tissue_ontology_term_id", ColType.CATEGORY),
-    ("tissue_type", ColType.CATEGORY),
-    ("tissue_general", ColType.CATEGORY),
-    ("tissue_general_ontology_term_id", ColType.CATEGORY),
-    ("raw_sum", ColType.FLOAT64),
-    ("nnz", ColType.INT64),
-    ("raw_mean_nnz", ColType.FLOAT64),
-    ("raw_variance_nnz", ColType.FLOAT64),
-    ("n_measured_vars", ColType.INT64),
-)
-
 # The writer computes these columns. Each other column copies the source.
 DERIVED_OBS_COLUMNS = frozenset(
     {DATASET_ID_COLUMN, "tissue_general", "tissue_general_ontology_term_id"}
     | {"raw_sum", "nnz", "raw_mean_nnz", "raw_variance_nnz", "n_measured_vars"}
 )
-
-# The dataset's assayed genes. `X` cannot show them, because an unmeasured gene is 0.
-# It is the only part of `var` that differs between stores of one organism.
-MEASURED_COLUMN = "measured"

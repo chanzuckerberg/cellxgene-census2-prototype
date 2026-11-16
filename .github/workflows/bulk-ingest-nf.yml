@@ -12,11 +12,14 @@ on:
     paths:
       - "bulk-ingest-nf/**"
       - "census2-dataset-writer/**"
+      # The writer imports the obs schema from the SDK.
+      - "census2-sdk/**"
       - ".github/workflows/bulk-ingest-nf.yml"
   pull_request:
     paths:
       - "bulk-ingest-nf/**"
       - "census2-dataset-writer/**"
+      - "census2-sdk/**"
       - ".github/workflows/bulk-ingest-nf.yml"
 
 permissions:
@@ -58,7 +61,7 @@ jobs:
       # Not editable: the tests then run against the installed package, which is
       # what the image ships and what an external user gets.
       - name: Install
-        run: pip install '.[dev,s3]'
+        run: pip install ../census2-sdk '.[dev,s3]'
 
       - name: Unit tests
         run: pytest -q
@@ -103,7 +106,7 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       # The context is the repository root, because the image installs the
-      # census2-dataset-writer package. The build also runs the import check in
+      # census2-dataset-writer and census2-sdk packages. The build also runs the import check in
       # the Dockerfile, so a missing dependency fails here, not in a task.
       - name: Build the runtime image
         uses: docker/build-push-action@v6

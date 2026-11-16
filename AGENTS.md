@@ -50,7 +50,7 @@ glue around `argparse` and `subprocess`, read top to bottom, and imported by not
 them would cost more than it catches.
 
 ```bash
-cd census2-dataset-writer && pip install -e '.[dev]' && mypy
+cd census2-dataset-writer && pip install -e ../census2-sdk -e '.[dev]' && mypy
 ```
 
 The settings live in the package's own `pyproject.toml` rather than in a repository-wide file, so

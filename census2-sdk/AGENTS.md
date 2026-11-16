@@ -16,8 +16,9 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 `tools/build_catalog.py` imports `census2-dataset-writer`, which defines the summary record, reads
 it, and checks its fields with `read_summary`. The builder thus shares one definition of the record
-with the writer. The SDK package does not depend on the writer, so a user of the SDK does not
-install it. The tests and mypy do need it, and CI installs it.
+with the writer. The writer depends on the SDK, which defines the `obs` schema
+(`census2_sdk.schema`); the SDK package does not depend on the writer, so a user of the SDK does
+not install it. The SDK's tools, tests, and mypy need the writer, and CI installs both.
 
 ## The cell counts
 
@@ -70,8 +71,10 @@ pyarrow evaluates the expression (`obs_read.evaluate`), so the SDK owns no filte
   as many categories as the row lists, by the rule of `ColType.CATEGORY`.
   `dataset_id` reads the categories of the store, because the check of the dataset compares the
   store with the row.
-- `obs_columns.py` is generated from the writer's `store_format.OBS_COLUMNS` by
-  `tools/generate_obs_columns.py`. `tests/test_query.py` fails when the two differ.
+- `schema.py` is the one definition of the `obs` schema: one annotated attribute of `Obs` for
+  each column, in store order. `OBS_COLUMNS`, `MULTIVALUED`, and `DATASET_ID_COLUMN` follow from
+  the annotations. `query.py` cannot import it, because it imports the column classes, so
+  `query._multivalued` imports it when it first runs.
 - The refused operators carry `@deprecated` and the return type `Refused`, and mypy runs with the
   error code `deprecated` on, so mypy reports `obs.disease == "x"` on its line.
 

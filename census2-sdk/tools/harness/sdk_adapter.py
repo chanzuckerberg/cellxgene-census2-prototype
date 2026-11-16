@@ -84,7 +84,7 @@ def translate(value_filter: str, pins: dict[str, Any]) -> dict[str, list[str]]:
                 f"the SDK filter takes equality and membership only: {clause!r}"
             )
         column, values = match["column"], _values(match["value"])
-        if column in census2_sdk.catalog.MULTIVALUED:
+        if column in census2_sdk.schema.MULTIVALUED:
             if values != pins.get(f"{column}_matches"):
                 raise Unsupported(f"no bare term is pinned for {column} = {values}")
             values = [pins[column]]

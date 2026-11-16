@@ -14,18 +14,18 @@ types the operators and keeps two records while it builds a query:
 
 1. **Columns.** Each term adds its column. A pyarrow expression has no public API
    to walk it, so the builder records the columns as it goes.
-2. **Hints.** A term `==` or `isin` on a catalog column (`catalog.INDEXED`,
-   `dataset_id`), `has_any` on a multi-valued column, and a term on
-   `is_primary_data`, give the allowed values of the column. `&` keeps the hints of
-   both sides, and intersects the values when both sides give the same single-valued
-   column. `|` and `~` keep no hint. `exact` is true when the expression is exactly
-   the conjunction of the hints, so that the catalog value sets can prove that every
-   cell of a dataset matches.
+2. **Hints.** A term `==` or `isin` on a label column, `has_any` on a
+   multi-valued column, and a term on a boolean column give the allowed values of
+   the column. `&` keeps the hints of both sides, and intersects the values when
+   both sides give the same single-valued column. `|` and `~` keep no hint. `exact`
+   is true when the expression is exactly the conjunction of the hints. The catalog
+   uses the hints on its own columns, so that its value sets can exclude a dataset
+   or prove that every cell of a dataset matches.
 
 Each column has a class for its type (`CategoryColumn`, `MultiValueColumn`,
 `BoolColumn`, `IntColumn`, `FloatColumn`, `StringColumn`), with only the operators
-that suit the type. `census2_sdk.obs_columns` generates the attributes of `obs` from
-the store format. `obs["name"]` gives an `AnyColumn` with every operator, for a column
+that suit the type. `census2_sdk.schema` holds the attributes of `obs`, one for each
+column of the store format. `obs["name"]` gives an `AnyColumn` with every operator, for a column
 that the static schema does not name.
 
 The null semantics are those of pyarrow, which are SQL's three-valued logic: a
@@ -46,8 +46,6 @@ from typing import TYPE_CHECKING, Any, Literal, NoReturn, overload
 
 import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 import pyarrow.compute as pc  # type: ignore[import-untyped]
-
-from census2_sdk.catalog import INDEXED, MULTIVALUE_SEP, MULTIVALUED
 
 if TYPE_CHECKING:
     from typing_extensions import deprecated
@@ -78,8 +76,8 @@ Inclusive = Literal["both", "neither", "left", "right"]
 # The allowed values of each hinted column: str, or bool for `is_primary_data`.
 Hints = Mapping[str, frozenset[Any]]
 
-# The columns that can give a hint.
-HINT_COLUMNS = frozenset({"dataset_id", *INDEXED, "is_primary_data"})
+# The separator of the members of a multi-valued value.
+MULTIVALUE_SEP = " || "
 
 BOOL_HINT = (
     "a query has no truth value: combine queries with & | ~, not with and, or, not, "
@@ -156,6 +154,13 @@ def _wrap(q: Query, highest: int) -> str:
     return f"({q.text})" if q.level > highest else q.text
 
 
+def _multivalued() -> frozenset[str]:
+    """`schema.MULTIVALUED`. The schema imports this module, so the import waits."""
+    from census2_sdk.schema import MULTIVALUED
+
+    return MULTIVALUED
+
+
 def _organism(left: Query, right: Query) -> str:
     if left.organism != right.organism:
         raise ValueError(
@@ -176,7 +181,7 @@ def _and(left: Query, right: Query) -> Query:
     for column, values in right.hints.items():
         if column not in hints:
             hints[column] = values
-        elif column in MULTIVALUED:
+        elif column in _multivalued():
             # has_any(A) & has_any(B) is not has_any(A & B). Either set is a correct
             # hint alone, so keep the smaller one, and the query is no longer exact.
             hints[column] = min(hints[column], values, key=len)
@@ -319,10 +324,8 @@ class Column:
         level: int = ATOM,
         hint: frozenset[Any] | None = None,
     ) -> Query:
-        """A query of one term. A hint applies only to a column of `HINT_COLUMNS`."""
+        """A query of one term, with its hint when it gives one."""
         hints = {self.name: hint} if hint is not None else {}
-        if self.name not in HINT_COLUMNS:
-            hints = {}
         return Query(
             self.organism,
             expression,
@@ -651,7 +654,7 @@ QueryLike = Query | BoolColumn | HasQuery
 
 
 class ObsNamespace:
-    """The `obs` columns of one organism. `obs_columns.Obs` adds one attribute each.
+    """The `obs` columns of one organism. `schema.Obs` adds one attribute each.
 
     `obs["name"]` gives an `AnyColumn` for a column that the static schema does not
     name, such as a column that a later store format adds.

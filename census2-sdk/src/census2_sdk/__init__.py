@@ -72,9 +72,9 @@ from census2_sdk import normalize as _normalize
 from census2_sdk import obs_read
 from census2_sdk import value_sets as _value_sets
 from census2_sdk.catalog import Filter, members, open_store, unrecorded
-from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
-from census2_sdk.obs_columns import Obs
+from census2_sdk.gene_reference import ORGANISMS
 from census2_sdk.query import HasQuery, Query, QueryLike, as_query
+from census2_sdk.schema import MEASURED_COLUMN, MULTIVALUED, Obs
 
 __all__ = [
     "Census",
@@ -118,7 +118,7 @@ class Organism(HasQuery):
         for column, values in _catalog.canonicalize(obs_filter).items():
             labels = sorted(values)
             col = getattr(self.obs, column)
-            if column in _catalog.MULTIVALUED:
+            if column in MULTIVALUED:
                 term = col.has_any(labels)
             elif len(labels) == 1:
                 term = col == labels[0]

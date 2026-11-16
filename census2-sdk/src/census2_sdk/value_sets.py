@@ -35,23 +35,23 @@ import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 
 from census2_sdk import obs_read
 from census2_sdk.catalog import INDEXED, unrecorded
-from census2_sdk.obs_columns import KINDS
 from census2_sdk.query import Query
+from census2_sdk.schema import OBS_COLUMNS, ColType
 
 __all__ = ["MAX_COMBINATIONS", "test"]
 
 # The largest table of one row. Above it the row keeps the hint test.
 MAX_COMBINATIONS = 100_000
 PRIMARY = {"all_true": [True], "all_false": [False], "mixed": [True, False]}
-# The Arrow type of the nulls of a column that no row knows, by `obs_columns.KINDS`.
+# The Arrow type of the nulls of a column that no row knows, by its `ColType`.
 NULL_TYPES = {
-    "category": pa.string(),
-    "multi": pa.string(),
-    "string": pa.string(),
-    "bool": pa.bool_(),
-    "int": pa.int64(),
-    "float": pa.float64(),
+    ColType.CATEGORY: pa.string(),
+    ColType.STRING: pa.string(),
+    ColType.BOOL: pa.bool_(),
+    ColType.INT64: pa.int64(),
+    ColType.FLOAT64: pa.float64(),
 }
+COL_TYPES = dict(OBS_COLUMNS)
 
 
 def value_set(row: dict[str, Any], column: str) -> list[Any] | None:
@@ -115,7 +115,8 @@ def _column(
     """Column `j` of the combination tables of the rows, one after another."""
     known = [r[j] for r in sets if r[j] is not None]
     if not known:
-        null_type = NULL_TYPES.get(KINDS.get(column, ""), pa.null())
+        col_type = COL_TYPES.get(column)
+        null_type = pa.null() if col_type is None else NULL_TYPES[col_type]
         return obs_read.Arrow(pa.nulls(total, null_type))
     parts: list[np.ndarray] = []
     nulls: list[np.ndarray] = []

@@ -30,6 +30,7 @@ import time
 # The data model, installed in the runtime image from census2-dataset-writer/ at
 # the repository root.
 import census2_dataset_writer
+import census2_sdk.schema
 import h5py
 import numpy as np
 import pandas as pd
@@ -96,7 +97,7 @@ def slot_group(slot: str) -> str:
 
 
 def obs_column_problem(
-    got: pd.Series, want: pd.Series, col_type: census2_dataset_writer.ColType
+    got: pd.Series, want: pd.Series, col_type: census2_sdk.schema.ColType
 ) -> str | None:
     """What is wrong with the store's obs column `got`, or None.
 
@@ -104,16 +105,16 @@ def obs_column_problem(
     the sorted distinct values of `want` as its string categories.
     """
     categorical = isinstance(got.dtype, pd.CategoricalDtype)
-    if col_type is census2_dataset_writer.ColType.CATEGORY:
+    if col_type is census2_sdk.schema.ColType.CATEGORY:
         categories = sorted(set(want.astype(str)))
         if not categorical or list(got.cat.categories) != categories:
             return "not a categorical of the sorted distinct values"
-    elif col_type is census2_dataset_writer.ColType.BOOL:
+    elif col_type is census2_sdk.schema.ColType.BOOL:
         if got.dtype != bool:
             return f"dtype {got.dtype}, not bool"
     elif categorical:
         return "categorical, not plain strings"
-    as_type = bool if col_type is census2_dataset_writer.ColType.BOOL else str
+    as_type = bool if col_type is census2_sdk.schema.ColType.BOOL else str
     if not np.array_equal(want.astype(as_type), got.astype(as_type)):
         return "values differ"
     return None
@@ -165,7 +166,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     repeat the filters, and so it does not show that the right cells were
     dropped.
 
-    The store's obs must hold exactly the columns of `OBS_COLUMNS`, in order,
+    The store's obs must hold exactly the columns of the SDK's `OBS_COLUMNS`, in order,
     each of its type. `dataset_id` must hold the summary record's value, the
     `tissue_general` pair the roll-up of the source's `tissue_ontology_term_id`
     (from `census2_dataset_writer.tissues`), and each other column the source's
@@ -223,7 +224,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
 
         a, b = read_elem(f["obs"]), read_elem(zroot["obs"])
         result["compared"].append("obs")
-        schema = census2_dataset_writer.OBS_COLUMNS
+        schema = census2_sdk.schema.OBS_COLUMNS
         keep = a.index.isin(b.index)
         if not a.index[keep].equals(b.index):
             fail("obs", "index is not the source index without the dropped cells")
@@ -241,7 +242,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
             general = census2_dataset_writer.tissues.tissue_general(tissue.unique())
             for name, col_type in schema:
                 # The writer adds dataset_id, with the summary record's value.
-                if name == census2_dataset_writer.DATASET_ID_COLUMN:
+                if name == census2_sdk.schema.DATASET_ID_COLUMN:
                     want = pd.Series(summary["dataset_id"], index=b.index)
                 elif name == "tissue_general":
                     want = tissue.map({t: pair[1] for t, pair in general.items()})
@@ -265,7 +266,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
         result["compared"].append("var")
         if not var.index.is_unique:
             fail("var", "feature_ids are not unique")
-        measured = census2_dataset_writer.MEASURED_COLUMN
+        measured = census2_sdk.schema.MEASURED_COLUMN
         if list(var.columns) != [*census2_dataset_writer.genes.COLUMNS, measured]:
             fail("var", f"columns {list(var.columns)} are not the reference columns")
         # anndata writes an absent raw as a null-encoded element, not a missing key.

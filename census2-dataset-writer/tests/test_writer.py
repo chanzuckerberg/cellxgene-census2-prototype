@@ -27,10 +27,11 @@ import pytest
 import scipy.sparse as sp
 import zarr
 from anndata.io import read_elem
+from census2_sdk.schema import MEASURED_COLUMN, OBS_COLUMNS, ColType
 
 TAXON = "NCBITaxon:9606"
 # The writer adds dataset_id (first) and the other derived columns, and copies COPIED.
-OBS_NAMES = [name for name, _ in census2_dataset_writer.OBS_COLUMNS]
+OBS_NAMES = [name for name, _ in OBS_COLUMNS]
 COPIED = [n for n in OBS_NAMES if n not in census2_dataset_writer.DERIVED_OBS_COLUMNS]
 REF_IDS = [f"ENSG{j:05d}" for j in reversed(range(24))]
 
@@ -244,7 +245,7 @@ def test_the_store_holds_counts_on_the_reference(tmp_path: Path) -> None:
 
     var: Any = read_elem(store["var"])
     assert list(var.index) == REF_IDS
-    measured = census2_dataset_writer.MEASURED_COLUMN
+    measured = MEASURED_COLUMN
     assert list(var.columns) == [*census2_dataset_writer.genes.COLUMNS, measured]
     # The assayed genes are the source genes, wherever they sit in the reference.
     assert set(var.index[var[measured]]) == set(source.raw.var.index)
@@ -1124,52 +1125,24 @@ def test_write_refuses_obs_for_another_dataset(tmp_path: Path) -> None:
     assert not (tmp_path / "store.zarr").exists()
 
 
-# --- the store format module -------------------------------------------------
-
-
-def test_store_format_imports_only_the_standard_library() -> None:
-    """A reader can take the store format without the writer's dependencies.
-
-    The test loads the module file alone, in a new interpreter, so that the
-    package's own imports do not count.
-    """
-    import subprocess
-    import sys
-
-    path = Path(census2_dataset_writer.store_format.__file__)
-    code = (
-        "import importlib.util, sys\n"
-        f"spec = importlib.util.spec_from_file_location('store_format', {str(path)!r})\n"
-        "module = importlib.util.module_from_spec(spec)\n"
-        "spec.loader.exec_module(module)\n"
-        "heavy = {'anndata', 'numpy', 'pandas', 'zarr', 'dask', 'h5py', 'scipy'}\n"
-        "print(sorted(heavy & set(sys.modules)))\n"
-    )
-    out = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=False
-    )
-    assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "[]"
-
-
 # --- the obs schema --------------------------------------------------------------
 
 
 def test_obs_columns_hold_their_kinds(tmp_path: Path) -> None:
     dest, _ = written(tmp_path)
     obs = cast("pd.DataFrame", read_elem(zarr.open_consolidated(dest, mode="r")["obs"]))
-    for name, col_type in census2_dataset_writer.OBS_COLUMNS:
+    for name, col_type in OBS_COLUMNS:
         column = obs[name]
-        if col_type is census2_dataset_writer.ColType.CATEGORY:
+        if col_type is ColType.CATEGORY:
             assert isinstance(column.dtype, pd.CategoricalDtype), name
             categories = list(column.cat.categories)
             assert categories == sorted(set(column.astype(str))), name
             assert all(isinstance(c, str) for c in categories), name
-        elif col_type is census2_dataset_writer.ColType.BOOL:
+        elif col_type is ColType.BOOL:
             assert column.dtype == bool, name
-        elif col_type is census2_dataset_writer.ColType.INT64:
+        elif col_type is ColType.INT64:
             assert column.dtype == np.int64, name
-        elif col_type is census2_dataset_writer.ColType.FLOAT64:
+        elif col_type is ColType.FLOAT64:
             assert column.dtype == np.float64, name
         else:
             assert not isinstance(column.dtype, pd.CategoricalDtype), name

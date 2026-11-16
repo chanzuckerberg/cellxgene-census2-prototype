@@ -26,6 +26,9 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]  # pyarrow has no t
 import zarr
 from zarr.abc.store import Store
 
+from census2_sdk.query import MULTIVALUE_SEP
+from census2_sdk.schema import MULTIVALUED
+
 # obstore is the optional `s3` extra. It is imported here, at module level, when it
 # is installed, so that a local catalog over local stores installs and runs
 # without it. Each remote path calls `_require_obstore` first.
@@ -68,9 +71,6 @@ COUNTED = tuple(
     for p in ("assay", "cell_type", "disease", "sex", "tissue", "tissue_general")
     for c in (p, f"{p}_ontology_term_id")
 )
-# Schema 2.4.0 made these two columns multi-valued. Equality is membership.
-MULTIVALUED = frozenset({"disease", "disease_ontology_term_id"})
-MULTIVALUE_SEP = " || "
 
 REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")
 

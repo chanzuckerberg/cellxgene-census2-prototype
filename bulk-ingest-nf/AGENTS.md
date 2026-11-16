@@ -61,7 +61,7 @@ version have the same size. `tools/census1-sample.py` asserts this for each reco
 script's uv header therefore bounds Python below 3.14. Without the bound, uv selects 3.14 and tries
 a source build, which fails.
 
-`census2_dataset_writer.project_obs` projects `obs` onto `census2_dataset_writer.OBS_COLUMNS`. The
+`census2_dataset_writer.project_obs` projects `obs` onto `census2_sdk.schema.OBS_COLUMNS`. The
 schema holds `dataset_id`, the 19 CxG columns that Census 1 copies, the `tissue_general` pair, and
 five statistics of the counts. Each column has a fixed type. `add_tissue_general` and
 `add_obs_stats` compute the derived columns. Every other source column goes. The receipt names them
@@ -190,7 +190,7 @@ the check skipped. A new slot in the writer thus fails the check until the check
 `NOT_COMPARED` names it, and the tests assert `not_compared` rather than each entry of `compared`.
 
 The audit shows that the check compared each slot, not that the store format is right. The check
-takes the `obs` schema from `census2_dataset_writer.OBS_COLUMNS`, the same definition that the
+takes the `obs` schema from `census2_sdk.schema.OBS_COLUMNS`, the same definition that the
 writer uses, and no test restates the list. Thus an error in `OBS_COLUMNS`, such as a missing
 column, passes the check. Review is what catches it.
 
