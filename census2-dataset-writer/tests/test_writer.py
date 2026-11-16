@@ -1016,6 +1016,67 @@ def test_build_leaves_the_matrix_lazy(tmp_path: Path) -> None:
         assert adata.X.chunks[1] == (len(REF_IDS),)
 
 
+@pytest.mark.parametrize(("n_ref", "dtype"), [(24, "uint8"), (70_000, "uint32")])
+def test_indices_take_the_smallest_unsigned_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, n_ref: int, dtype: str
+) -> None:
+    """`X/indices` follows the gene count of the reference, in every row block."""
+    ref_ids = [f"ENSG{j:05d}" for j in reversed(range(n_ref))]
+    rows = "".join(f"{g},name{g},1,100,protein_coding\n" for g in ref_ids)
+    data = gzip.compress(rows.encode())
+    (tmp_path / "refdata" / "genes_wide.csv.gz").write_bytes(data)
+    spec = {
+        "file": "genes_wide.csv.gz",
+        "version": "TEST wide",
+        "sha256": hashlib.sha256(data).hexdigest(),
+        "url": "https://example.invalid/genes_wide.csv.gz",
+    }
+    monkeypatch.setitem(
+        census2_dataset_writer.DEFAULTS, "gene_references", {TAXON: spec}
+    )
+    # A small block size gives several row blocks, so anndata appends to the array.
+    monkeypatch.setattr(census2_dataset_writer, "BLOCK_BYTES", 256)
+
+    source = tmp_path / "source.h5ad"
+    adata = dataset(400, 20)
+    adata.write_h5ad(source)
+    with h5py.File(source) as f:
+        lazy, _ = build(f, refdata=tmp_path / "refdata")
+        assert lazy is not None
+        x_lazy: Any = lazy.X
+        assert len(x_lazy.chunks[0]) > 1
+    dest = tmp_path / "store.zarr"
+    create(source, dest, refdata=tmp_path / "refdata")
+
+    indices: Any = zarr.open_consolidated(dest, mode="r")["X/indices"]
+    assert indices.dtype == np.dtype(dtype)
+    # The fixture's gene j is at reference position n_ref - 1 - j.
+    x = stored_x(dest)
+    assert x.shape == (400, n_ref)
+    expected, _ = counts(adata)
+    assert np.array_equal(x[:, n_ref - 20 :].toarray()[:, ::-1], expected)
+    assert x[:, : n_ref - 20].nnz == 0
+
+
+def test_one_thread_at_a_time_writes(tmp_path: Path) -> None:
+    """`write` changes a process-wide anndata setting, so a second write waits."""
+    import threading
+
+    source = tmp_path / "source.h5ad"
+    dataset().write_h5ad(source)
+    dest = tmp_path / "store.zarr"
+    writer = threading.Thread(
+        target=create, args=(source, dest), kwargs={"refdata": tmp_path / "refdata"}
+    )
+    with census2_dataset_writer._WRITE_LOCK:
+        writer.start()
+        writer.join(timeout=1)
+        assert writer.is_alive()
+    writer.join(timeout=60)
+    assert not writer.is_alive()
+    assert census2_dataset_writer.read_summary(dest) is not None
+
+
 def test_row_chunk_is_bounded_by_the_row_count(tmp_path: Path) -> None:
     source = tmp_path / "source.h5ad"
     dataset(40, 12).write_h5ad(source)
