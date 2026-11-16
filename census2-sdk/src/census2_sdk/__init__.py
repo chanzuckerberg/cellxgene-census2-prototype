@@ -330,6 +330,7 @@ def _read_store(
 def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:
     """One `obs` column of a store. `listed` is the catalog row's entry for `name`.
 
+    This function is a faster form of `read_elem(node)` and returns the same column.
     For a listed categorical column, the function reads only the codes and takes the
     categories from the row. The writer stores the sorted values of the column as its
     categories, and the catalog builder checks that order.
