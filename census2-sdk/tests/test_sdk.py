@@ -592,6 +592,42 @@ def test_cell_key_checked_on_kept_cells(
             census.get_anndata("homo_sapiens", {"tissue": tissue})
 
 
+@pytest.mark.parametrize("na_value", [pd.NA, np.nan])
+@pytest.mark.parametrize("old_pyarrow", [False, True])
+def test_string_rows_equal_the_anndata_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, na_value: Any, old_pyarrow: bool
+) -> None:
+    """The pyarrow route gives the array that `read_elem` gives, nulls included.
+
+    `old_pyarrow` makes `pa.array` refuse the NumPy string dtype, as pyarrow before
+    26 does, so the test also covers the object route.
+    """
+    import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
+
+    root = zarr.open_group(tmp_path / "s.zarr", mode="w")
+    keys = pd.array(["k", "l", None, "m", "n"], dtype=pd.StringDtype(na_value=na_value))
+    write_elem(root, "key", keys)
+    node = root["key"]
+    assert node.attrs["encoding-type"] == "nullable-string-array"
+    if old_pyarrow:
+        real = pa.array
+
+        def refuse(values: Any, **kwargs: Any) -> Any:
+            if values.dtype != object:
+                raise pa.ArrowNotImplementedError("Unsupported numpy type")
+            return real(values, **kwargs)
+
+        monkeypatch.setattr(pa, "array", refuse)
+    rows = np.array([0, 2, 3])
+    got = census2_sdk._read_column_rows(node, rows)
+    monkeypatch.undo()
+    want: Any = read_elem(node)
+    assert got.dtype == want.dtype
+    assert type(got) is type(want[rows])
+    assert pd.Series(got).equals(pd.Series(want[rows]))
+    assert pd.isna(got[1])
+
+
 def test_malformed_store_refused(tmp_path: Path) -> None:
     """A store node of the wrong kind raises a TypeError that names the node.
 
