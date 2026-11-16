@@ -2,7 +2,8 @@
 
 This file records the spike on the branch `spike/obs-arrow-native`. The branch is exploratory and
 is not intended to merge. No decision in it is final. The draft pull request gives the summary; this
-file holds the details.
+file holds the details. The raw result records and the measurement scripts are kept outside the
+repository, in the spike's scratch storage, and are available on request.
 
 The spike asks one question: can pyarrow's compute expressions be the filter language and the
 evaluator of the SDK, so that Census 2 does not own a filter language of its own? The SDK then owns
@@ -62,8 +63,8 @@ The null semantics are pyarrow's, which are SQL's three-valued logic, not the pa
   organism-string form of `get_anndata` and `count_cells` is gone, and its callers use the query:
   the harness adapter, the bench, the Census 1 comparison, the tests, and the README.
 - The merge of #45 (`feat/sdk-codes-only-obs`), whose rule for the categories this branch reads.
-- Measure tools in `spikes/obs-arrow-native/`, and `harness/filter_language_builder.py` and
-  `bench/filters.py`, translated from #43 to this API.
+- Measurement scripts, which this branch does not hold: the named queries and the harness
+  translation of #43, rewritten for this API, and the tools of the sections below.
 
 The writer does not change, and the spike needs no ingest. It reads the round-2 stores of the
 Iceberg spike: 103 datasets, 13,316,710 cells, with their catalog. #42 and #43 checked their
@@ -174,7 +175,7 @@ The whole verdict relies on the store format's rule that an indexed column holds
 edge (`test_null_is_not_a_value`). The exclusion does not rely on it: a store with a null in a
 column holds a non-null value there too, or records no value set, which is unknown.
 
-**The cost of the test** (`catalog_time.py`, laptop, medians of 5 runs; the 2,060-row catalog
+**The cost of the test** (laptop, medians of 5 runs; the 2,060-row catalog
 repeats the 103 stores under new dataset identities):
 
 | Catalog rows | Median query, ms: both tests / hints only | Largest, ms | Rows of all tables, largest query |
@@ -211,9 +212,9 @@ For each candidate that is not whole, the SDK:
    column becomes an Arrow array of its values; a NaN stays a NaN.
 3. **Evaluates the query** with pyarrow on the dictionary arrays, with no NumPy label table: an
    Acero `project` of the expression to one boolean for each cell, in the calling thread. The cells
-   where it is true are kept. `bind.py` measured `Table.filter` against the projection on the 103
-   stores: the two cost the same within 15%, because the table holds only the query's columns
-   (section 8.2).
+   where it is true are kept. A per-store measure compared `Table.filter` with the projection on
+   the 103 stores: the two cost the same within 15%, because the table holds only the query's
+   columns (section 8.2).
 4. **Stops** when no cell is kept: the store reads nothing more.
 5. **Builds the result** of the kept cells: the other `obs` columns, as codes with the catalog's
    categories; the cell key, decoded for the kept cells only (as #38); `X` with `main`'s `_rows`
@@ -235,7 +236,7 @@ One detail is the builder's own. pyarrow's `is_in` gives false for a null, not n
 that `isin` on a column that the catalog test does not know gives null (section 5).
 
 No column of the store format holds a null; the writer refuses one. The rule matters for other
-columns, which `obs["name"]` names. `null_store.py` copies a store of
+columns, which `obs["name"]` names. A test copies a store of
 2,075 cells and adds `author_cell_type`, the cell type with every fifth cell null (415 nulls). For
 each term, the SDK's cells equal the SQL rule. Four terms differ from the pandas rule of #43:
 
@@ -259,7 +260,7 @@ and drop them in `~(x == v)`.
 
 ### 8.1 One term, 2 million cells
 
-`dictionary.py`: one column of 2 million cells with 300 or 30,000 categories of about 30
+One column of 2 million cells with 300 or 30,000 categories of about 30
 characters, a tenth of them joined values. One thread, best of 7, milliseconds.
 
 | Measure | In region, 300 | In region, 30,000 | Laptop, 300 | Laptop, 30,000 |
@@ -286,7 +287,7 @@ characters, a tenth of them joined values. One thread, best of 7, milliseconds.
 
 ### 8.2 Each store
 
-`bind.py` opens each of the 103 stores once and measures, one at a time: `read_elem(obs)`; the
+The measure opens each of the 103 stores once and measures, one at a time: `read_elem(obs)`; the
 read of the query's columns; the evaluation with pyarrow on the dictionary arrays (the SDK's Acero
 projection, and `Table.filter`); and #43's evaluation by codes on the same arrays, from #43's own
 modules. The query is the whole query, not the catalog's view of it. The three evaluations keep the
@@ -322,25 +323,25 @@ pyarrow takes 19 to 119 ms (`membership`), and #43 0.0 to 7.5 ms.
 
 ## 9. Correctness
 
-- **#43's query set, cell for cell.** `keys.py` selects the cells of each query of
-  `bench/filters.py` and digests the sorted cell keys `(dataset_id, observation_joinid)`, as #43's
+- **#43's query set, cell for cell.** A script selects the cells of each of #43's named queries,
+  in this API, and digests the sorted cell keys `(dataset_id, observation_joinid)`, as #43's
   `builder_keys.py` does. All 21 queries that #43 recorded on these stores give the same keys: from
   0 to 13,316,710 cells, with `|`, `~`, `has_any`, `has_all`, numeric ranges, `between`, `NOT IN`,
   and WMG's filter. No difference, because no queried column holds a null in these stores (section
   7 shows the differences on a store with nulls).
-- **The harness corpus and the probes.** `harness.filter_language_builder --count` gives the same
+- **The harness corpus and the probes.** The harness corpus in this API gives the same
   number of cells as #43 for all 22 queries that both ran. The spatial `dataset_slice` names a
   dataset that the 103-row catalog does not hold. #43's label check refuses it, and this branch
   returns no cell, as the SQL spike does.
-- **`main`'s mapping queries, value for value.** `values.py` runs each of the 15 queries of
-  `bench/filters.py` that a mapping expresses, on `main` and on this branch (`where`), with the
+- **`main`'s mapping queries, value for value.** A script runs each of the 15 named queries
+  that a mapping expresses, on `main` and on this branch (`where`), with the
   normalized layer, and digests the cell keys, each `obs` column as strings, the dtypes, `var`, `X`,
   and the normalized layer. All 15 give the same values on both branches: 0 to 443,561 cells,
   with every part equal. This branch keeps only the categories in
   use in each categorical column; `main` keeps the categories of the stores. That is the one
   expected difference, and the digest of the values as strings does not see it.
-- **The catalog test by pyarrow.** With the value sets of section 5, `keys.py` gives the same
-  cell keys as the hint test for all 28 queries of `bench/filters.py`, and the harness corpus and
+- **The catalog test by pyarrow.** With the value sets of section 5, the key script gives the
+  same cell keys as the hint test for all 28 named queries, and the harness corpus and
   the probes give the same cells (23 of 23). The two versions open 913 and 1,368 stores over
   #43's corpus, so a row that holds a matching cell and that the value sets excluded would show
   as a missing cell. `test_the_catalog_test_keeps_every_store_with_a_cell` compares 40 random
@@ -352,7 +353,7 @@ pyarrow takes 19 to 119 ms (`membership`), and #43 0.0 to 7.5 ms.
 
 One m6in.4xlarge (16 vCPU, 64 GiB) in the region of the bucket, Amazon Linux 2023, Python 3.13,
 anndata 0.13.4, zarr 3.4.2, obstore 0.12.1, pandas 3.1.1, NumPy 2.5.4, pyarrow 26.0.1. Each run is a
-new process (`e2e.py`), with a watchdog that stops a run above 48 GiB of RSS. Median of 3, the five
+new process, with a watchdog that stops a run above 48 GiB of RSS. Median of 3, the five
 arms interleaved in each repeat, all in one session. The arms:
 
 - `main`: `main` at 5db8999, mapping filters.
@@ -460,8 +461,8 @@ The requests and the bytes do not depend on the workers. The peak RSS at 32 work
 
 ## 11. The cost of no proof engine
 
-`cost.py` tests each query of #43's corpus that this builder expresses against the catalog, with
-each branch's own code: the 28 named queries of `bench/filters.py`, the 16 human queries of the
+A script tests each query of #43's corpus that this builder expresses against the catalog, with
+each branch's own code: the 28 named queries, the 16 human queries of the
 harness corpus, and 7 probes. #43 refuses one of the 51, so 50 compare. For each query it counts the
 candidates, the whole stores, and the filter columns read, summed over the candidates.
 
@@ -559,35 +560,17 @@ Against #43's builder and #42's SQL:
    - **Type checks.** The escape hatch is untyped, so the SDK can check an operator against the
      column's type only when the query runs.
 
-## 15. Reproduce
+## 15. What was run
 
-```bash
-# One environment for each arm, from a checkout of its branch: pip install -e
-# ./census2-dataset-writer -e './census2-sdk[dev,s3]'. Export the AWS credentials first.
-S=spikes/obs-arrow-native T=census2-sdk/tools C=catalog-103.parquet
-python $S/keys.py $C --tools $T --out keys.jsonl \
-    --compare <pr43>/census2-sdk/tools/results/consolidation_filters/builder-keys-iceberg-stores.jsonl
-(cd $T && python -m harness.filter_language_builder --catalog ../../$C --count --out filter_language.json)
-<main>/python $S/values.py run --api mapping --catalog $C --tools $T --queries liver --out main.jsonl
-python $S/values.py run --api spike --catalog $C --tools $T --queries liver --out spike.jsonl
-python $S/values.py compare main.jsonl spike.jsonl
-python $S/null_store.py s3://my-bucket/stores/<dataset_version_id>.zarr null-store --tools $T
-python $S/dictionary.py --where ec2 --out dictionary.jsonl
-python $S/bind.py $C --tools $T --pr43 <pr43>/census2-sdk/src/census2_sdk \
-    --queries neutrophil,fp_some,membership,lung_macrophage_primary,numeric_range,wmg \
-    --repeats 3 --where ec2 --out bind.jsonl
-# <pr45m>: a local merge of feat/sdk-codes-only-obs into main at 5db8999.
-# <hints>: this branch at 9566b07, before the catalog test by the value sets.
-python $S/e2e.py matrix --catalog $C --tools $T --arm main=<main>/python:mapping \
-    --arm pr45m=<pr45m>/python:mapping --arm pr43=<pr43>/python:pr43 \
-    --arm hints=<hints>/python:spike --arm spike=python:spike \
-    --queries fp_none,fp_some,membership,crohn,assay_v1,neutrophil,or_columns,negation,numeric_only,liver,cd4,macrophage \
-    --workers 8,32 --repeats 3 --where ec2 --out e2e.jsonl
-python $S/cost.py run --api spike --catalog $C --tools $T --filters $T/bench/filters.py --out cost-spike.json
-<pr43>/python $S/cost.py run --api pr43 --catalog $C --tools <pr43>/$T --filters $T/bench/filters.py --out cost-pr43.json
-python $S/cost.py compare cost-spike.json cost-pr43.json --out cost.json
-python $S/catalog_time.py catalog-2060.parquet --tools $T --out catalog-time-2060.json
-python $S/summarize.py census2-sdk/tools/results/obs_arrow_native
-```
+Everything ran from this branch and from checkouts of `main`, #43's branch, and a local merge of
+#45 into `main`, each in its own environment, against the 103 round-2 stores and their catalog:
 
-The results are in `census2-sdk/tools/results/obs_arrow_native/`.
+- the cell keys of #43's named queries, and of the harness corpus and the probes, in this API,
+  against #43's recorded keys and counts, and between the hint test and the value sets;
+- the 15 mapping queries on `main` and on this branch, with digests of every part of the result;
+- the null rules on a copy of one store with a column of nulls;
+- the single-term timings on 2 million cells, on the laptop and in region;
+- the per-store reads and evaluations, three ways, over the 103 stores, 3 repeats;
+- the end-to-end matrix of five arms, 13 queries, 8 and 32 workers, 3 repeats, in region;
+- the catalog-only tests of #43's corpus (candidates, whole stores, column reads) for both
+  branches, and the timing of the catalog test at 103 and 2,060 rows.
