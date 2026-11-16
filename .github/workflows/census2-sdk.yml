@@ -54,7 +54,8 @@ jobs:
 
       # Not editable: the tests then run against the installed package. The
       # catalog builder in tools/ imports census2-dataset-writer for the summary
-      # record, so the tests and mypy need it. The SDK package itself does not.
+      # record, so the tests and mypy need it. The SDK package itself does not; the
+      # writer depends on the SDK, which pip takes from '.'.
       - name: Install
         run: pip install ../census2-dataset-writer '.[dev,s3]'
 

@@ -135,17 +135,13 @@ QUERY = BoundQuery(
 
 
 class Empty:
-    def get_anndata(
-        self, organism: str, obs_filter: object, layers: object = ()
-    ) -> None:
+    def get_anndata(self, query: object, layers: object = ()) -> None:
         return None
 
 
 def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
     class Broken:
-        def get_anndata(
-            self, organism: str, obs_filter: object, layers: object = ()
-        ) -> None:
+        def get_anndata(self, query: object, layers: object = ()) -> None:
             raise SourceConflict("the cell key is not unique across the result")
 
     with pytest.raises(SourceConflict):
@@ -201,9 +197,7 @@ def test_run_one_fails_when_the_sdk_lacks_a_census_1_gene(
     tmp_path: pathlib.Path, sdk_genes: list[str], status: str
 ) -> None:
     class Stores:
-        def get_anndata(
-            self, organism: str, obs_filter: object, layers: object = ()
-        ) -> ad.AnnData:
+        def get_anndata(self, query: object, layers: object = ()) -> ad.AnnData:
             return _adata(sdk_genes)
 
     census1 = canonicalize_anndata(_adata(["g1", "g2"]))
@@ -221,9 +215,7 @@ def test_answer_asks_the_sdk_for_the_query_layers(
     seen: list[list[str]] = []
 
     class Stores:
-        def get_anndata(
-            self, organism: str, obs_filter: object, layers: Sequence[str] = ()
-        ) -> ad.AnnData:
+        def get_anndata(self, query: object, layers: Sequence[str] = ()) -> ad.AnnData:
             seen.append(list(layers))
             adata = _adata(["g1", "g2"])
             for name in layers:
@@ -300,9 +292,7 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
         return adata
 
     class Stores:
-        def get_anndata(
-            self, organism: str, obs_filter: object, layers: object = ()
-        ) -> ad.AnnData:
+        def get_anndata(self, query: object, layers: object = ()) -> ad.AnnData:
             return cells(sdk_obs)
 
     census1 = canonicalize_anndata(cells(census1_obs))

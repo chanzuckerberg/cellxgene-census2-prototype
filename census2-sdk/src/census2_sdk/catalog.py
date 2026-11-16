@@ -26,6 +26,9 @@ import pyarrow.parquet as pq  # type: ignore[import-untyped]  # pyarrow has no t
 import zarr
 from zarr.abc.store import Store
 
+from census2_sdk.query import MULTIVALUE_SEP
+from census2_sdk.schema import MULTIVALUED
+
 # obstore is the optional `s3` extra. It is imported here, at module level, when it
 # is installed, so that a local catalog over local stores installs and runs
 # without it. Each remote path calls `_require_obstore` first.
@@ -68,9 +71,6 @@ COUNTED = tuple(
     for p in ("assay", "cell_type", "disease", "sex", "tissue", "tissue_general")
     for c in (p, f"{p}_ontology_term_id")
 )
-# Schema 2.4.0 made these two columns multi-valued. Equality is membership.
-MULTIVALUED = frozenset({"disease", "disease_ontology_term_id"})
-MULTIVALUE_SEP = " || "
 
 REMOTE_SCHEMES = ("s3://", "gs://", "az://", "abfs://", "http://", "https://")
 
@@ -255,6 +255,29 @@ def excludes(row: Mapping[str, Any], obs_filter: CanonicalFilter) -> bool:
         if not (present & wanted):
             return True
     return False
+
+
+def covers(row: Mapping[str, Any], obs_filter: Mapping[str, frozenset[Any]]) -> bool:
+    """True when the row proves that every cell of the dataset matches `obs_filter`.
+
+    This is the other side of `excludes`. Each filtered column must be `dataset_id`
+    or an indexed column whose value set the row records, and each value of the set
+    must hold a wanted member. The proof relies on the store format's rule that an
+    indexed column holds no null: the value set does not show a null. A column
+    without a value set, such as `is_primary_data`, proves nothing.
+    """
+    for column, wanted in obs_filter.items():
+        if column == "dataset_id":
+            if str(row["dataset_id"]) not in wanted:
+                return False
+            continue
+        values = row.get(column)
+        if column not in INDEXED or unrecorded(values):
+            return False
+        for value in cast("Iterable[Any]", values):
+            if not set(members(str(value), column)) & wanted:
+                return False
+    return True
 
 
 def exclude(

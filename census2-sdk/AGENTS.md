@@ -10,15 +10,15 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
-- The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no
-  `raw_sum`, `nnz`, or the other three columns of design 2.1.
+- The catalog holds no numeric ranges, so a numeric term of a query excludes no dataset.
 
 ## The catalog builder
 
 `tools/build_catalog.py` imports `census2-dataset-writer`, which defines the summary record, reads
 it, and checks its fields with `read_summary`. The builder thus shares one definition of the record
-with the writer. The SDK package does not depend on the writer, so a user of the SDK does not
-install it. The tests and mypy do need it, and CI installs it.
+with the writer. The writer depends on the SDK, which defines the `obs` schema
+(`census2_sdk.schema`); the SDK package does not depend on the writer, so a user of the SDK does
+not install it. The SDK's tools, tests, and mypy need the writer, and CI installs both.
 
 ## The cell counts
 
@@ -43,6 +43,41 @@ accessors of pandas in about 20 ms. pyarrow ships no type information, so its im
 from that content, so they agree also when the catalog changes later. The live catalog of design
 3.3 changes with each update of the catalog builder.
 
+## The query builder
+
+This branch is the spike `spike/obs-arrow-native`; `spikes/obs-arrow-native.md` records it.
+`query.py` types the operators of each column and gives a `pyarrow.compute.Expression` for each.
+pyarrow evaluates the expression (`obs_read.evaluate`), so the SDK owns no filter language.
+
+- A pyarrow expression has no public API to walk it. Thus the builder records, as it builds, the
+  columns of a query and its hints. The SDK reads only the recorded columns. A store that lacks one
+  of them raises `ValueError`, and so does an `obs` encoding outside `obs_read.ENCODINGS`.
+- The hints come only from a top-level `&` of `==`, `isin`, and `has_any` terms, and
+  `catalog.excludes` tests them first. `value_sets.test` then evaluates the query's expression on
+  the combinations of each row's value sets, with a null for a column without a value set. That is
+  sound because every term of the builder gives null for a null value; a term that treats a null
+  as a value, such as a null test, would break it. A row whose table passes
+  `value_sets.MAX_COMBINATIONS` keeps the hint test and `catalog.covers`. Both proofs of a whole
+  store rely on the store format's rule that an indexed column holds no null. A test store with a
+  null shows the sharp edge (`test_null_is_not_a_value`).
+- pyarrow's `is_in` gives false for a null, not null. The builder wraps it in
+  `if_else(is_valid(x), ..., null)`, so that `isin` follows the three-valued logic of `==`, and
+  gives null on a column that the catalog test does not know.
+- pyarrow 26 decodes a dictionary array to one string for each cell for `==` and `is_in`, and it
+  has no string kernel for a dictionary array. `has_any` therefore casts the column to strings
+  first. `has_any` is an RE2 expression over the joined value, 65 to 90 ns for
+  each cell; see the spike notes for its share of a query.
+- A categorical column of the catalog takes its categories from the catalog row when the store has
+  as many categories as the row lists, by the rule of `ColType.CATEGORY`.
+  `dataset_id` reads the categories of the store, because the check of the dataset compares the
+  store with the row.
+- `schema.py` is the one definition of the `obs` schema: one annotated attribute of `Obs` for
+  each column, in store order. `OBS_COLUMNS`, `MULTIVALUED`, and `DATASET_ID_COLUMN` follow from
+  the annotations. `query.py` cannot import it, because it imports the column classes, so
+  `query._multivalued` imports it when it first runs.
+- The refused operators carry `@deprecated` and the return type `Refused`, and mypy runs with the
+  error code `deprecated` on, so mypy reports `obs.disease == "x"` on its line.
+
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the
@@ -56,9 +91,9 @@ does not remap genes.
 ## Sharp edges: anndata and zarr
 
 `anndata.io.sparse_dataset` over a CSR group reads the full `indptr`. It then reads only the `data`
-and `indices` of the selected rows, so a query does not load the whole `X`. `obs` and `var` are read
-whole. `read_lazy` is not used because it does not round-trip in
-anndata 0.13 (see the writer's `AGENTS.md`).
+and `indices` of the selected rows, so a query does not load the whole `X`. The SDK reads `obs` one
+column at a time with zarr (`obs_read`), and `var` whole. `read_lazy` is not used because it does
+not round-trip in anndata 0.13 (see the writer's `AGENTS.md`).
 
 zarr has no S3 client. A remote URI goes through `zarr.storage.ObjectStore` over `obstore`, as in
 the writer. `obstore` reads credentials from the environment and not from an AWS profile, so export

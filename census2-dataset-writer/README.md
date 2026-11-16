@@ -13,11 +13,12 @@ record: the reasoning, the memory contract, and the constraints on new harmoniza
 ## Install
 
 ```bash
-pip install ./census2-dataset-writer          # local h5ad to a local store
-pip install './census2-dataset-writer[s3]'    # also write to object storage
+pip install ./census2-sdk ./census2-dataset-writer          # local h5ad to a local store
+pip install ./census2-sdk './census2-dataset-writer[s3]'    # also write to object storage
 ```
 
-The `s3` extra is unnecessary for a local conversion.
+The writer depends on `census2-sdk`, which defines the `obs` schema, and no package index holds
+it, so give both paths to the installer. The `s3` extra is unnecessary for a local conversion.
 
 ## Use
 
@@ -96,7 +97,7 @@ reuse one store.
 
 A store's `obs` holds a fixed set of columns in a fixed order. These are `dataset_id`, the 19 CxG
 columns that Census 1 copies, the `tissue_general` pair, and five statistics of the counts.
-`store_format.OBS_COLUMNS` lists them, each with its `ColType`.
+`census2_sdk.schema.OBS_COLUMNS` lists them, each with its `ColType`.
 
 - Each column has a fixed type. `is_primary_data` is `bool`, and `observation_joinid` is plain
   strings. `nnz` and `n_measured_vars` are `int64`, and `raw_sum`, `raw_mean_nnz`, and
@@ -179,7 +180,7 @@ census2_dataset_writer.provenance()
 
 ```bash
 cd census2-dataset-writer
-pip install -e '.[dev,s3]'
+pip install -e ../census2-sdk -e '.[dev,s3]'
 pytest
 mypy
 ```

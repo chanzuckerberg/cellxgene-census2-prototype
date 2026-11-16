@@ -7,17 +7,34 @@ gene position (design 4.1 to 4.4).
     import census2_sdk
 
     census = census2_sdk.open_census(sources=["catalog.parquet"])
-    adata = census.get_anndata("homo_sapiens", obs_filter={"tissue": "lung"})
+    hs = census.homo_sapiens
+    adata = census.get_anndata(hs.obs.cell_type.isin(["neutrophil"]) & (hs.obs.nnz >= 500))
+    adata = census.get_anndata(hs.where({"tissue": "lung"}))
+    adata = census.get_anndata(hs)  # every cell of the organism
 
-`obs_filter` maps a catalog column to one value or to a list of values. The SDK selects
-a cell when every column holds one of its values. The columns are the 18 indexed
-columns of design 2.2 and `dataset_id`. A filter grammar is open (design section 8).
+A query selects the cells of one organism. The columns of `hs.obs` have pandas names
+and give pyarrow expressions (`census2_sdk.query`). pyarrow is the filter language and
+the evaluator, with SQL's three-valued logic for nulls. `hs.where` takes a mapping of a
+catalog column to one value or to a list of values, and selects a cell when every
+column holds one of its values.
+
+A query also records the columns that it reads, and, from its top-level `&` of `==`,
+`isin`, and `has_any` terms on catalog columns, the allowed values of each column (its
+hints). The catalog excludes a dataset whose value sets prove that no cell matches the
+hints. Then pyarrow evaluates the query on the combinations of each remaining dataset's
+value sets (`census2_sdk.value_sets`): it excludes a dataset where no cell can match, and
+proves a dataset whole where every cell matches. For a whole dataset, the SDK reads no
+filter column of the store and keeps all of its cells. For every other candidate store,
+the SDK reads only the query's columns, as codes for a categorical column, and
+evaluates the expression with pyarrow (`census2_sdk.obs_read`).
 
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
-has the columns that all selected stores hold. `uns["census2"]` has the sources, the
-number of catalog rows for the organism, and the number of stores opened. The cell
-key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
-`<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
+has the columns that all stores with a selected cell hold. A categorical column has
+only the categories that the selected cells use. `uns["census2"]` has the sources, the
+number of catalog rows for the organism, the number of stores opened, and the number of
+them that the catalog proved whole. The cell key `(dataset_id, observation_joinid)` is
+in `obs`, and `obs_names` is `<dataset_id>_<observation_joinid>`. When no cell matches,
+`get_anndata` returns None.
 
 The stores hold only the counts. `layers=["normalized"]` adds the Census 1
 normalized values in `layers["normalized"]`, calculated on read.
@@ -29,10 +46,10 @@ dataset's assayed genes in a `measured` column, and the result leaves that colum
 because the result spans datasets.
 
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
-that each catalog row holds. Its filter takes the columns of
-`catalog.COUNTED` and `dataset_id`.
+that each catalog row holds, so it takes only a query that is exactly its hints, on the
+columns of `catalog.COUNTED`, `dataset_id`, and `is_primary_data`.
 
-    n = census.count_cells("homo_sapiens", {"cell_type": "neutrophil"})
+    n = census.count_cells(hs.obs.cell_type == "neutrophil")
 
 Each store's `obs` holds `dataset_id`, which the writer adds. The SDK refuses a
 store whose `dataset_id` differs from the dataset of its catalog row.
@@ -52,11 +69,17 @@ from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
-from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
-from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
+from census2_sdk import obs_read
+from census2_sdk import value_sets as _value_sets
+from census2_sdk.catalog import Filter, members, open_store, unrecorded
+from census2_sdk.gene_reference import ORGANISMS
+from census2_sdk.query import HasQuery, Query, QueryLike, as_query
+from census2_sdk.schema import MEASURED_COLUMN, MULTIVALUED, Obs
 
 __all__ = [
     "Census",
+    "Organism",
+    "Query",
     "SourceConflict",
     "open_census",
 ]
@@ -66,6 +89,46 @@ PathLike = str | os.PathLike[str]
 
 class SourceConflict(ValueError):
     """The sources or the selected stores do not compose (design 4.3, 4.4)."""
+
+
+class Organism(HasQuery):
+    """The `obs` columns of one organism, and the query of all of its cells.
+
+    `census.homo_sapiens` gives one. Use it as a query to select every cell, build a
+    query from the typed columns of `obs`, or use `where` for a mapping.
+    """
+
+    def __init__(self, name: str) -> None:
+        if name not in ORGANISMS:
+            raise ValueError(f"no organism {name!r}; use one of {sorted(ORGANISMS)}")
+        self.name = name
+        self.obs = Obs(name)
+
+    def query(self) -> Query:
+        """The query of every cell of the organism."""
+        return Query(self.name, None)
+
+    def where(self, obs_filter: Filter) -> Query:
+        """The query of a mapping of a catalog column to one value or to a list.
+
+        A cell matches when every column holds one of its values. For the
+        multi-valued `disease` columns, a member of the cell's value matches.
+        """
+        query = self.query()
+        for column, values in _catalog.canonicalize(obs_filter).items():
+            labels = sorted(values)
+            col = getattr(self.obs, column)
+            if column in MULTIVALUED:
+                term = col.has_any(labels)
+            elif len(labels) == 1:
+                term = col == labels[0]
+            else:
+                term = col.isin(labels)
+            query = query & term
+        return query
+
+    def __repr__(self) -> str:
+        return f"<Organism {self.name}>"
 
 
 class Census:
@@ -92,15 +155,53 @@ class Census:
                 f"a dataset_id occurs in more than one source: {listing}"
             )
 
+    @property
+    def homo_sapiens(self) -> Organism:
+        return Organism("homo_sapiens")
+
+    @property
+    def mus_musculus(self) -> Organism:
+        return Organism("mus_musculus")
+
+    def _candidates(self, query: QueryLike) -> pd.DataFrame:
+        """The catalog rows that can hold a selected cell, with a `whole` column.
+
+        Two tests run, and a row must pass both. First the query's hints exclude a
+        row (`catalog.excludes`), which costs little. Then pyarrow evaluates the
+        query on every combination of each remaining row's value sets
+        (`census2_sdk.value_sets`), which also tests `|` and `~`. `whole` is true when
+        every combination matches; for a row whose table passes the size limit, when
+        the query is exactly its hints and the value sets lie inside them
+        (`catalog.covers`). Both proofs of `whole` rely on the store
+        format's rule that the indexed columns hold no null.
+        """
+        q = as_query(query)
+        catalog_hints = {
+            column: values
+            for column, values in q.hints.items()
+            if column == "dataset_id" or column in _catalog.INDEXED
+        }
+        rows = _catalog.exclude(self.catalog, q.organism, catalog_hints)
+        records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+        keep, whole, tested = _value_sets.test(records, q)
+        hinted = np.array(
+            [
+                q.expression is None or (q.exact and _catalog.covers(row, q.hints))
+                for row in records
+            ],
+            dtype=bool,
+        )
+        whole = np.where(tested, whole, hinted)
+        return rows[keep].assign(whole=whole[keep])
+
     def get_anndata(
         self,
-        organism: str,
-        obs_filter: Filter | None = None,
+        query: QueryLike,
         *,
         layers: Sequence[str] = (),
         max_workers: int = 1,
     ) -> anndata.AnnData | None:
-        """Return the selected cells of `organism` as one AnnData.
+        """Return the cells that `query` selects as one AnnData.
 
         Return None when no cell matches, whether or not the catalog excluded
         every store.
@@ -116,74 +217,104 @@ class Census:
         unknown = sorted(set(layers) - {"normalized"})
         if unknown:
             raise ValueError(f"no layer {unknown}; the one layer is 'normalized'")
-        canonical = _catalog.canonicalize(obs_filter)
-        rows = _catalog.exclude(self.catalog, organism, canonical)
-        _check_composition(rows, ORGANISMS[organism]["version"])
-
+        q = as_query(query)
+        rows = self._candidates(q)
+        _check_composition(rows, ORGANISMS[q.organism]["version"])
         records = cast("list[dict[str, Any]]", rows.to_dict("records"))
-        uris = list(rows["store_uri"].astype(str))
+        uris = [str(u) for u in rows["store_uri"]]
         bucket_clients = _catalog.clients(uris)
         # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             parts = list(
                 pool.map(
-                    lambda row: _read_store(row, canonical, layers, bucket_clients),
-                    records,
+                    lambda row: _read_store(row, q, layers, bucket_clients), records
                 )
             )
-        _check_var(parts, uris)
-        if not sum(part.n_obs for part in parts):
+        kept = [(p, u) for p, u in zip(parts, uris, strict=True) if p is not None]
+        if not kept:
             return None
-        # Zero-row parts stay in, so the obs schema is the columns that all
-        # opened stores hold.
-        result = anndata.concat(parts, join="inner")
+        _check_var([p for p, _ in kept], [u for _, u in kept])
+        result = anndata.concat([p for p, _ in kept], join="inner")
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
         # version and one index, so the first store supplies the var columns,
         # except the assayed genes of its own dataset.
-        var = cast(
-            "pd.DataFrame", read_elem(open_store(uris[0], bucket_clients)["var"])
-        )
+        first = kept[0][1]
+        var = cast("pd.DataFrame", read_elem(open_store(first, bucket_clients)["var"]))
         result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
-            "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
+            "stores_in_catalog": int((self.catalog["organism"] == q.organism).sum()),
             "stores_opened": len(rows),
+            "stores_whole": int(rows["whole"].sum()),
         }
         return result
 
-    def count_cells(
+    def _get_obs(
         self,
-        organism: str,
-        obs_filter: Filter | None = None,
+        query: QueryLike,
         *,
-        primary_only: bool = False,
-    ) -> int:
-        """Return the number of cells of `organism` that match `obs_filter`.
+        columns: Sequence[str] | None = None,
+        max_workers: int = 1,
+    ) -> pd.DataFrame:
+        """The `obs` of the cells that `query` selects, with no read of `X`.
+
+        The frame is the `obs` of `get_anndata`, with only `columns` when given. A
+        query that selects no cell gives a frame with no rows. The measure tools use
+        it.
+        """
+        q = as_query(query)
+        rows = self._candidates(q)
+        records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+        bucket_clients = _catalog.clients(str(u) for u in rows["store_uri"])
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            parts = [
+                part
+                for part in pool.map(
+                    lambda row: _read_obs(row, q, columns, bucket_clients), records
+                )
+                if part is not None
+            ]
+        if not parts:
+            return pd.DataFrame(columns=list(columns or []))
+        # anndata unites the categories of each categorical column.
+        frames = [anndata.AnnData(obs=frame) for frame, _, _ in parts]
+        return cast("pd.DataFrame", anndata.concat(frames, join="inner").obs)
+
+    def count_cells(self, query: QueryLike) -> int:
+        """Return the number of cells that `query` selects.
 
         The SDK sums the cell counts in the catalog rows and opens no store. A
-        cell matches by the rule of `get_anndata`, and the catalog excludes the
-        same datasets. Thus, without `primary_only`, the count equals the `n_obs`
-        of the result of `get_anndata` when there is one. The count does not
-        apply the checks of design 4.3, because a count joins no matrices.
+        cell matches by the rule of `get_anndata`. Thus the count equals the `n_obs`
+        of the result of `get_anndata` when there is one. The count does not apply the checks of
+        design 4.3, because a count joins no matrices.
 
-        The filter takes the columns of `catalog.COUNTED` and `dataset_id`, and a
-        filter on another column raises ValueError. With `primary_only`, the count
-        includes only the cells whose `is_primary_data` is true. A catalog without
+        The query must be exactly its hints (`Query.exact`): a `&` of `==`, `isin`,
+        and `has_any` terms on the columns of `catalog.COUNTED` and `dataset_id`, and
+        of `is_primary_data`. Any other query raises ValueError. A catalog without
         the `cell_counts` column raises ValueError.
         """
-        canonical = _catalog.canonicalize(obs_filter)
-        uncounted = sorted(set(canonical) - {"dataset_id", *_catalog.COUNTED})
+        q = as_query(query)
+        if not q.exact:
+            raise ValueError(
+                "count_cells sums the catalog's cell counts, so it takes only a & of "
+                "==, isin, and has_any terms and is_primary_data; use get_anndata "
+                f"for {q.text}"
+            )
+        counted = {"dataset_id", "is_primary_data", *_catalog.COUNTED}
+        uncounted = sorted(set(q.hints) - counted)
         if uncounted:
             raise ValueError(f"the catalog counts no {uncounted}; use get_anndata")
+        canonical = {c: v for c, v in q.hints.items() if c != "is_primary_data"}
         counts = self._cell_counts()
-        candidates = _catalog.exclude(self.catalog, organism, canonical)
+        candidates = _catalog.exclude(self.catalog, q.organism, canonical)
         rows = counts[
             counts["dataset_version_id"].isin(candidates["dataset_version_id"])
         ]
-        if primary_only:
-            rows = rows[rows["is_primary_data"].astype(bool)]
+        primary = q.hints.get("is_primary_data")
+        if primary is not None:
+            rows = rows[rows["is_primary_data"].astype(bool).isin(primary)]
         keep = np.ones(len(rows), dtype=bool)
         for column, wanted in canonical.items():
             if column == "dataset_id":
@@ -256,64 +387,130 @@ def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
     return [None if unrecorded(v) else v for v in rows[column]]
 
 
-def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
-    """The cells of one store that match `obs_filter`, by the same rule as the catalog."""
-    mask = np.ones(len(obs), dtype=bool)
-    for column, wanted in obs_filter.items():
-        if column == "dataset_id":
-            continue  # the catalog answered it; the store holds the dataset whole
-        if column not in obs.columns:
-            return np.zeros(len(obs), dtype=bool)  # the catalog kept an unproven store
-        col = obs[column]
-        if isinstance(col.dtype, pd.CategoricalDtype):
-            # Apply the rule once for each category, then index by the codes. A
-            # null has code -1, which indexes the False at the end.
-            by_category = [_hit(c, column, wanted) for c in col.cat.categories]
-            hit = np.array(by_category + [False], dtype=bool)[col.cat.codes.to_numpy()]
-        else:
-            hit = np.fromiter((_hit(v, column, wanted) for v in col), bool, len(col))
-        mask &= hit
-    return mask
-
-
 def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
     """True when one cell's value holds a wanted member. A null holds none."""
     return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
+def _n_obs(group: zarr.Group) -> int:
+    """The number of cells of a store, from the metadata of `X`."""
+    x = group["X"]
+    if isinstance(x, zarr.Array):
+        return int(x.shape[0])
+    return int(cast("list[int]", x.attrs["shape"])[0])
+
+
+def _listed(row: dict[str, Any]) -> dict[str, list[str]]:
+    """The catalog's sorted value set of each indexed column that the row records."""
+    return {
+        name: sorted(str(v) for v in row[name])
+        for name in _catalog.INDEXED
+        if not unrecorded(row.get(name))
+    }
+
+
+def _select(
+    row: dict[str, Any], q: Query, bucket_clients: _catalog.Clients | None
+) -> tuple[zarr.Group, np.ndarray, dict[str, obs_read.ColumnData]] | None:
+    """Open a store and find its selected cells. Return None when it selects none.
+
+    A row that the catalog proved whole keeps every cell and reads no column. For
+    the other rows, the SDK reads the query's columns and evaluates the expression.
+    A column that the query names and the store does not hold raises `ValueError`.
+    The columns that it read go back with the positions of the kept cells, for the
+    result.
+    """
+    uri = str(row["store_uri"])
+    group = open_store(uri, bucket_clients)
+    obs = group["obs"]
+    if not isinstance(obs, zarr.Group):
+        raise TypeError(f"{uri}: obs must be an encoded dataframe")
+    n = _n_obs(group)
+    if row["whole"]:
+        return (group, np.arange(n), {}) if n else None
+    held = set(cast("list[str]", obs.attrs["column-order"]))
+    names = sorted(q.columns)
+    missing = [c for c in names if c not in held]
+    if missing:
+        raise ValueError(f"{uri}: obs has no column {missing}, which {q.text} reads")
+    data = obs_read.read_columns(obs, names, _listed(row))
+    try:
+        keep = obs_read.evaluate(q.expression, data, n)
+    except (TypeError, ValueError, NotImplementedError) as error:
+        raise ValueError(f"{uri}: pyarrow cannot evaluate {q.text}: {error}") from error
+    if not keep.size:
+        return None
+    return group, keep, data
+
+
+def _obs_frame(
+    row: dict[str, Any],
+    obs: zarr.Group,
+    keep: np.ndarray,
+    data: dict[str, obs_read.ColumnData],
+    columns: Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """The `obs` of the kept cells, with only `columns` when given.
+
+    The SDK reads each other column as codes, and takes the categories of a catalog
+    column from the row. It does not read the index (the source cell names),
+    because the result replaces the index with the cell key. It reads the cell key
+    for the kept cells only.
+    """
+    uri = str(row["store_uri"])
+    order = cast("list[str]", obs.attrs["column-order"])
+    key = "observation_joinid"
+    if "dataset_id" not in order:
+        raise ValueError(f"{uri}: obs has no dataset_id column")
+    if key not in order:
+        raise ValueError(f"{uri}: obs has no observation_joinid column")
+    wanted = [c for c in order if columns is None or c in columns or c == key]
+    names = [c for c in order if c != key and (c in wanted or c == "dataset_id")]
+    unread = [c for c in names if c not in data]
+    data = {**data, **obs_read.read_columns(obs, unread, _listed(row))}
+    dataset_id = str(row["dataset_id"])
+    _check_dataset_id(data["dataset_id"], dataset_id, uri)
+    frame = pd.DataFrame({c: data[c].take(keep) for c in names})
+    frame[key] = obs_read.take_rows(obs[key], keep)
+    _check_cell_key(frame, uri)
+    frame.index = pd.Index(dataset_id + "_" + frame[key].astype(str))
+    return frame[wanted]
+
+
+def _read_obs(
+    row: dict[str, Any],
+    q: Query,
+    columns: Sequence[str] | None,
+    bucket_clients: _catalog.Clients | None,
+) -> tuple[pd.DataFrame, zarr.Group, np.ndarray] | None:
+    """The `obs` of the selected cells of one store, or None when it selects none."""
+    selected = _select(row, q, bucket_clients)
+    if selected is None:
+        return None
+    group, keep, data = selected
+    obs = group["obs"]
+    assert isinstance(obs, zarr.Group)  # _select checked it
+    return _obs_frame(row, obs, keep, data, columns), group, keep
+
+
 def _read_store(
     row: dict[str, Any],
-    obs_filter: CanonicalFilter,
+    q: Query,
     layers: Sequence[str] = (),
     bucket_clients: _catalog.Clients | None = None,
-) -> anndata.AnnData:
-    """The selected cells of one store. `X` holds the counts on the reference genes.
+) -> anndata.AnnData | None:
+    """The selected cells of one store, or None when it selects none.
 
-    `var` holds only the index, the `feature_id`s, which is all that `_check_var`
-    compares. `get_anndata` reads the var columns from one store. `layers` names
-    the layers to calculate from the counts. `bucket_clients` holds the obstore clients
-    of the query (`catalog.clients`).
+    `X` holds the counts on the reference genes. `var` holds only the index, the
+    `feature_id`s, which is all that `_check_var` compares. `get_anndata` reads the
+    var columns from one store. `layers` names the layers to calculate from the
+    counts. `bucket_clients` holds the obstore clients of the query
+    (`catalog.clients`). A store that selects no cell reads nothing more.
     """
-    group = open_store(row["store_uri"], bucket_clients)
-    obs_group = group["obs"]
-    if not isinstance(obs_group, zarr.Group):
-        raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")
-    # To read obs faster, the SDK decodes the two per-cell string columns only
-    # where the result needs them. It does not read the index (the source cell
-    # names), because the result replaces the index with the cell key. It reads
-    # the cell key after the filter, for the kept cells only.
-    columns = cast("list[str]", obs_group.attrs["column-order"])
-    key = "observation_joinid"
-    obs = pd.DataFrame(
-        {name: read_elem(obs_group[name]) for name in columns if name != key}
-    )
-    dataset_id = str(row["dataset_id"])
-    _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
-    keep = np.flatnonzero(_mask(obs, obs_filter))
-    obs = obs.iloc[keep].copy()
-    if key in columns:
-        obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
-    _check_cell_key(obs, str(row["store_uri"]))
+    read = _read_obs(row, q, None, bucket_clients)
+    if read is None:
+        return None
+    obs, group, keep = read
     var_group = group["var"]
     if not isinstance(var_group, zarr.Group):
         raise TypeError(f"{row['store_uri']}: var must be an encoded dataframe")
@@ -328,44 +525,29 @@ def _read_store(
         if full_gene.any():
             length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
         computed["normalized"] = _normalize.normalized(x, full_gene, length)
-
-    obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
     return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
 
 
-def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:
-    """The store's `dataset_id` column names the dataset of its catalog row."""
-    if "dataset_id" not in obs.columns:
-        raise ValueError(f"{store_uri}: obs has no dataset_id column")
-    # unique() works on the categorical codes, not on one string per cell.
-    found = {str(v) for v in obs["dataset_id"].unique()}
+def _check_dataset_id(
+    column: obs_read.ColumnData, dataset_id: str, store_uri: str
+) -> None:
+    """The store's `dataset_id` column names the dataset of its catalog row.
+
+    The store format gives a categorical column no unused category, so the store's
+    categories are the values of every cell, and a code of -1 is a null.
+    """
+    n = len(column.codes if isinstance(column, obs_read.Codes) else column.values)
+    if isinstance(column, obs_read.Codes):
+        found = {str(c) for c in column.categories}
+        if (column.codes < 0).any():
+            found.add("nan")
+    else:
+        found = {str(v) for v in pd.Series(column.take(np.arange(n))).unique()}
     if found != {dataset_id}:
         raise ValueError(
             f"{store_uri}: obs dataset_id holds {sorted(found)}, and the catalog row "
             f"names {dataset_id}"
         )
-
-
-def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
-    """The values of one `obs` column at the row positions `rows`.
-
-    For a nullable string column, the SDK makes strings for these rows only. The
-    dtype is the one that `anndata` reads for the same column.
-    """
-    if node.attrs.get("encoding-type") != "nullable-string-array":
-        return pd.array(cast("Any", read_elem(node)))[rows]
-    if not isinstance(node, zarr.Group):
-        raise TypeError(f"{node.store_path} must be an encoded group")
-    na_value = np.nan if node.attrs.get("na-value", "NA") == "NaN" else pd.NA
-    dtype = pd.StringDtype(na_value=na_value)
-    if not rows.size:
-        return pd.array([], dtype=dtype)
-    values, mask = node["values"], node["mask"]
-    if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
-        raise TypeError(f"{node.store_path} must hold a values and a mask array")
-    result: Any = pd.array(np.asarray(values.oindex[rows]), dtype=dtype)
-    result[np.asarray(mask.oindex[rows])] = pd.NA
-    return result
 
 
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:

@@ -84,7 +84,7 @@ def translate(value_filter: str, pins: dict[str, Any]) -> dict[str, list[str]]:
                 f"the SDK filter takes equality and membership only: {clause!r}"
             )
         column, values = match["column"], _values(match["value"])
-        if column in census2_sdk.catalog.MULTIVALUED:
+        if column in census2_sdk.schema.MULTIVALUED:
             if values != pins.get(f"{column}_matches"):
                 raise Unsupported(f"no bare term is pinned for {column} = {values}")
             values = [pins[column]]
@@ -128,7 +128,8 @@ def answer(
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.
     layers = [name for name in query.layers if name != "raw"]
-    adata = census.get_anndata(organism, obs_filter, layers=layers)
+    selection = census2_sdk.Organism(organism).where(obs_filter)
+    adata = census.get_anndata(selection, layers=layers)
     if adata is None:
         raise NoCells("the SDK selected no cell")
 

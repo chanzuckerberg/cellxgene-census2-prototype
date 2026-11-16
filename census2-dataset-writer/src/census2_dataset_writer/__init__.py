@@ -29,8 +29,9 @@ Keep `f` open until `write` returns, because `X` is a dask graph until then
 `read_summary(dest)` returns the summary record of a store. `load_config(path)`
 returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
-which ships no S3 client. `census2_dataset_writer.store_format` names what a
-store holds beyond AnnData-Zarr, for the writer and for a reader of a store.
+which ships no S3 client. `census2_sdk.schema` gives the schema of a store's
+`obs`, and `census2_dataset_writer.store_format` the rest of what a store holds beyond
+AnnData-Zarr, for the writer and for a reader of a store.
 
 Decisions
 ---------
@@ -58,7 +59,7 @@ a `dataset_id` column is an error, because that name belongs to the store.
    genes.
 3. Harmonization (`harmonize`) changes values and annotations so that a
    query can combine stores. It runs five steps in order. `project_obs`
-   projects `obs` onto `OBS_COLUMNS`, the CxG columns that Census 1 copies,
+   projects `obs` onto the SDK's `OBS_COLUMNS`, the CxG columns that Census 1 copies,
    each with a fixed type; it drops every other source column.
    `add_tissue_general` adds the Census 1 tissue roll-up (see
    `census2_dataset_writer.tissues`). `select_counts` puts the counts in `X`:
@@ -162,20 +163,17 @@ import scipy.sparse as sp
 import zarr
 from anndata.experimental import read_elem_lazy
 from anndata.io import read_elem
+from census2_sdk.schema import DATASET_ID_COLUMN, OBS_COLUMNS, ColType
 from zarr.abc.store import Store
 
 from . import assays, genes, tissues
 from . import store_format as store_format  # a public module; callers name it
 
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
-from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
-from .store_format import MEASURED_COLUMN as MEASURED_COLUMN
-from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
 from .store_format import SUMMARY_NAMESPACE as SUMMARY_NAMESPACE
 from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
-from .store_format import ColType as ColType
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
 from .store_format import validate_summary as validate_summary

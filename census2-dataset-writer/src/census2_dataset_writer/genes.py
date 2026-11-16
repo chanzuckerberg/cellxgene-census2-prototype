@@ -30,8 +30,7 @@ import dask.array as da
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
-
-from .store_format import MEASURED_COLUMN
+from census2_sdk.schema import MEASURED_COLUMN
 
 # The pin: one single-cell-curation tag. Every organism's reference file and its
 # annotation version come from this tag. A new tag is a reference migration, and

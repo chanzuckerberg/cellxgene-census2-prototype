@@ -179,7 +179,7 @@ task.
 Each step is a plain script and runs without Nextflow. `tools/cxg-manifest.py` and
 `tools/seed-mock-s3.py` need only the Python standard library, so they run anywhere.
 `cxg-ingest.py` needs the image's Python dependencies, so run it in the image, or install the
-package: `pip install '../census2-dataset-writer[s3]'`.
+packages: `pip install ../census2-sdk '../census2-dataset-writer[s3]'`.
 
 ```bash
 modules/local/ingest/resources/usr/bin/cxg-ingest.py \

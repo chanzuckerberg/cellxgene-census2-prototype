@@ -65,3 +65,6 @@ files = [
     "tools/bench",
 ]
 mypy_path = ["tools"]
+# The query builder marks each operator that a column refuses with `deprecated`
+# (PEP 702), so that mypy reports `obs.disease == "x"` where it is written.
+enable_error_code = ["deprecated"]

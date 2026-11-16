@@ -31,6 +31,12 @@ dependencies = [
     "dask>=2024.1",
     # Census 1 pins this version. The tissue list and the ontologies ship with it.
     "cellxgene-ontology-guide==1.9.0",
+    # The obs schema of a store (census2_sdk.schema), which the SDK defines. By name,
+    # not by a file URL: the metadata stays free of a local path, and an installer
+    # takes the SDK from the path given next to the writer's
+    # (`pip install ./census2-sdk ./census2-dataset-writer`). No package index holds
+    # census2-sdk, so an install of the writer alone fails.
+    "census2-sdk",
 ]
 
 [project.optional-dependencies]

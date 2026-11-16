@@ -77,7 +77,7 @@ def main() -> int:
     started = time.time()
     census = census2_sdk.open_census([args.catalog])
     ours = census.get_anndata(
-        "homo_sapiens", {"dataset_id": args.dataset_id, **obs_filter}
+        census.homo_sapiens.where({"dataset_id": args.dataset_id, **obs_filter})
     )
     sdk_seconds = round(time.time() - started, 1)
     if ours is None:

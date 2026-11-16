@@ -264,7 +264,8 @@ def run(
         census2_sdk.__dict__["open_store"] = open_counted
         _catalog.open_store = open_counted
         try:
-            adata = census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
+            query = census2_sdk.Organism(ORGANISM).where(obs_filter)
+            adata = census.get_anndata(query, max_workers=workers)
         finally:
             census2_sdk.__dict__["open_store"] = original
             _catalog.open_store = original
