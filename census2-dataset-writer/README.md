@@ -170,7 +170,7 @@ receipt.
 
 ```python
 census2_dataset_writer.provenance()
-# {'recipe': 'v3', 'slot_policy': 'census', 'zarr_format': 3,
+# {'recipe': 'v2', 'slot_policy': 'census', 'zarr_format': 3,
 #  'census2_dataset_writer_version': ..., 'anndata_version': ...,
 #  'zarr_version': ..., 'cellxgene_ontology_guide_version': ...}
 ```

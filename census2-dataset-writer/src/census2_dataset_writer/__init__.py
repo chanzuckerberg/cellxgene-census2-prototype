@@ -235,10 +235,10 @@ BLOCK_BYTES = 64 * 1024**2
 # encoding, the slot policy, and harmonization. Raise it when any of those
 # change, so that a receipt says which format its store holds. Nothing is keyed
 # on it: a store's location is its dataset version alone. v2 adds the fixed `obs`
-# schema, the Census 1 cell filters, `tissue_general`, the count statistics, and
-# the `measured` column of `var`. v3 stores `X/indices` in the smallest unsigned
-# integer type that holds the gene count.
-RECIPE = "v3"
+# schema, the Census 1 cell filters, `tissue_general`, the count statistics, the
+# `measured` column of `var`, and `X/indices` in the smallest unsigned integer
+# type that holds the gene count.
+RECIPE = "v2"
 
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
 # have to infer it.
