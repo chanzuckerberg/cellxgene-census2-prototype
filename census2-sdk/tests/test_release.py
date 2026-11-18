@@ -1,7 +1,9 @@
-"""Tests for a release manifest as a source. No network, no AWS.
+"""Tests for a release: the manifest as a source, and the release builder.
 
-The fixture writes three small stores and their live catalog, as `test_sdk` does. Each
-test then makes a release directory by hand: a copy of the catalog and a manifest.
+No network, no AWS. The fixture writes three small stores and their live catalog, as
+`test_sdk` does. The tests of the manifest make a release directory by hand: a copy of
+the catalog and a manifest. Thus they do not depend on the release builder. The tests
+of the release builder run `tools/build_release.py` on the fixture.
 """
 
 import hashlib
@@ -9,9 +11,12 @@ import io
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+import anndata
 import build_catalog
+import build_release
+import census2_dataset_writer
 import pandas as pd
 import pytest
 from test_sdk import (
@@ -21,6 +26,7 @@ from test_sdk import (
     one_store_catalog,
     query,
     same,
+    set_summary,
     write_one,
 )
 
@@ -236,3 +242,242 @@ def test_a_missing_store_fails_the_query(live: dict[str, Path]) -> None:
         assert part in str(error.value)
     # A query that excludes the dataset does not open its store.
     assert query(census, {"dataset_id": "ds-a"}).n_obs == 30
+
+
+# --- the release builder -------------------------------------------------------
+
+
+def add_store(live: dict[str, Path], adata: anndata.AnnData, dataset_id: str) -> None:
+    """Write one more store, and build the live catalog again."""
+    write_one(live["prefix"], adata, dataset_id)
+    build_catalog.build(str(live["prefix"]), live["catalog"])
+
+
+def built(live: dict[str, Path]) -> Path:
+    """Build the release `NAME` of the live catalog. Return its directory."""
+    releases = live["catalog"].parent / "releases"
+    build_release.build(live["catalog"], releases, NAME)
+    return releases / NAME
+
+
+def test_the_snapshot_is_the_live_catalog_content(live: dict[str, Path]) -> None:
+    directory = built(live)
+    snapshot = (directory / release.CATALOG_NAME).read_bytes()
+    assert snapshot == live["catalog"].read_bytes()
+    files = {str(p.relative_to(directory)) for p in directory.rglob("*") if p.is_file()}
+    assert files == {
+        release.CATALOG_NAME,
+        "presence/homo_sapiens.parquet",
+        release.MANIFEST_NAME,
+    }
+
+
+def test_the_manifest_pins_the_stores_and_the_files(live: dict[str, Path]) -> None:
+    directory = built(live)
+    manifest = json.loads((directory / release.MANIFEST_NAME).read_text())
+    assert release.validate_manifest(manifest) == manifest
+    assert manifest["version"] == 1
+    assert manifest["release"] == NAME
+    assert manifest["gene_reference_version"] == {"homo_sapiens": "GENCODE v48"}
+    assert manifest["stores"] == [
+        {"dataset_version_id": f"v-{dataset_id}"} for dataset_id in STORES
+    ]
+    # The digests are those of the other files of the release, and of no other file.
+    others = {
+        str(p.relative_to(directory)): hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in directory.rglob("*")
+        if p.is_file() and p.name != release.MANIFEST_NAME
+    }
+    assert manifest["files"] == others
+
+
+def test_the_presence_rows_are_the_measured_columns(live: dict[str, Path]) -> None:
+    directory = built(live)
+    table = pd.read_parquet(directory / "presence" / "homo_sapiens.parquet")
+    assert list(table.columns) == ["dataset_id", "dataset_version_id", "measured"]
+    assert list(table["dataset_id"]) == list(STORES)
+    assert list(table["dataset_version_id"]) == [f"v-{d}" for d in STORES]
+    for dataset_id, positions in zip(
+        table["dataset_id"], table["measured"], strict=True
+    ):
+        assert [REFERENCE_IDS[j] for j in positions] == STORES[dataset_id][1]
+
+
+def test_each_organism_has_its_presence_file(live: dict[str, Path]) -> None:
+    """A mouse store has another `var`, and its positions are in that `var`."""
+    mouse_ids = [f"ENSMUSG{j:011d}" for j in range(7)]
+    adata = make_store(
+        "ds-m", 5, mouse_ids[2:5], ["lung"], ["normal"], 31, var_ids=mouse_ids
+    )
+    adata.uns["organism_ontology_term_id"] = "NCBITaxon:10090"
+    write_one(live["prefix"], adata, "ds-m")
+    record = dict(
+        census2_dataset_writer.read_summary(live["prefix"] / "v-ds-m.zarr") or {}
+    )
+    set_summary(
+        live["prefix"] / "v-ds-m.zarr",
+        record | {"gene_reference_version": "GENCODE M37"},
+    )
+    build_catalog.build(str(live["prefix"]), live["catalog"])
+
+    directory = built(live)
+
+    manifest = json.loads((directory / release.MANIFEST_NAME).read_text())
+    assert manifest["gene_reference_version"] == {
+        "homo_sapiens": "GENCODE v48",
+        "mus_musculus": "GENCODE M37",
+    }
+    mouse = pd.read_parquet(directory / "presence" / "mus_musculus.parquet")
+    assert list(mouse["dataset_id"]) == ["ds-m"]
+    assert list(mouse["measured"][0]) == [2, 3, 4]
+    human = pd.read_parquet(directory / "presence" / "homo_sapiens.parquet")
+    assert list(human["dataset_id"]) == list(STORES)
+    census = census2_sdk.open_census([directory / release.MANIFEST_NAME])
+    assert census.count_cells("mus_musculus") == 5
+    assert census.count_cells("homo_sapiens") == 75
+
+
+def test_a_later_write_does_not_change_the_release(live: dict[str, Path]) -> None:
+    manifest = built(live) / release.MANIFEST_NAME
+    before = query(census2_sdk.open_census([manifest]), {"tissue": "lung"})
+    # The live catalog matches the release until the next write.
+    same(before, query(census2_sdk.open_census([live["catalog"]]), {"tissue": "lung"}))
+
+    adata = make_store("ds-new", 9, REFERENCE_IDS[:4], ["lung"], ["normal"], 41)
+    add_store(live, adata, "ds-new")
+
+    pinned = census2_sdk.open_census([manifest])
+    after = query(pinned, {"tissue": "lung"})
+    same(before, after)
+    assert after.n_obs == before.n_obs
+    assert after.uns["census2"]["stores_in_catalog"] == 3
+    assert pinned.count_cells("homo_sapiens") == 75
+    current = census2_sdk.open_census([live["catalog"]])
+    assert current.count_cells("homo_sapiens") == 75 + 9
+
+
+@pytest.mark.parametrize(
+    ("owner", "step", "written"),
+    [
+        # The build stops after the snapshot, and then at the rename of the manifest.
+        (build_release, "measured_genes", [release.CATALOG_NAME]),
+        (Path, "replace", [release.CATALOG_NAME, "presence/homo_sapiens.parquet"]),
+    ],
+)
+def test_a_stopped_build_leaves_no_manifest(
+    live: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    owner: Any,
+    step: str,
+    written: list[str],
+) -> None:
+    def stop(*args: Any) -> Any:
+        raise RuntimeError("stop")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(owner, step, stop)
+        with pytest.raises(RuntimeError, match="stop"):
+            built(live)
+    directory = live["catalog"].parent / "releases" / NAME
+    for path in written:
+        assert (directory / path).exists()
+    assert not (directory / release.MANIFEST_NAME).exists()
+    with pytest.raises(FileNotFoundError):
+        census2_sdk.open_census([directory / release.MANIFEST_NAME])
+    # A release is a new directory, so the next build needs the old one removed.
+    with pytest.raises(FileExistsError, match=NAME):
+        built(live)
+    shutil.rmtree(directory)
+    assert built(live) == directory
+    assert (
+        census2_sdk.open_census([directory / release.MANIFEST_NAME]).count_cells(
+            "homo_sapiens"
+        )
+        == 75
+    )
+
+
+@pytest.mark.parametrize("rows", [[0], [0, 1, 2]])
+def test_the_builder_refuses_a_row_without_an_organism(
+    live: dict[str, Path], rows: list[int]
+) -> None:
+    frame = pd.read_parquet(live["catalog"])
+    frame.loc[rows, "organism"] = None
+    frame.to_parquet(live["catalog"])
+    with pytest.raises(ValueError, match=f"{len(rows)} rows record no organism"):
+        built(live)
+    assert not (live["catalog"].parent / "releases").exists()
+
+
+def test_the_builder_refuses_a_directory_that_holds_a_release(
+    live: dict[str, Path],
+) -> None:
+    directory = built(live)
+    manifest = (directory / release.MANIFEST_NAME).read_bytes()
+    adata = make_store("ds-new", 9, REFERENCE_IDS[:4], ["lung"], ["normal"], 41)
+    add_store(live, adata, "ds-new")
+    with pytest.raises(FileExistsError, match=NAME):
+        built(live)
+    assert (directory / release.MANIFEST_NAME).read_bytes() == manifest
+    assert (directory / release.CATALOG_NAME).read_bytes() != live[
+        "catalog"
+    ].read_bytes()
+
+
+@pytest.mark.parametrize("name", ["", ".", "..", "a/b"])
+def test_the_builder_refuses_a_name_that_is_no_directory_name(
+    live: dict[str, Path], name: str
+) -> None:
+    releases = live["catalog"].parent / "releases"
+    with pytest.raises(ValueError, match="release name"):
+        build_release.build(live["catalog"], releases, name)
+    assert not releases.exists()
+
+
+def test_the_builder_refuses_two_reference_versions_of_one_organism(
+    live: dict[str, Path],
+) -> None:
+    store = live["prefix"] / "v-ds-b.zarr"
+    record = dict(census2_dataset_writer.read_summary(store) or {})
+    set_summary(store, record | {"gene_reference_version": "GENCODE v47"})
+    build_catalog.build(str(live["prefix"]), live["catalog"])
+    with pytest.raises(ValueError, match=r"homo_sapiens.*GENCODE v47"):
+        built(live)
+    assert not (live["catalog"].parent / "releases").exists()
+
+
+def test_the_builder_refuses_stores_with_another_var_length(
+    live: dict[str, Path],
+) -> None:
+    adata = make_store(
+        "ds-short",
+        4,
+        REFERENCE_IDS[:3],
+        ["lung"],
+        ["normal"],
+        51,
+        var_ids=REFERENCE_IDS[:7],
+    )
+    add_store(live, adata, "ds-short")
+    with pytest.raises(ValueError, match=r"homo_sapiens.*\[7, 20\]"):
+        built(live)
+    directory = live["catalog"].parent / "releases" / NAME
+    assert not (directory / release.MANIFEST_NAME).exists()
+
+
+def test_the_builder_refuses_a_store_without_measured(live: dict[str, Path]) -> None:
+    adata = make_store("ds-old", 4, REFERENCE_IDS[:3], ["lung"], ["normal"], 61)
+    adata.var = cast("pd.DataFrame", adata.var).drop(columns="measured")
+    add_store(live, adata, "ds-old")
+    with pytest.raises(ValueError, match=r"v-ds-old.zarr.*measured"):
+        built(live)
+
+
+def test_the_command_builds_a_release(
+    live: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    releases = live["catalog"].parent / "releases"
+    assert build_release.main([str(live["catalog"]), str(releases), NAME]) == 0
+    assert "3 stores" in capsys.readouterr().out
+    assert (releases / NAME / release.MANIFEST_NAME).exists()
+    assert build_release.main([str(live["catalog"])]) == 2

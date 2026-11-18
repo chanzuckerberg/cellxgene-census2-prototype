@@ -43,6 +43,33 @@ accessors of pandas in about 20 ms. pyarrow ships no type information, so its im
 from that content, so they agree also when the catalog changes later. The live catalog of design
 3.3 changes with each update of the catalog builder.
 
+## The release builder
+
+`tools/build_release.py` imports the SDK and `census2-dataset-writer`. The SDK defines the manifest
+in `census2_sdk.release`, and the writer defines the name of the `measured` column. The SDK and the
+writer do not import each other, and neither imports the release builder.
+
+The snapshot is the content that the builder read with `catalog.read`, and not a frame that pandas
+writes again. Thus the snapshot equals the live catalog, and the presence files and the manifest
+come from the same catalog version. The builder writes the manifest last, under another name, and
+then renames it. Thus `manifest.json` is complete when it exists. A build that stops leaves a
+directory without a manifest, which `open_census` does not open. The builder refuses a directory
+that exists, so a release holds no file of a previous build.
+
+`open_census` finds a manifest by the content of the source. A Parquet file starts with `PAR1`, and
+other content must be a manifest. The name of the file has no effect.
+
+The manifest pins the identity of each store. It records no `writer_version` and no content digest
+of a store, because no store and no catalog row records either value. A store that changes at its
+location after the build changes the result of a release query.
+
+The builder makes one presence file for each organism. The catalog also holds the `spatial` column,
+and the builder does not use it. Thus one file holds the spatial and the non-spatial stores of an
+organism.
+
+The builder writes to the local file system only. To publish a release to object storage, copy
+`manifest.json` last.
+
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the

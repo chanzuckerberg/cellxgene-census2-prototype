@@ -41,6 +41,43 @@ ontology term), and `is_primary_data`. The builder counts in the same pass that 
 For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
 117,712 entries, and the catalog is 1,014 KiB.
 
+## Build a release
+
+A release is a directory that pins the live catalog at one point in time (design 3.3).
+`tools/build_release.py` is the prototype stand-in for the release builder. It reads the live
+catalog one time and the `var` of each store. It reads no expression data.
+
+```bash
+python census2-sdk/tools/build_release.py catalog.parquet releases/ 2026-09-01
+```
+
+```text
+releases/2026-09-01/
+├── catalog.parquet               the live catalog content, unchanged
+├── presence/<organism>.parquet   dataset_id, dataset_version_id, measured
+└── manifest.json                 the last write
+```
+
+- `catalog.parquet` is the content that the builder read. The snapshot keeps the `store_uri`
+  column, so a release query opens the stores at the same locations.
+- Each presence file has one row for each store of the organism. `measured` lists the positions in
+  `var` of the genes that the dataset measured.
+- `manifest.json` pins the snapshot, the presence files, and the `dataset_version_id` of each
+  store. The section "Query a release" lists its fields.
+
+The caller gives the name of the release. The builder writes the manifest last, so a directory with
+a manifest is a complete release. Each release is a new directory, and the builder refuses a
+directory that exists. A build that stopped leaves a directory without a manifest. Remove that
+directory before the next build. The builder writes the directory to the local file system. The
+live catalog and the stores can be remote.
+
+A release holds one gene reference version for each organism (design 1.5). The builder refuses a
+catalog in which the rows of one organism record two versions.
+
+This version of the release builder makes no dictionary file, compares no store with an inventory,
+and adds no entry to a release index. The live catalog has no dictionary, and a store has no
+inventory.
+
 ## Query
 
 ```python
@@ -173,8 +210,9 @@ mypy
 ```
 
 The catalog builder in `tools/` imports `census2-dataset-writer` for the summary record: its type,
-its location in the store, and the check of its fields. The tests and mypy therefore need the
-writer installed. The SDK package itself does not depend on it.
+its location in the store, and the check of its fields. The release builder imports it for the name
+of the `measured` column. Thus the tests and mypy need the writer installed. The SDK package itself
+does not depend on it.
 
 Run both from this directory. `pytest` and `mypy` read their settings from `pyproject.toml` here. The tests write
 small stores to a temporary directory and need no network and no credentials. Lint and format with `pipx run ruff check --fix .` and `pipx run ruff format .` from the
