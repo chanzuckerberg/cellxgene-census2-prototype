@@ -99,7 +99,7 @@ catalog row of the organism must record the gene reference version that the SDK 
 ## Presence matrix
 
 ```python
-presence = census.get_presence_matrix("homo_sapiens", max_workers=16)
+presence = census.get_presence_matrix("homo_sapiens")
 ```
 
 `get_presence_matrix` returns the genes that each dataset of an organism measured, as a boolean
