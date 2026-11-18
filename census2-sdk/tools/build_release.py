@@ -10,6 +10,7 @@ The builder writes the directory `<releases>/<name>/`, on the local file system:
 
     catalog.parquet               the live catalog content, unchanged
     presence/<organism>.parquet   dataset_id, dataset_version_id, measured
+    aggregates/var.parquet        organism, feature_id, nnz, n_measured_obs
     manifest.json                 the last write
 
 The builder reads the live catalog one time and writes that content unchanged. It
@@ -19,6 +20,13 @@ remote. A remote location needs the `s3` extra and credentials in the environmen
 Each presence file has one row for each store of the organism. `measured` lists the
 positions in `var` of the genes that the dataset measured, from the `measured` column
 of the store's `var`. The builder reads `var` and no expression data.
+
+`aggregates/var.parquet` has one row for each gene of each organism. `nnz` is the
+number of cells with a nonzero count of the gene. The builder adds the per-gene nnz
+files that the writer makes next to the stores (design 3.4). `n_measured_obs` is the
+number of cells of the datasets that measured the gene. The builder adds the arrays by
+position, because the stores of one organism and one gene reference version have one
+`var` (design 1.5). A store without its file stops the build.
 
 The builder writes `manifest.json` last, so a directory with a manifest is a complete
 release. `census2_sdk.release` defines the manifest. Each release is a new directory,
@@ -35,6 +43,7 @@ import io
 import json
 import os
 import pathlib
+import posixpath
 import sys
 
 import census2_dataset_writer
@@ -48,6 +57,7 @@ from anndata.io import read_elem
 from census2_sdk import catalog, release
 
 MEASURED = census2_dataset_writer.MEASURED_COLUMN
+AGGREGATES = "aggregates/var.parquet"
 
 
 def _require_name(value: str, kind: str) -> None:
@@ -89,11 +99,16 @@ def reference_versions(frame: pd.DataFrame) -> dict[str, str]:
     return versions
 
 
-def measured_genes(store_uri: str, bucket_clients: catalog.Clients) -> np.ndarray:
-    """The `measured` column of the `var` of one store: one flag for each gene."""
+def _var(store_uri: str, bucket_clients: catalog.Clients) -> zarr.Group:
     var = catalog.open_store(store_uri, bucket_clients)["var"]
     if not isinstance(var, zarr.Group):
         raise TypeError(f"{store_uri}: var must be an encoded dataframe")
+    return var
+
+
+def measured_genes(store_uri: str, bucket_clients: catalog.Clients) -> np.ndarray:
+    """The `measured` column of the `var` of one store: one flag for each gene."""
+    var = _var(store_uri, bucket_clients)
     if MEASURED not in var:
         raise ValueError(f"{store_uri}: var holds no {MEASURED} column")
     return np.asarray(read_elem(var[MEASURED]), dtype=bool)
@@ -121,13 +136,81 @@ def presence(organism: str, rows: pd.DataFrame, measured: list[np.ndarray]) -> p
     )
 
 
+def gene_nnz(
+    store_uri: str, dataset_version_id: str, measured: np.ndarray, n_obs: int
+) -> np.ndarray:
+    """The array of the per-gene nnz file next to one store (design 3.4).
+
+    The array must be `int64` with one value for each gene of `var`. A gene that the
+    dataset did not measure must have zero, and no value can be above `n_obs`.
+    """
+    name = census2_dataset_writer.gene_nnz_name(dataset_version_id)
+    uri = posixpath.join(posixpath.dirname(store_uri.rstrip("/")), name)
+    try:
+        content = catalog.read(uri)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(
+            f"{uri}: the store {store_uri} has no per-gene nnz file"
+        ) from e
+    try:
+        # This call reads the `.npy` format only, and no pickle and no archive.
+        nnz = np.lib.format.read_array(content, allow_pickle=False)
+    except (ValueError, EOFError) as e:
+        raise ValueError(f"{uri} is not a .npy array: {e}") from e
+    if nnz.dtype != np.int64 or nnz.shape != measured.shape:
+        raise ValueError(
+            f"{uri} holds {nnz.dtype} of shape {nnz.shape}, and the file must hold "
+            f"int64 for the {len(measured)} genes of var"
+        )
+    if nnz[~measured].any():
+        raise ValueError(f"{uri} counts a gene that the dataset did not measure")
+    if nnz.min(initial=0) < 0 or nnz.max(initial=0) > n_obs:
+        raise ValueError(f"{uri} holds a count outside 0 to {n_obs}, the n_obs")
+    return nnz
+
+
+def aggregates(
+    organism: str,
+    rows: pd.DataFrame,
+    measured: list[np.ndarray],
+    bucket_clients: catalog.Clients,
+) -> pa.Table:
+    """The per-gene aggregates of one organism, one row for each gene of `var`.
+
+    `nnz` is the sum of the per-gene nnz files of the stores. `n_measured_obs` is the
+    sum of `n_obs` over the datasets that measured the gene. `feature_id` comes from
+    the `var` of the first store. `measured` holds the flags of each row of `rows`.
+    """
+    # Each sum is at most the cells of the organism, so this limit excludes an overflow.
+    if sum(int(n) for n in rows["n_obs"]) > np.iinfo(np.int64).max:
+        raise ValueError(f"{organism}: the n_obs of the catalog rows exceed int64")
+    uris = [str(uri) for uri in rows["store_uri"]]
+    var = _var(uris[0], bucket_clients)
+    feature_ids = np.asarray(read_elem(var[str(var.attrs["_index"])])).astype(str)
+    nnz = np.zeros(len(feature_ids), dtype=np.int64)
+    n_measured_obs = np.zeros(len(feature_ids), dtype=np.int64)
+    for uri, version_id, n_obs, flags in zip(
+        uris, rows["dataset_version_id"], rows["n_obs"], measured, strict=True
+    ):
+        nnz += gene_nnz(uri, str(version_id), flags, int(n_obs))
+        n_measured_obs += flags * int(n_obs)
+    return pa.table(
+        {
+            "organism": pa.array([organism] * len(feature_ids), type=pa.string()),
+            "feature_id": pa.array(feature_ids.tolist(), type=pa.string()),
+            "nnz": pa.array(nnz, type=pa.int64()),
+            "n_measured_obs": pa.array(n_measured_obs, type=pa.int64()),
+        }
+    )
+
+
 def build(
     live_catalog: str | os.PathLike[str], releases: str | os.PathLike[str], name: str
 ) -> release.Manifest:
     """Write the release `name` of the live catalog under `releases`.
 
     Return the manifest. The steps follow design 3.3: the catalog snapshot, the
-    presence file of each organism, and then the manifest.
+    presence file and the aggregates of each organism, and then the manifest.
     """
     _require_name(name, "release name")
     directory = pathlib.Path(releases) / name
@@ -151,6 +234,7 @@ def build(
     directory.mkdir(parents=True)
     files = {release.CATALOG_NAME: _write(directory, release.CATALOG_NAME, content)}
     bucket_clients = catalog.clients(frame["store_uri"].astype(str))
+    tables = []
     for organism, rows in frame.groupby("organism", sort=True):
         measured = [
             measured_genes(uri, bucket_clients) for uri in rows["store_uri"].astype(str)
@@ -158,6 +242,10 @@ def build(
         path = f"presence/{organism}.parquet"
         table = presence(str(organism), rows, measured)
         files[path] = _write(directory, path, _parquet(table))
+        tables.append(aggregates(str(organism), rows, measured, bucket_clients))
+    files[AGGREGATES] = _write(
+        directory, AGGREGATES, _parquet(pa.concat_tables(tables))
+    )
 
     manifest = release.validate_manifest(
         {

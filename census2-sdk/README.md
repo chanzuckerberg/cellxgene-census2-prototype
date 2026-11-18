@@ -45,7 +45,8 @@ For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
 
 A release is a directory that pins the live catalog at one point in time (design 3.3).
 `tools/build_release.py` is the prototype stand-in for the release builder. It reads the live
-catalog one time and the `var` of each store. It reads no expression data.
+catalog one time, the `var` of each store, and the per-gene nnz file next to each store. It reads
+no expression data.
 
 ```bash
 python census2-sdk/tools/build_release.py catalog.parquet releases/ 2026-09-01
@@ -55,6 +56,7 @@ python census2-sdk/tools/build_release.py catalog.parquet releases/ 2026-09-01
 releases/2026-09-01/
 ├── catalog.parquet               the live catalog content, unchanged
 ├── presence/<organism>.parquet   dataset_id, dataset_version_id, measured
+├── aggregates/var.parquet        organism, feature_id, nnz, n_measured_obs
 └── manifest.json                 the last write
 ```
 
@@ -62,8 +64,12 @@ releases/2026-09-01/
   column, so a release query opens the stores at the same locations.
 - Each presence file has one row for each store of the organism. `measured` lists the positions in
   `var` of the genes that the dataset measured.
-- `manifest.json` pins the snapshot, the presence files, and the `dataset_version_id` of each
-  store. The section "Query a release" lists its fields.
+- `aggregates/var.parquet` has one row for each gene of each organism. `nnz` is the number of
+  cells with a nonzero count of the gene. `n_measured_obs` is the number of cells of the datasets
+  that measured the gene. For `nnz`, the builder adds the per-gene nnz files that the ingest task
+  writes next to the stores (design 3.4). A store without its file stops the build.
+- `manifest.json` pins the snapshot, the presence files, the aggregates, and the
+  `dataset_version_id` of each store. The section "Query a release" lists its fields.
 
 The caller gives the name of the release. The builder writes the manifest last, so a directory with
 a manifest is a complete release. Each release is a new directory, and the builder refuses a
@@ -72,7 +78,12 @@ directory before the next build. The builder writes the directory to the local f
 live catalog and the stores can be remote.
 
 A release holds one gene reference version for each organism (design 1.5). The builder refuses a
-catalog in which the rows of one organism record two versions.
+catalog in which the rows of one organism record two versions. The stores of one organism then
+have the same genes in `var`, so the builder adds the nnz arrays by position.
+
+The builder checks each nnz file before it adds the array. The array must be `int64` with one value
+for each gene of `var`. A gene that the dataset did not measure must have zero, and no value can be
+above the `n_obs` of the store.
 
 This version of the release builder makes no dictionary file, compares no store with an inventory,
 and adds no entry to a release index. The live catalog has no dictionary, and a store has no
@@ -211,8 +222,8 @@ mypy
 
 The catalog builder in `tools/` imports `census2-dataset-writer` for the summary record: its type,
 its location in the store, and the check of its fields. The release builder imports it for the name
-of the `measured` column. Thus the tests and mypy need the writer installed. The SDK package itself
-does not depend on it.
+of the `measured` column and the name of the per-gene nnz file. Thus the tests and mypy need the
+writer installed. The SDK package itself does not depend on it.
 
 Run both from this directory. `pytest` and `mypy` read their settings from `pyproject.toml` here. The tests write
 small stores to a temporary directory and need no network and no credentials. Lint and format with `pipx run ruff check --fix .` and `pipx run ruff format .` from the

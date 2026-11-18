@@ -46,8 +46,9 @@ from that content, so they agree also when the catalog changes later. The live c
 ## The release builder
 
 `tools/build_release.py` imports the SDK and `census2-dataset-writer`. The SDK defines the manifest
-in `census2_sdk.release`, and the writer defines the name of the `measured` column. The SDK and the
-writer do not import each other, and neither imports the release builder.
+in `census2_sdk.release`. The writer defines the name of the `measured` column and the name of the
+per-gene nnz file. The SDK and the writer do not import each other, and neither imports the release
+builder.
 
 The snapshot is the content that the builder read with `catalog.read`, and not a frame that pandas
 writes again. Thus the snapshot equals the live catalog, and the presence files and the manifest
@@ -63,9 +64,13 @@ The manifest pins the identity of each store. It records no `writer_version` and
 of a store, because no store and no catalog row records either value. A store that changes at its
 location after the build changes the result of a release query.
 
-The builder makes one presence file for each organism. The catalog also holds the `spatial` column,
-and the builder does not use it. Thus one file holds the spatial and the non-spatial stores of an
-organism.
+The builder makes one presence file for each organism, and one set of aggregate rows. The catalog
+also holds the `spatial` column, and the builder does not use it. Thus the file and the rows of an
+organism cover its spatial and its non-spatial stores.
+
+The builder adds the nnz arrays of an organism by position and reads the `feature_id` values from
+the first store. It compares the length of `var` between the stores and not the gene identifiers.
+One gene reference version for each organism is the reason that the positions agree.
 
 The builder writes to the local file system only. To publish a release to object storage, copy
 `manifest.json` last.
