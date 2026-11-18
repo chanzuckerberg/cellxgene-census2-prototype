@@ -95,6 +95,21 @@ var = census.get_var("homo_sapiens")
 it. The frame is the `var` of a `get_anndata` result, and the SDK reads it from one store. Every
 catalog row of the organism must record the gene reference version that the SDK pins.
 
+## Presence matrix
+
+```python
+presence = census.get_presence_matrix("homo_sapiens", max_workers=16)
+```
+
+`get_presence_matrix` returns the genes that each dataset of an organism measured, as a boolean
+DataFrame. The index is the `dataset_id` of each store of the organism, and the columns are the
+`feature_id`s of `get_var`. `X` cannot show the difference between an unmeasured gene and a
+measured value of zero, and this matrix can.
+
+The call opens every store of the organism and reads only the `measured` column of its `var`. It
+reads no `obs` and no `X`. The SDK applies the checks of `get_var`, and it checks that each store
+holds one `measured` value for each gene of the reference.
+
 ## Count
 
 ```python

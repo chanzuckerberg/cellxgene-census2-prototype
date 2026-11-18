@@ -123,8 +123,13 @@ The adapter translates equality and membership clauses into the SDK's filter map
 adds the clamp as a `dataset_id` filter. A `get_obs` query asks the SDK for the columns
 that the oracle runner asks Census 1 for. A `get_var` query has no clamp, as in the oracle
 runner. The SDK has no var filter, so the adapter applies a var filter of one equality or
-membership clause to the result after the read. A numeric or `!=` clause, a column that
-the catalog does not index, and the presence accessor are unsupported.
+membership clause to the result after the read. A numeric or `!=` clause and a column
+that the catalog does not index are unsupported.
+
+A presence query is also unsupported. The recorded Census 1 matrix orders its rows and its
+columns by Census 1 row numbers. The oracle snapshot names no dataset and no gene for these
+numbers. Thus the driver cannot align the matrix with the result of the SDK's
+`get_presence_matrix`, which has `dataset_id` and `feature_id` labels.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
 while the gene sets differ. The driver thus restricts both sides to the shared genes. A

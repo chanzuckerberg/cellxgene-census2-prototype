@@ -38,6 +38,12 @@ stores hold it. It reads one store.
 
     var = census.get_var("homo_sapiens")
 
+`get_presence_matrix` returns the genes that each dataset of an organism measured, as
+a boolean DataFrame of `dataset_id` by `feature_id`. It opens every store of the
+organism.
+
+    presence = census.get_presence_matrix("homo_sapiens")
+
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
 that each catalog row holds. Its filter takes the columns of
 `catalog.COUNTED` and `dataset_id`.
@@ -82,8 +88,8 @@ class SourceConflict(ValueError):
 class Census:
     """`Census` holds a set of opened sources.
 
-    Each call to `get_anndata`, `get_obs`, `get_var`, or `count_cells` runs one query
-    over them.
+    Each call to `get_anndata`, `get_obs`, `get_var`, `get_presence_matrix`, or
+    `count_cells` runs one query over them.
     """
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
@@ -223,6 +229,40 @@ class Census:
         _check_reference(rows, ORGANISMS[organism]["version"])
         uri = str(rows["store_uri"].iloc[0])
         return _read_var(uri, _catalog.clients([uri]))
+
+    def get_presence_matrix(
+        self, organism: str, *, max_workers: int = 1
+    ) -> pd.DataFrame:
+        """Return the genes that each dataset of `organism` measured.
+
+        The result is a boolean DataFrame. It has one row for each store of the
+        organism, in catalog order, and the index is the `dataset_id`. It has one
+        column for each gene of `get_var`, in reference order, and the column
+        labels are the `feature_id`s. A value is True when the dataset measured
+        the gene.
+
+        The call opens every store of the organism. From each store, it reads
+        only the `measured` column of `var`, which holds one boolean for each
+        gene. It reads no `obs` and no `X`. `get_var` supplies the genes, so the
+        first store opens one more time. `max_workers` is the largest number of
+        stores that the SDK reads at the same time.
+
+        The SDK applies the checks of `get_var`. It also checks that each store
+        holds one `measured` value for each gene of the reference. It does not
+        compare the gene identifiers of each store.
+        """
+        genes = self.get_var(organism).index
+        rows = _catalog.exclude(self.catalog, organism, None)
+        uris = list(rows["store_uri"].astype(str))
+        bucket_clients = _catalog.clients(uris)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            measured = list(
+                pool.map(
+                    lambda uri: _read_measured(uri, len(genes), bucket_clients), uris
+                )
+            )
+        datasets = list(rows["dataset_id"].astype(str))
+        return pd.DataFrame(np.stack(measured), index=datasets, columns=genes)
 
     def count_cells(
         self,
@@ -443,6 +483,26 @@ def _read_var(store_uri: str, bucket_clients: _catalog.Clients) -> pd.DataFrame:
     """The `var` of one store, without the assayed genes of its own dataset."""
     var = cast("pd.DataFrame", read_elem(open_store(store_uri, bucket_clients)["var"]))
     return var.drop(columns=MEASURED_COLUMN, errors="ignore")
+
+
+def _read_measured(
+    store_uri: str, n_genes: int, bucket_clients: _catalog.Clients
+) -> np.ndarray:
+    """The `measured` column of one store: True for each gene that the dataset assayed."""
+    var_group = open_store(store_uri, bucket_clients)["var"]
+    if not isinstance(var_group, zarr.Group):
+        raise TypeError(f"{store_uri}: var must be an encoded dataframe")
+    if MEASURED_COLUMN not in var_group:
+        raise ValueError(f"{store_uri}: var has no {MEASURED_COLUMN} column")
+    node = var_group[MEASURED_COLUMN]
+    if not isinstance(node, zarr.Array) or node.dtype != np.bool_:
+        raise TypeError(f"{store_uri}: var {MEASURED_COLUMN} must be a boolean array")
+    if node.shape != (n_genes,):
+        raise ValueError(
+            f"{store_uri}: var {MEASURED_COLUMN} holds {node.size} values, and "
+            f"the reference has {n_genes} genes"
+        )
+    return np.asarray(node[:])
 
 
 def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:

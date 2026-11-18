@@ -7,9 +7,14 @@ of the result. The comparator then reads the two sides in the same form.
 
 The SDK takes equality and membership on the indexed catalog columns and on
 `dataset_id`. A query that it cannot express raises `Unsupported` with the reason, so
-the driver lists the query instead of a false difference. The SDK has no presence
-accessor and no var filter. The adapter applies a var filter of one equality or
-membership clause to the result after the read. The notes of the answer say so.
+the driver lists the query instead of a false difference. The SDK has no var filter.
+The adapter applies a var filter of one equality or membership clause to the result
+after the read. The notes of the answer say so.
+
+A presence query is unsupported, although the SDK has `get_presence_matrix`. The
+recorded Census 1 matrix orders its rows and its columns by Census 1 row numbers. The
+oracle snapshot names no dataset and no gene for these numbers, so the two matrices do
+not align.
 """
 
 import ast
@@ -112,6 +117,10 @@ def answer(
     pins: dict[str, Any],
 ) -> tuple[Arrays, list[str]]:
     """The canonical arrays of the SDK's answer to `query`, and notes on how it ran."""
+    if query.accessor == "get_presence_matrix":
+        raise Unsupported(
+            "the recorded Census 1 presence matrix names no dataset and no gene"
+        )
     if query.accessor not in {"get_anndata", "get_obs", "get_var"}:
         raise Unsupported(f"the SDK has no {query.accessor} accessor")
     if query.modality != "census_data":

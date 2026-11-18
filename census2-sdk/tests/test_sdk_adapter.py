@@ -317,12 +317,17 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
     assert record["status"] == status
 
 
-def test_run_one_names_the_task_that_adds_an_unsupported_accessor(
+def test_run_one_names_the_owner_of_an_unsupported_query(
     tmp_path: pathlib.Path,
 ) -> None:
-    query = replace(QUERY, accessor="get_presence_matrix")
-    record = _run_one(tmp_path, query, Empty(), {})
+    """A numeric clause waits for the filter interface. Presence waits for the oracle."""
+    numeric = replace(QUERY, obs_filter="nnz >= 500")
+    record = _run_one(tmp_path, numeric, Empty(), {})
     assert (record["status"], record["owner"]) == ("unsupported", "6.7")
+    presence = replace(QUERY, accessor="get_presence_matrix")
+    record = _run_one(tmp_path, presence, Empty(), {})
+    assert (record["status"], record["owner"]) == ("unsupported", "6.2")
+    assert "names no dataset and no gene" in record["reason"]
 
 
 # --- the accessors over stores ------------------------------------------------

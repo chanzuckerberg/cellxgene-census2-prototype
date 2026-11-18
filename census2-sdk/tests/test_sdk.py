@@ -1120,3 +1120,71 @@ def test_get_var_checks_the_reference_of_every_row(
     other = census2_sdk.open_census([tmp_path / "v47.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="v47.*pinned.*v48"):
         other.get_var("homo_sapiens")
+
+
+# --- get_presence_matrix ------------------------------------------------------
+
+
+def test_presence_matrix_holds_the_measured_genes_of_each_store(
+    corpus: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The call answers from copies of the stores that hold no `obs` and no `X`.
+
+    `get_var` opens the first store for the genes. The call then opens each store.
+    """
+    census = census2_sdk.open_census([corpus["catalog"]])
+    shutil.copytree(corpus["prefix"], tmp_path / "out")
+    for store in (tmp_path / "out").iterdir():
+        shutil.rmtree(store / "obs")
+        shutil.rmtree(store / "X")
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [str(tmp_path / "out" / name) for name in names]
+    opened: list[str] = []
+
+    def spy(uri: str, bucket_clients: Any = None) -> zarr.Group:
+        opened.append(Path(uri).name)
+        return catalog.open_store(uri, bucket_clients)
+
+    monkeypatch.setattr(census2_sdk, "open_store", spy)
+    for max_workers in (1, len(STORES)):
+        opened.clear()
+        presence = census.get_presence_matrix("homo_sapiens", max_workers=max_workers)
+        assert sorted(opened) == sorted([names[0], *names])
+        assert list(presence.index) == list(STORES)
+        assert list(presence.columns) == REFERENCE_IDS
+        assert set(presence.dtypes) == {np.dtype(bool)}
+        for dataset_id, (_, measured, _, _) in STORES.items():
+            assert (
+                list(presence.columns[presence.loc[dataset_id].to_numpy()]) == measured
+            )
+    with pytest.raises(ValueError, match="hold no store of mus_musculus"):
+        census.get_presence_matrix("mus_musculus")
+
+
+@pytest.mark.parametrize(
+    ("change", "error", "match"),
+    [
+        ("absent", ValueError, "var has no measured column"),
+        ("integer", TypeError, "var measured must be a boolean array"),
+        ("short", ValueError, r"var measured holds 10 values.*has 20 genes"),
+    ],
+)
+def test_presence_matrix_refuses_a_store_without_its_measured_genes(
+    tmp_path: Path, change: str, error: type[Exception], match: str
+) -> None:
+    """The error names the store. The first store supplies the genes."""
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    var_ids = REFERENCE_IDS[:10] if change == "short" else REFERENCE_IDS
+    for seed, dataset_id in enumerate(["ds-a", "ds-x"]):
+        ids = REFERENCE_IDS if dataset_id == "ds-a" else var_ids
+        adata = make_store(dataset_id, 5, ids, ["lung"], ["normal"], seed, var_ids=ids)
+        if dataset_id == "ds-x" and change == "absent":
+            adata.var = cast("pd.DataFrame", adata.var).drop(columns="measured")
+        if dataset_id == "ds-x" and change == "integer":
+            adata.var["measured"] = adata.var["measured"].astype(np.int8)
+        write_one(prefix, adata, dataset_id)
+    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
+    with pytest.raises(error, match=f"v-ds-x.zarr: {match}"):
+        census.get_presence_matrix("homo_sapiens")

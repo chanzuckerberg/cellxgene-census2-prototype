@@ -78,7 +78,6 @@ COLUMN_RULES = {r"^obs\."}  # these rules apply to column-set findings only
 SDK_ONLY_GENES = "var genes, SDK only"
 # The task that adds what an unsupported query needs: (reason pattern, task).
 UNSUPPORTED_OWNERS: tuple[tuple[str, str], ...] = (
-    (r"has no get_presence_matrix accessor", "6.7"),
     (r"takes equality and membership only", "6.7"),
 )
 
