@@ -77,7 +77,8 @@ corpus can be presented as the answer for them.
 ## The store format module
 
 `store_format.py` names what a store holds beyond AnnData-Zarr: the `obs` schema (`OBS_COLUMNS`,
-with the `dataset_id` column), and the summary record and its check. It keeps those definitions out
+with the `dataset_id` column), the summary record and its check, and the name of the per-gene nnz
+file next to a store (`gene_nnz_name`). It keeps those definitions out
 of `__init__.py`, and the package re-exports them, so a caller writes
 `census2_dataset_writer.SummaryRecord`. The module imports only the standard library, and a test
 enforces that: a reader could then depend on it without the writer's dependencies. Keep it so. A
