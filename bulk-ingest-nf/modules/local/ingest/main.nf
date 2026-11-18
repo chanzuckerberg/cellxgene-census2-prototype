@@ -12,12 +12,15 @@ process INGEST {
     //
     // The store moves, because copying it would duplicate gigabytes. The receipt
     // is copied, because REPORT consumes it from the work directory and 'move'
-    // would take it away.
+    // would take it away. The per-gene nnz file is small, so it is copied too.
     publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
                mode: 'move', pattern: '*.zarr',
                enabled: !params.outdir.toString().matches('^s3(://|_//).*')
     publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
                mode: 'copy', pattern: '*.json',
+               enabled: !params.outdir.toString().matches('^s3(://|_//).*')
+    publishDir path: "${params.outdir.toString().replaceFirst('^s3_//', 's3://')}",
+               mode: 'copy', pattern: '*.npy',
                enabled: !params.outdir.toString().matches('^s3(://|_//).*')
 
     // Size from the manifest. The corpus is heavy-tailed: the median dataset is
@@ -52,6 +55,8 @@ process INGEST {
     output:
     path "${meta.dataset_version_id}.json", emit: receipt
     path "${meta.dataset_version_id}.zarr", type: 'dir', optional: true, emit: store
+    // The writer package names the file and its version, so the glob states neither.
+    path "${meta.dataset_version_id}.gene_nnz.*.npy", optional: true, emit: gene_nnz
 
     script:
     // Nextflow escapes a `path` value for the shell, which is why `config` and

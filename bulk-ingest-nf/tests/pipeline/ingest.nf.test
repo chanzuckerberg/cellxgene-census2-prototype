@@ -25,6 +25,10 @@ nextflow_pipeline {
             def stores   = path("$outputDir").list().findAll { it.toString().endsWith(".zarr") }
             assert receipts.size() == 2
             assert stores.size() == 2
+            // One per-gene nnz file next to each store.
+            stores.each { s ->
+                assert path(s.toString().replace(".zarr", ".gene_nnz.v1.npy")).exists()
+            }
 
             receipts.each { r ->
                 def rec = new groovy.json.JsonSlurper().parse(r.toFile())
@@ -33,6 +37,8 @@ nextflow_pipeline {
                 // The check fails on a slot that the store holds and the check
                 // did not compare, unless the slot is in not_compared.
                 assert rec.check.not_compared == ["uns"]
+                // The check counts each gene from the source and reads the nnz file.
+                assert rec.check.compared.contains("gene_nnz")
                 // Both datasets have raw, so X holds the counts from raw/X.
                 assert rec.check["X.source"] == "raw/X"
                 assert rec.output_bytes > 0
