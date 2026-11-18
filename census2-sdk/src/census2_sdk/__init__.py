@@ -407,9 +407,9 @@ def _read_obs(
 ) -> tuple[pd.DataFrame, np.ndarray]:
     """The `obs` of the selected cells of one store, and their row positions.
 
-    The index is the cell key, `<dataset_id>_<observation_joinid>`. `column_names`
-    names the columns of the frame. Without it, the frame has every column of the
-    store.
+    The index is the cell key, `<dataset_id>_<observation_joinid>`, and it has no
+    name. `column_names` names the columns of the frame. Without it, the frame has
+    every column of the store.
     """
     store_uri = str(row["store_uri"])
     obs_group = group["obs"]
@@ -442,7 +442,9 @@ def _read_obs(
     if key in columns:
         obs[key] = _read_column_rows(obs_group[key], keep)
     _check_cell_key(obs, store_uri)
-    obs.index = pd.Index(dataset_id + "_" + obs[key].astype(str))
+    # pandas gives the index the name of the key column. `write_h5ad` refuses an
+    # index name that is also a column with other values, so the index has no name.
+    obs.index = pd.Index(dataset_id + "_" + obs[key].astype(str)).rename(None)
     return obs[named], keep
 
 

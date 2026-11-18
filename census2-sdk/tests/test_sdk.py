@@ -1188,3 +1188,31 @@ def test_presence_matrix_refuses_a_store_without_its_measured_genes(
     census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
     with pytest.raises(error, match=f"v-ds-x.zarr: {match}"):
         census.get_presence_matrix("homo_sapiens")
+
+
+# --- the index of a result ----------------------------------------------------
+
+
+def test_result_of_two_stores_writes_to_h5ad(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """The index of a result has no name, so anndata writes the `obs`."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    result = query(census, {"tissue": "lung"})
+    assert result.uns["census2"]["stores_opened"] == 2
+    assert result.obs.index.name is None
+    result.write_h5ad(tmp_path / "lung.h5ad")
+    back = anndata.read_h5ad(tmp_path / "lung.h5ad")
+    assert list(back.obs_names) == list(result.obs_names)
+    assert list(back.var_names) == list(result.var_names)
+    assert np.array_equal(X(back).toarray(), X(result).toarray())
+    for column in result.obs.columns:
+        assert list(back.obs[column].astype(str)) == list(
+            result.obs[column].astype(str)
+        )
+    result.write_zarr(tmp_path / "lung.zarr")
+    assert list(anndata.read_zarr(tmp_path / "lung.zarr").obs_names) == list(
+        result.obs_names
+    )
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert obs is not None and obs.index.name is None

@@ -63,7 +63,8 @@ The result holds:
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
-- `obs_names`, `<dataset_id>_<observation_joinid>`
+- `obs_names`, `<dataset_id>_<observation_joinid>`. The index has no name, so `write_h5ad` and
+  `write_zarr` accept the result.
 - `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
 
 When no cell matches, `get_anndata` returns None.
