@@ -390,8 +390,7 @@ def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> A
 
     For a nullable string column, the SDK makes strings for these rows only. The
     dtype is the one that `anndata` reads for the same column. The SDK builds the
-    pandas array from a pyarrow array, which is faster than the pandas conversion of
-    a NumPy string array and gives the same array.
+    pandas array through pyarrow, which is faster than the pandas conversion.
     """
     if node.attrs.get("encoding-type") != "nullable-string-array":
         return pd.array(cast("Any", read_elem(node)))[rows]

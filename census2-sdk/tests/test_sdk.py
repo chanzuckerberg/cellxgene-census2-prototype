@@ -599,8 +599,7 @@ def test_string_rows_equal_the_anndata_read(
 ) -> None:
     """The pyarrow route gives the array that `read_elem` gives, nulls included.
 
-    `old_pyarrow` makes `pa.array` refuse the NumPy string dtype, as pyarrow before
-    26 does, so the test also covers the object route.
+    `old_pyarrow` forces the object route that pyarrow before 26 takes.
     """
     import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 
