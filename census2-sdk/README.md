@@ -64,9 +64,47 @@ The result holds:
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
 - `obs_names`, `<dataset_id>_<observation_joinid>`
-- `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
+- `uns["census2"]`, the sources, the releases among them, the count of catalog rows for the
+  organism, and the count of stores opened
 
 When no cell matches, `get_anndata` returns None.
+
+## Query a release
+
+A source is a catalog or the manifest of a release. A release is a directory that holds a snapshot
+of the catalog, `catalog.parquet`, and a `manifest.json` (design 3.3). The manifest pins the
+snapshot by its SHA-256 and lists the `dataset_version_id` of each store.
+
+```python
+census = census2_sdk.open_census(
+    sources=["releases/2026-09-01/manifest.json", "my_lab_catalog.parquet"]
+)
+```
+
+The SDK reads `catalog.parquet` from the directory of the manifest, and then queries that snapshot
+as it queries a catalog. Thus `get_anndata`, `count_cells`, and the checks before concatenation are
+the same for a release, a catalog, and a mix of the two. A later write to the live catalog does not
+change the snapshot. `uns["census2"]["releases"]` maps the name of each release among the sources
+to the SHA-256 of its manifest. The SDK refuses two sources that name the same release.
+
+The manifest is UTF-8 JSON with five fields, and `census2_sdk.release` defines them:
+
+| Field | Content |
+| --- | --- |
+| `version` | `1`, the format of the manifest |
+| `release` | the name of the release, which is the name of its directory |
+| `gene_reference_version` | the gene reference version of each organism |
+| `stores` | one `{"dataset_version_id": ...}` for each store |
+| `files` | the SHA-256 of each other file of the release, by its path in the directory |
+
+The manifest pins the identity of each store and not its content. It holds no `writer_version` and
+no content digest of a store, because no store and no catalog row records either value. The design
+record reserves the format of the manifest, so these fields are the format of version 1.
+
+`open_census` raises `release.ReleaseError`, a `ValueError`, in three cases: a malformed manifest,
+an absent snapshot, and a snapshot that differs from the manifest. A source that does not exist
+raises `FileNotFoundError`. `open_census` opens no store. A store that does not exist fails the
+query that reads it, and the error names the store, the dataset, and the source.
 
 ## Count
 
