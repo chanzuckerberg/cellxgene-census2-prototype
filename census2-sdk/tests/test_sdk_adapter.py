@@ -6,12 +6,14 @@ from dataclasses import replace
 from typing import Any, cast
 
 import anndata as ad
+import build_catalog
 import numpy as np
 import pandas as pd
 import pytest
 from harness.canonical import (
     Arrays,
     canonicalize_anndata,
+    canonicalize_frame,
     frame_arrays,
     layer_arrays,
     write_result,
@@ -21,6 +23,7 @@ from harness.compare_stacks import expected, owner, restrict_genes, run_one
 from harness.corpus import BoundQuery
 from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
+from test_sdk import STORES, make_store, write_one
 
 import census2_sdk
 from census2_sdk import SourceConflict
@@ -158,18 +161,22 @@ def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
 
 
 def _run_one(
-    tmp_path: pathlib.Path, query: BoundQuery, census: object, census1: Arrays
+    tmp_path: pathlib.Path,
+    query: BoundQuery,
+    census: object,
+    census1: Arrays,
+    clamp: Sequence[str] = ("d1",),
 ) -> dict[str, Any]:
-    """`run_one` over a Census 1 result of `census1` and a clamp of one dataset."""
-    meta = {"clamp": ["d1"], "env": {"corpus_version": "1.1"}}
+    """`run_one` over a Census 1 result of `census1` and a clamp of `clamp`."""
+    meta = {"clamp": list(clamp), "env": {"corpus_version": "1.1"}}
     write_result(tmp_path / query.label.replace("/", "__"), census1, meta)
     return run_one(
         query,
         tmp_path,
         cast("census2_sdk.Census", census),
-        {"d1"},
+        set(clamp),
         {"census_data/homo_sapiens": PINS},
-        {"census_data/homo_sapiens": {"dataset_ids": ["d1"]}},
+        {"census_data/homo_sapiens": {"dataset_ids": list(clamp)}},
     )
 
 
@@ -313,6 +320,64 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
 def test_run_one_names_the_task_that_adds_an_unsupported_accessor(
     tmp_path: pathlib.Path,
 ) -> None:
-    query = replace(QUERY, accessor="get_obs")
+    query = replace(QUERY, accessor="get_var")
     record = _run_one(tmp_path, query, Empty(), {})
     assert (record["status"], record["owner"]) == ("unsupported", "6.7")
+
+
+# --- the accessors over stores ------------------------------------------------
+
+LUNG = ("ds-a", "ds-b")  # the stores of `test_sdk` that hold lung cells
+OBS_QUERY = replace(
+    QUERY,
+    key="obs_metadata_only",
+    accessor="get_obs",
+    obs_filter="tissue == 'lung'",
+    obs_columns=("tissue", "disease"),
+    label="obs_metadata_only:census_data/homo_sapiens",
+)
+
+
+@pytest.fixture(scope="module")
+def stores(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """The three stores of `test_sdk` in `out/`, and their `catalog.parquet`."""
+    root = tmp_path_factory.mktemp("stores")
+    (root / "out").mkdir()
+    for seed, (dataset_id, spec) in enumerate(STORES.items()):
+        write_one(root / "out", make_store(dataset_id, *spec, seed=seed), dataset_id)
+    build_catalog.build(str(root / "out"), root / "catalog.parquet")
+    return root
+
+
+def _lung_obs(stores: pathlib.Path) -> pd.DataFrame:
+    """The lung cells of the `LUNG` stores, as the Census 1 side of `OBS_QUERY`."""
+    frames = [ad.read_zarr(stores / "out" / f"v-{d}.zarr").obs for d in LUNG]
+    obs = pd.concat(cast("list[pd.DataFrame]", frames))
+    columns = ["dataset_id", "observation_joinid", *OBS_QUERY.obs_columns]
+    return obs.loc[obs["tissue"].astype(str) == "lung", columns]
+
+
+def test_answer_reads_obs_through_get_obs(stores: pathlib.Path) -> None:
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    arrays, notes = answer(OBS_QUERY, census, LUNG, PINS)
+    want = canonicalize_frame("obs", _lung_obs(stores))
+    assert notes == [] and len(want["obs.dataset_id.offsets"]) > 1
+    assert arrays.keys() == want.keys()
+    for name, array in want.items():
+        assert np.array_equal(arrays[name], array), name
+    with pytest.raises(NoCells):
+        answer(replace(OBS_QUERY, obs_filter="tissue == 'brain'"), census, LUNG, PINS)
+
+
+@pytest.mark.parametrize(("dropped", "status"), [(0, "pass"), (1, "fail")])
+def test_run_one_compares_a_get_obs_result(
+    tmp_path: pathlib.Path, stores: pathlib.Path, dropped: int, status: str
+) -> None:
+    """A result without `var` compares. A cell that Census 1 lacks fails the query."""
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    obs = _lung_obs(stores)
+    census1 = canonicalize_frame("obs", obs.iloc[dropped:])
+    record = _run_one(tmp_path, OBS_QUERY, census, census1, LUNG)
+    assert record["status"] == status
+    assert record["cells"] == {"census1": len(obs) - dropped, "sdk": len(obs)}
+    assert [f["kind"] for f in record["findings"]] == ["row-set"] * dropped

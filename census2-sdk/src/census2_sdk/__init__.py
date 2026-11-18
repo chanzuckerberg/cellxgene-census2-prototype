@@ -28,6 +28,11 @@ in the same order, and concatenates by position. A store's `var` also marks the
 dataset's assayed genes in a `measured` column, and the result leaves that column out,
 because the result spans datasets.
 
+`get_obs` returns the `obs` of the selected cells as a DataFrame. It reads no `X`,
+and `column_names` limits the columns that it reads.
+
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"}, column_names=["sex"])
+
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
 that each catalog row holds. Its filter takes the columns of
 `catalog.COUNTED` and `dataset_id`.
@@ -72,7 +77,7 @@ class SourceConflict(ValueError):
 class Census:
     """`Census` holds a set of opened sources.
 
-    Each call to `get_anndata` or `count_cells` runs one query over them.
+    Each call to `get_anndata`, `get_obs`, or `count_cells` runs one query over them.
     """
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
@@ -152,6 +157,51 @@ class Census:
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
             "stores_opened": len(rows),
         }
+        return result
+
+    def get_obs(
+        self,
+        organism: str,
+        obs_filter: Filter | None = None,
+        *,
+        column_names: Sequence[str] | None = None,
+        max_workers: int = 1,
+    ) -> pd.DataFrame | None:
+        """Return the `obs` of the selected cells of `organism`, without a read of `X`.
+
+        The frame equals the `obs` of the result of `get_anndata` for the same
+        filter. It has the same cells and the same index, and the SDK applies the
+        same checks. Return None when no cell matches.
+
+        `column_names` names the columns of the result, in that order. From each
+        store, the SDK then reads only these columns, the filter columns,
+        `dataset_id`, and `observation_joinid`. A store without a named column
+        raises ValueError. Without `column_names`, the result has the columns that
+        all opened stores hold.
+
+        `max_workers` has the same function as in `get_anndata`.
+        """
+        canonical = _catalog.canonicalize(obs_filter)
+        rows = _catalog.exclude(self.catalog, organism, canonical)
+        _check_composition(rows, ORGANISMS[organism]["version"])
+
+        records = cast("list[dict[str, Any]]", rows.to_dict("records"))
+        bucket_clients = _catalog.clients(rows["store_uri"].astype(str))
+
+        def read(row: dict[str, Any]) -> anndata.AnnData:
+            group = open_store(row["store_uri"], bucket_clients)
+            return anndata.AnnData(
+                obs=_read_obs(group, row, canonical, column_names)[0]
+            )
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            parts = list(pool.map(read, records))
+        if not sum(part.n_obs for part in parts):
+            return None
+        # `anndata.concat` gives the frame the dtypes of the `get_anndata` result.
+        result = cast("pd.DataFrame", anndata.concat(parts, join="inner").obs)
+        if not result.index.is_unique:
+            raise SourceConflict("the cell key is not unique across the result")
         return result
 
     def count_cells(
@@ -282,6 +332,53 @@ def _hit(value: Any, column: str, wanted: frozenset[str]) -> bool:
     return not pd.isna(value) and bool(wanted & set(members(str(value), column)))
 
 
+def _read_obs(
+    group: zarr.Group,
+    row: dict[str, Any],
+    obs_filter: CanonicalFilter,
+    column_names: Sequence[str] | None = None,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """The `obs` of the selected cells of one store, and their row positions.
+
+    The index is the cell key, `<dataset_id>_<observation_joinid>`. `column_names`
+    names the columns of the frame. Without it, the frame has every column of the
+    store.
+    """
+    store_uri = str(row["store_uri"])
+    obs_group = group["obs"]
+    if not isinstance(obs_group, zarr.Group):
+        raise TypeError(f"{store_uri}: obs must be an encoded dataframe")
+    # To read obs faster, the SDK decodes the two per-cell string columns only
+    # where the result needs them. It does not read the index (the source cell
+    # names), because the result replaces the index with the cell key. It reads
+    # the cell key after the filter, for the kept cells only.
+    columns = cast("list[str]", obs_group.attrs["column-order"])
+    key = "observation_joinid"
+    named = columns if column_names is None else list(dict.fromkeys(column_names))
+    absent = sorted(set(named) - set(columns))
+    if absent:
+        raise ValueError(f"{store_uri}: obs has no column {absent}")
+    # The filter and the dataset check need their columns also when the frame
+    # leaves them out.
+    needed = {*named, *obs_filter, "dataset_id"} - {key}
+    obs = pd.DataFrame(
+        {
+            name: _read_obs_column(obs_group[name], row.get(name), name)
+            for name in columns
+            if name in needed
+        }
+    )
+    dataset_id = str(row["dataset_id"])
+    _check_dataset_id(obs, dataset_id, store_uri)
+    keep = np.flatnonzero(_mask(obs, obs_filter))
+    obs = obs.iloc[keep].copy()
+    if key in columns:
+        obs[key] = _read_column_rows(obs_group[key], keep)
+    _check_cell_key(obs, store_uri)
+    obs.index = pd.Index(dataset_id + "_" + obs[key].astype(str))
+    return obs[named], keep
+
+
 def _read_store(
     row: dict[str, Any],
     obs_filter: CanonicalFilter,
@@ -296,29 +393,7 @@ def _read_store(
     of the query (`catalog.clients`).
     """
     group = open_store(row["store_uri"], bucket_clients)
-    obs_group = group["obs"]
-    if not isinstance(obs_group, zarr.Group):
-        raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")
-    # To read obs faster, the SDK decodes the two per-cell string columns only
-    # where the result needs them. It does not read the index (the source cell
-    # names), because the result replaces the index with the cell key. It reads
-    # the cell key after the filter, for the kept cells only.
-    columns = cast("list[str]", obs_group.attrs["column-order"])
-    key = "observation_joinid"
-    obs = pd.DataFrame(
-        {
-            name: _read_obs_column(obs_group[name], row.get(name), name)
-            for name in columns
-            if name != key
-        }
-    )
-    dataset_id = str(row["dataset_id"])
-    _check_dataset_id(obs, dataset_id, str(row["store_uri"]))
-    keep = np.flatnonzero(_mask(obs, obs_filter))
-    obs = obs.iloc[keep].copy()
-    if key in columns:
-        obs.insert(columns.index(key), key, _read_column_rows(obs_group[key], keep))
-    _check_cell_key(obs, str(row["store_uri"]))
+    obs, keep = _read_obs(group, row, obs_filter)
     var_group = group["var"]
     if not isinstance(var_group, zarr.Group):
         raise TypeError(f"{row['store_uri']}: var must be an encoded dataframe")
@@ -334,7 +409,6 @@ def _read_store(
             length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
         computed["normalized"] = _normalize.normalized(x, full_gene, length)
 
-    obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
     return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
 
 

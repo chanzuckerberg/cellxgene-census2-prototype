@@ -68,6 +68,23 @@ The result holds:
 
 When no cell matches, `get_anndata` returns None.
 
+## Read `obs` only
+
+```python
+obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+obs = census.get_obs(
+    "homo_sapiens", {"tissue": "lung"}, column_names=["sex", "donor_id"]
+)
+```
+
+`get_obs` returns the `obs` of the selected cells as a DataFrame and reads no `X`. The frame equals
+the `obs` of the result of `get_anndata` for the same filter, and the SDK applies the same checks.
+When no cell matches, `get_obs` returns None.
+
+`column_names` names the columns of the result, in that order. From each store, the SDK then reads
+only these columns, the filter columns, `dataset_id`, and `observation_joinid`. A store without a
+named column raises `ValueError`.
+
 ## Count
 
 ```python

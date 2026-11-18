@@ -120,9 +120,10 @@ The driver prints one line for each query:
 | `skip` | The catalog holds no store of the experiment's clamp sample |
 
 The adapter translates equality and membership clauses into the SDK's filter mapping and
-adds the clamp as a `dataset_id` filter. The SDK has no var filter, so a `feature_id`
+adds the clamp as a `dataset_id` filter. A `get_obs` query asks the SDK for the columns
+that the oracle runner asks Census 1 for. The SDK has no var filter, so a `feature_id`
 filter selects genes from the result after the read. A numeric or `!=` clause, a column
-that the catalog does not index, and the `get_obs`, `get_var`, and presence accessors are
+that the catalog does not index, and the `get_var` and presence accessors are
 unsupported.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value

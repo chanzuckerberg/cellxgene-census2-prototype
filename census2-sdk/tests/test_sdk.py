@@ -1015,3 +1015,78 @@ def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
         census.get_anndata("homo_sapiens", layers=["scaled"])
+
+
+# --- get_obs ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "obs_filter",
+    [None, {"tissue": "lung"}, {"disease": "flu"}, {"dataset_id": "ds-b"}],
+)
+def test_get_obs_equals_the_obs_of_get_anndata(
+    corpus: dict[str, Path], obs_filter: dict[str, str] | None
+) -> None:
+    """No filter selects three stores, and `lung` selects two."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    want = cast("pd.DataFrame", query(census, obs_filter).obs)
+    for max_workers in (1, len(STORES)):
+        obs = census.get_obs("homo_sapiens", obs_filter, max_workers=max_workers)
+        assert obs is not None
+        pd.testing.assert_frame_equal(obs, want)
+
+
+def test_get_obs_reads_no_x_and_no_var(corpus: dict[str, Path], tmp_path: Path) -> None:
+    """`get_obs` answers from copies of the stores that hold no `X` and no `var`."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    want = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert want is not None
+    shutil.copytree(corpus["prefix"], tmp_path / "out")
+    for store in (tmp_path / "out").iterdir():
+        shutil.rmtree(store / "X")
+        shutil.rmtree(store / "var")
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [str(tmp_path / "out" / name) for name in names]
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert obs is not None
+    pd.testing.assert_frame_equal(obs, want)
+
+
+def test_get_obs_reads_the_named_columns_only(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The result holds the named columns in the given order, and the same cells."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    full = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert full is not None
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    columns = ["disease", "dataset_id", "disease"]  # a repeated name counts once
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"}, column_names=columns)
+    assert obs is not None
+    pd.testing.assert_frame_equal(obs, full[["disease", "dataset_id"]])
+    # The SDK reads the filter column `tissue` and leaves it out of the result.
+    # It reads no column that the call does not need.
+    assert "is_primary_data" in full.columns
+    assert "/obs/is_primary_data" not in names
+    with pytest.raises(ValueError, match=r"v-ds-a.zarr: obs has no column \['donor"):
+        census.get_obs("homo_sapiens", column_names=["tissue", "donor_id"])
+
+
+def test_get_obs_returns_none_and_applies_the_checks(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    assert census.get_obs("homo_sapiens", {"tissue": "brain"}) is None
+    assert census.get_obs("homo_sapiens", {"tissue_general": "lung"}) is None
+    frame = catalog.load(corpus["catalog"])
+    frame.loc[frame["dataset_id"] == "ds-a", "spatial"] = True
+    frame.to_parquet(tmp_path / "catalog.parquet", index=False)
+    mixed = census2_sdk.open_census([tmp_path / "catalog.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match="spatial"):
+        mixed.get_obs("homo_sapiens", {"tissue": "lung"})

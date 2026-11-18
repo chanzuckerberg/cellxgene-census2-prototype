@@ -1,15 +1,15 @@
 """The Census 2 SDK as the stack under test of the validation harness.
 
 `answer` takes one bound corpus query and the clamp of its recorded Census 1 result. It
-translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping, runs
-`get_anndata` over the catalog, and returns the canonical arrays of the result. The
-comparator then reads the two sides in the same form.
+translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping. It runs
+`get_anndata` or `get_obs` over the catalog and returns the canonical arrays of the
+result. The comparator then reads the two sides in the same form.
 
 The SDK takes equality and membership on the indexed catalog columns and on
 `dataset_id`. A query that it cannot express raises `Unsupported` with the reason, so
-the driver lists the query instead of a false difference. The SDK has no `get_obs`,
-`get_var`, or presence accessor and no var filter. A var filter on `feature_id` is
-applied to the result after the read, and the notes of the answer say so.
+the driver lists the query instead of a false difference. The SDK has no `get_var` or
+presence accessor and no var filter. A var filter on `feature_id` is applied to the
+result after the read, and the notes of the answer say so.
 """
 
 import ast
@@ -21,7 +21,7 @@ import pandas as pd
 
 import census2_sdk
 from census2_sdk.gene_reference import ORGANISMS
-from harness.canonical import Arrays, canonicalize_anndata
+from harness.canonical import Arrays, canonicalize_anndata, canonicalize_frame
 from harness.corpus import BoundQuery
 
 CLAUSE = re.compile(r"^(?P<column>\w+) (?P<op>==|in) (?P<value>.+)$")
@@ -32,7 +32,7 @@ class Unsupported(Exception):
 
 
 class NoCells(Exception):
-    """The SDK selected no cell, so `get_anndata` returned None."""
+    """The SDK selected no cell, so `get_anndata` or `get_obs` returned None."""
 
 
 def _values(text: str) -> list[str]:
@@ -109,7 +109,7 @@ def answer(
     pins: dict[str, Any],
 ) -> tuple[Arrays, list[str]]:
     """The canonical arrays of the SDK's answer to `query`, and notes on how it ran."""
-    if query.accessor != "get_anndata":
+    if query.accessor not in {"get_anndata", "get_obs"}:
         raise Unsupported(f"the SDK has no {query.accessor} accessor")
     if query.modality != "census_data":
         raise Unsupported("the SDK reads no spatial experiment")
@@ -127,6 +127,13 @@ def answer(
     except ValueError as error:
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.
+    if query.accessor == "get_obs":
+        # The oracle runner asks Census 1 for the same columns.
+        columns = ["dataset_id", "observation_joinid", *query.obs_columns]
+        obs = census.get_obs(organism, obs_filter, column_names=columns)
+        if obs is None:
+            raise NoCells("the SDK selected no cell")
+        return canonicalize_frame("obs", obs), []
     layers = [name for name in query.layers if name != "raw"]
     adata = census.get_anndata(organism, obs_filter, layers=layers)
     if adata is None:

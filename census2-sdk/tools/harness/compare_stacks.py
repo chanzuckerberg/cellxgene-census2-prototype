@@ -78,7 +78,7 @@ COLUMN_RULES = {r"^obs\."}  # these rules apply to column-set findings only
 SDK_ONLY_GENES = "var genes, SDK only"
 # The task that adds what an unsupported query needs: (reason pattern, task).
 UNSUPPORTED_OWNERS: tuple[tuple[str, str], ...] = (
-    (r"has no (get_obs|get_var|get_presence_matrix) accessor", "6.7"),
+    (r"has no (get_var|get_presence_matrix) accessor", "6.7"),
     (r"takes equality and membership only", "6.7"),
 )
 
@@ -297,8 +297,9 @@ def run_one(
     record["cells"] = {"census1": _obs_rows(census1), "sdk": _obs_rows(sdk)}
 
     findings: list[Finding] = []
-    genes_c1 = set(_var_frame(census1)["feature_id"])
-    genes_sdk = set(_var_frame(sdk)["feature_id"])
+    # A `get_obs` result holds no `var`, so neither side has a gene.
+    genes_c1 = set(_var_frame(census1).get("feature_id", []))
+    genes_sdk = set(_var_frame(sdk).get("feature_id", []))
     shared = genes_c1 & genes_sdk
     for where, genes in (
         (SDK_ONLY_GENES, genes_sdk - genes_c1),
