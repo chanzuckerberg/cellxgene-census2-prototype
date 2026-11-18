@@ -2,21 +2,22 @@
 
 `answer` takes one bound corpus query and the clamp of its recorded Census 1 result. It
 translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping. It runs
-`get_anndata` or `get_obs` over the catalog and returns the canonical arrays of the
-result. The comparator then reads the two sides in the same form.
+`get_anndata`, `get_obs`, or `get_var` over the catalog and returns the canonical arrays
+of the result. The comparator then reads the two sides in the same form.
 
 The SDK takes equality and membership on the indexed catalog columns and on
 `dataset_id`. A query that it cannot express raises `Unsupported` with the reason, so
-the driver lists the query instead of a false difference. The SDK has no `get_var` or
-presence accessor and no var filter. A var filter on `feature_id` is applied to the
-result after the read, and the notes of the answer say so.
+the driver lists the query instead of a false difference. The SDK has no presence
+accessor and no var filter. The adapter applies a var filter of one equality or
+membership clause to the result after the read. The notes of the answer say so.
 """
 
 import ast
 import re
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 
 import census2_sdk
@@ -95,11 +96,13 @@ def translate(value_filter: str, pins: dict[str, Any]) -> dict[str, list[str]]:
     return mapping
 
 
-def _genes(var_filter: str) -> list[str]:
+def _var_rows(var: pd.DataFrame, var_filter: str) -> np.ndarray:
+    """The rows of `var` that one equality or membership clause selects."""
     match = CLAUSE.match(var_filter.strip())
-    if match is None or match["column"] != "feature_id":
+    if match is None or match["column"] not in var.columns:
         raise Unsupported(f"the SDK has no var filter: {var_filter!r}")
-    return _values(match["value"])
+    values = _values(match["value"])
+    return var[match["column"]].astype(str).isin(values).to_numpy()
 
 
 def answer(
@@ -109,13 +112,21 @@ def answer(
     pins: dict[str, Any],
 ) -> tuple[Arrays, list[str]]:
     """The canonical arrays of the SDK's answer to `query`, and notes on how it ran."""
-    if query.accessor not in {"get_anndata", "get_obs"}:
+    if query.accessor not in {"get_anndata", "get_obs", "get_var"}:
         raise Unsupported(f"the SDK has no {query.accessor} accessor")
     if query.modality != "census_data":
         raise Unsupported("the SDK reads no spatial experiment")
     organism = query.experiment
     if organism not in ORGANISMS:
         raise Unsupported(f"the SDK pins no gene reference for {organism}")
+    selected = "genes selected after the read; the SDK has no var filter"
+    if query.accessor == "get_var":
+        # The oracle runner does not clamp a `get_var` query, so the clamp does not apply.
+        var = census.get_var(organism)
+        if not query.var_filter:
+            return canonicalize_frame("var", var), []
+        kept = var[_var_rows(var, query.var_filter)]
+        return canonicalize_frame("var", kept), [selected]
 
     obs_filter = translate(query.obs_filter, pins) if query.obs_filter else {}
     clamped = set(clamp)
@@ -141,9 +152,8 @@ def answer(
 
     notes = []
     if query.var_filter:
-        genes = set(_genes(query.var_filter))
-        keep = pd.Series(adata.var["feature_id"]).isin(genes).to_numpy()
+        keep = _var_rows(cast("pd.DataFrame", adata.var), query.var_filter)
         adata = adata[:, keep].copy()
-        notes.append("genes selected after the read; the SDK has no var filter")
+        notes.append(selected)
     adata.uns["x_layer_name"] = "raw"
     return canonicalize_anndata(adata), notes

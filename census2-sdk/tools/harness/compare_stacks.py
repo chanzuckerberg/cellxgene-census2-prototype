@@ -78,7 +78,7 @@ COLUMN_RULES = {r"^obs\."}  # these rules apply to column-set findings only
 SDK_ONLY_GENES = "var genes, SDK only"
 # The task that adds what an unsupported query needs: (reason pattern, task).
 UNSUPPORTED_OWNERS: tuple[tuple[str, str], ...] = (
-    (r"has no (get_var|get_presence_matrix) accessor", "6.7"),
+    (r"has no get_presence_matrix accessor", "6.7"),
     (r"takes equality and membership only", "6.7"),
 )
 
@@ -300,6 +300,10 @@ def run_one(
     # A `get_obs` result holds no `var`, so neither side has a gene.
     genes_c1 = set(_var_frame(census1).get("feature_id", []))
     genes_sdk = set(_var_frame(sdk).get("feature_id", []))
+    selected = record["cells"]
+    if query.accessor == "get_var":
+        # A `get_var` query selects genes and no cell.
+        selected = record["genes"] = {"census1": len(genes_c1), "sdk": len(genes_sdk)}
     shared = genes_c1 & genes_sdk
     for where, genes in (
         (SDK_ONLY_GENES, genes_sdk - genes_c1),
@@ -317,8 +321,8 @@ def run_one(
         _finding_record(f, row_columns, expected(f, census1, sdk)) for f in findings
     ]
     blocking = [f for f in record["findings"] if "expected" not in f]
-    if record["cells"]["census1"] == 0 and record["cells"]["sdk"] == 0:
-        record["status"] = "vacuous"  # no cell to compare; the findings stay on record
+    if selected["census1"] == 0 and selected["sdk"] == 0:
+        record["status"] = "vacuous"  # no row to compare; the findings stay on record
     else:
         record["status"] = "fail" if blocking else "pass"
     return record

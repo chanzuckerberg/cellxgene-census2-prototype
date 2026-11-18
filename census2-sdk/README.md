@@ -85,6 +85,16 @@ When no cell matches, `get_obs` returns None.
 only these columns, the filter columns, `dataset_id`, and `observation_joinid`. A store without a
 named column raises `ValueError`.
 
+## Read `var`
+
+```python
+var = census.get_var("homo_sapiens")
+```
+
+`get_var` returns the `var` of an organism, which is the pinned gene reference as the stores hold
+it. The frame is the `var` of a `get_anndata` result, and the SDK reads it from one store. Every
+catalog row of the organism must record the gene reference version that the SDK pins.
+
 ## Count
 
 ```python

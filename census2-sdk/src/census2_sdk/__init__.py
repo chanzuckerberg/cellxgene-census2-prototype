@@ -33,6 +33,11 @@ and `column_names` limits the columns that it reads.
 
     obs = census.get_obs("homo_sapiens", {"tissue": "lung"}, column_names=["sex"])
 
+`get_var` returns the `var` of an organism, which is the pinned gene reference as the
+stores hold it. It reads one store.
+
+    var = census.get_var("homo_sapiens")
+
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
 that each catalog row holds. Its filter takes the columns of
 `catalog.COUNTED` and `dataset_id`.
@@ -77,7 +82,8 @@ class SourceConflict(ValueError):
 class Census:
     """`Census` holds a set of opened sources.
 
-    Each call to `get_anndata`, `get_obs`, or `count_cells` runs one query over them.
+    Each call to `get_anndata`, `get_obs`, `get_var`, or `count_cells` runs one query
+    over them.
     """
 
     def __init__(self, sources: Sequence[PathLike]) -> None:
@@ -146,12 +152,8 @@ class Census:
         if not result.obs_names.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
         # Each part carries only the var index. The stores record one reference
-        # version and one index, so the first store supplies the var columns,
-        # except the assayed genes of its own dataset.
-        var = cast(
-            "pd.DataFrame", read_elem(open_store(uris[0], bucket_clients)["var"])
-        )
-        result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
+        # version and one index, so the first store supplies the var columns.
+        result.var = _read_var(uris[0], bucket_clients)
         result.uns["census2"] = {
             "sources": self.sources,
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
@@ -203,6 +205,24 @@ class Census:
         if not result.index.is_unique:
             raise SourceConflict("the cell key is not unique across the result")
         return result
+
+    def get_var(self, organism: str) -> pd.DataFrame:
+        """Return the `var` of `organism`: the pinned gene reference, as the stores hold it.
+
+        The frame is the `var` of a `get_anndata` result. Every store of one organism
+        holds the same reference (design 1.5), so the SDK reads the `var` of one
+        store. The frame leaves out the `measured` column, which describes one dataset.
+
+        Every catalog row of the organism must record the gene reference version
+        that the SDK pins. Sources that hold no store of the organism raise
+        ValueError.
+        """
+        rows = _catalog.exclude(self.catalog, organism, None)
+        if not len(rows):
+            raise ValueError(f"the sources hold no store of {organism}")
+        _check_reference(rows, ORGANISMS[organism]["version"])
+        uri = str(rows["store_uri"].iloc[0])
+        return _read_var(uri, _catalog.clients([uri]))
 
     def count_cells(
         self,
@@ -266,15 +286,30 @@ def open_census(sources: Sequence[PathLike]) -> Census:
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     """Design 4.3: the checks before concatenation. Name the conflicting values.
 
-    Every row must record the `gene_reference_version` that this SDK pins for the
-    organism. The SDK does not remap a store onto another reference. A row that
-    records none has no summary record that names the reference of its store. A
-    catalog without the column records none.
+    Every row must record the pinned gene reference (`_check_reference`).
 
     Spatial and non-spatial stores do not compose. A row that records no
     `spatial` value cannot prove that its store composes with another, so a
     result of two or more stores refuses it. One store always composes with
     itself. A catalog without the column records no value.
+    """
+    _check_reference(rows, pinned)
+    if len(rows) < 2:
+        return
+    spatial = _recorded(rows, "spatial")
+    unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
+    if unknown:
+        raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
+    if len({bool(v) for v in spatial}) > 1:
+        raise SourceConflict("spatial and non-spatial stores in one result")
+
+
+def _check_reference(rows: pd.DataFrame, pinned: str) -> None:
+    """Every row records the `gene_reference_version` that this SDK pins for the organism.
+
+    The SDK does not remap a store onto another reference. A row that records
+    none has no summary record that names the reference of its store. A catalog
+    without the column records none.
     """
     recorded = _recorded(rows, "gene_reference_version")
     missing = sorted(
@@ -287,14 +322,6 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
         raise SourceConflict(
             f"gene_reference_version {versions} differs from the pinned {pinned!r}"
         )
-    if len(rows) < 2:
-        return
-    spatial = _recorded(rows, "spatial")
-    unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
-    if unknown:
-        raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
-    if len({bool(v) for v in spatial}) > 1:
-        raise SourceConflict("spatial and non-spatial stores in one result")
 
 
 def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
@@ -410,6 +437,12 @@ def _read_store(
         computed["normalized"] = _normalize.normalized(x, full_gene, length)
 
     return anndata.AnnData(X=x, obs=obs, var=var, layers=computed)
+
+
+def _read_var(store_uri: str, bucket_clients: _catalog.Clients) -> pd.DataFrame:
+    """The `var` of one store, without the assayed genes of its own dataset."""
+    var = cast("pd.DataFrame", read_elem(open_store(store_uri, bucket_clients)["var"]))
+    return var.drop(columns=MEASURED_COLUMN, errors="ignore")
 
 
 def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:

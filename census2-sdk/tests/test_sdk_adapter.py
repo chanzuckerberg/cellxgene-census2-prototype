@@ -23,7 +23,7 @@ from harness.compare_stacks import expected, owner, restrict_genes, run_one
 from harness.corpus import BoundQuery
 from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
-from test_sdk import STORES, make_store, write_one
+from test_sdk import REFERENCE_IDS, STORES, make_store, reference_var, write_one
 
 import census2_sdk
 from census2_sdk import SourceConflict
@@ -320,7 +320,7 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
 def test_run_one_names_the_task_that_adds_an_unsupported_accessor(
     tmp_path: pathlib.Path,
 ) -> None:
-    query = replace(QUERY, accessor="get_var")
+    query = replace(QUERY, accessor="get_presence_matrix")
     record = _run_one(tmp_path, query, Empty(), {})
     assert (record["status"], record["owner"]) == ("unsupported", "6.7")
 
@@ -381,3 +381,61 @@ def test_run_one_compares_a_get_obs_result(
     assert record["status"] == status
     assert record["cells"] == {"census1": len(obs) - dropped, "sdk": len(obs)}
     assert [f["kind"] for f in record["findings"]] == ["row-set"] * dropped
+
+
+VAR_QUERY = replace(
+    QUERY,
+    key="var_all_genes",
+    accessor="get_var",
+    obs_filter=None,
+    label="var_all_genes:census_data/homo_sapiens",
+)
+
+
+def test_answer_reads_var_through_get_var(stores: pathlib.Path) -> None:
+    """The clamp does not apply. A var filter selects genes after the read."""
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    reference = reference_var(REFERENCE_IDS)
+    arrays, notes = answer(VAR_QUERY, census, LUNG[:1], PINS)
+    want = canonicalize_frame("var", reference)
+    assert notes == [] and arrays.keys() == want.keys()
+    for name, array in want.items():
+        assert np.array_equal(arrays[name], array), name
+    one_name = replace(VAR_QUERY, var_filter="feature_name in ['GENE3', 'GENE7']")
+    arrays, notes = answer(one_name, census, LUNG, PINS)
+    assert list(arrays["var.feature_length"]) == [1000, 1000] and len(notes) == 1
+    for var_filter in ("feature_length >= 5", "symbol == 'GENE3'"):
+        with pytest.raises(Unsupported):
+            answer(replace(VAR_QUERY, var_filter=var_filter), census, LUNG, PINS)
+
+
+@pytest.mark.parametrize(
+    ("var_filter", "census1_name", "status"),
+    [
+        (None, "GENE3", "pass"),
+        (None, "OTHER", "fail"),  # a value differs
+        ("feature_name == 'GENE3'", "GENE3", "pass"),
+        ("feature_name == 'GENE3'", "OTHER", "fail"),
+        ("feature_name == 'NONE'", "GENE3", "vacuous"),
+    ],
+)
+def test_run_one_compares_a_get_var_result(
+    tmp_path: pathlib.Path,
+    stores: pathlib.Path,
+    var_filter: str | None,
+    census1_name: str,
+    status: str,
+) -> None:
+    """A result without `obs` compares, with the expected differences of `var`."""
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    var = reference_var(REFERENCE_IDS).drop(columns="feature_version")
+    var["nnz"] = 5  # a corpus aggregate, which only Census 1 holds
+    if var_filter:
+        var = var[var["feature_name"] == var_filter.split("'")[1]]
+    var = var.replace({"feature_name": {"GENE3": census1_name}})
+    query = replace(VAR_QUERY, var_filter=var_filter)
+    record = _run_one(tmp_path, query, census, canonicalize_frame("var", var), LUNG)
+    assert record["status"] == status
+    assert record["genes"]["census1"] == len(var)
+    blocking = [f["kind"] for f in record["findings"] if "expected" not in f]
+    assert blocking == (["value"] if status == "fail" else [])

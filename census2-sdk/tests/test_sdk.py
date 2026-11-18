@@ -1090,3 +1090,33 @@ def test_get_obs_returns_none_and_applies_the_checks(
     mixed = census2_sdk.open_census([tmp_path / "catalog.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="spatial"):
         mixed.get_obs("homo_sapiens", {"tissue": "lung"})
+
+
+# --- get_var ------------------------------------------------------------------
+
+
+def test_get_var_is_the_var_of_a_result(corpus: dict[str, Path]) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    var = census.get_var("homo_sapiens")
+    pd.testing.assert_frame_equal(var, cast("pd.DataFrame", query(census, None).var))
+    assert list(var.index) == REFERENCE_IDS
+    assert list(var.columns) == list(reference_var(REFERENCE_IDS).columns)
+
+
+def test_get_var_checks_the_reference_of_every_row(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """`get_var` joins no cells, so a spatial store next to the others is no conflict."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="hold no store of mus_musculus"):
+        census.get_var("mus_musculus")
+    frame = catalog.load(corpus["catalog"])
+    frame.loc[frame["dataset_id"] == "ds-a", "spatial"] = True
+    frame.to_parquet(tmp_path / "spatial.parquet", index=False)
+    mixed = census2_sdk.open_census([tmp_path / "spatial.parquet"])
+    assert list(mixed.get_var("homo_sapiens").index) == REFERENCE_IDS
+    frame.loc[frame["dataset_id"] == "ds-c", "gene_reference_version"] = "GENCODE v47"
+    frame.to_parquet(tmp_path / "v47.parquet", index=False)
+    other = census2_sdk.open_census([tmp_path / "v47.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match="v47.*pinned.*v48"):
+        other.get_var("homo_sapiens")

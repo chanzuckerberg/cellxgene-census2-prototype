@@ -115,16 +115,16 @@ The driver prints one line for each query:
 | --- | --- |
 | `pass` | No finding, other than the expected differences below |
 | `fail` | At least one other finding. The first five follow the line. |
-| `vacuous` | Neither side holds a cell. The findings stay on record. |
+| `vacuous` | Neither side holds a cell, or a gene for a `get_var` query. The findings stay on record. |
 | `unsupported` | The SDK cannot express the query. The line names the reason and the task that adds what the query needs. An unsupported query does not fail the run. |
 | `skip` | The catalog holds no store of the experiment's clamp sample |
 
 The adapter translates equality and membership clauses into the SDK's filter mapping and
 adds the clamp as a `dataset_id` filter. A `get_obs` query asks the SDK for the columns
-that the oracle runner asks Census 1 for. The SDK has no var filter, so a `feature_id`
-filter selects genes from the result after the read. A numeric or `!=` clause, a column
-that the catalog does not index, and the `get_var` and presence accessors are
-unsupported.
+that the oracle runner asks Census 1 for. A `get_var` query has no clamp, as in the oracle
+runner. The SDK has no var filter, so the adapter applies a var filter of one equality or
+membership clause to the result after the read. A numeric or `!=` clause, a column that
+the catalog does not index, and the presence accessor are unsupported.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
 while the gene sets differ. The driver thus restricts both sides to the shared genes. A
