@@ -26,7 +26,9 @@ Keep `f` open until `write` returns, because `X` is a dask graph until then
 (see Memory). `create` does this itself when it receives a path.
 
 `slots_of(adata)` lists what a store written from an AnnData will hold.
-`read_summary(dest)` returns the summary record of a store. `load_config(path)`
+`read_summary(dest)` returns the summary record of a store. `gene_nnz(dest)`
+counts, for each gene of a written store, the cells with a nonzero count.
+`load_config(path)`
 returns the configuration mapping. `provenance(config)` returns the part of a
 receipt that this module knows. `as_store(dest)` adapts a remote URL for zarr,
 which ships no S3 client. `census2_dataset_writer.store_format` names what a
@@ -137,9 +139,11 @@ statistics are `obs` columns, and `write_zarr` writes `obs` and computes `X`
 in one call, so the statistics must exist before the write starts. One
 shared pass needs the writer to write `X` itself, so that one dask compute
 feeds the store and the statistics. A load of the whole `X` can fail, as the
-rules above state. Revisit this choice when a third pass over `X` appears or
-the ingest cost matters. A per-gene nnz file can share the pass of
-`add_obs_stats`.
+rules above state. Revisit this choice when the ingest cost matters.
+
+`gene_nnz` is a third pass. It reads `X/indices` and `X/data` of the written
+store in slices of about `BLOCK_BYTES`. It needs no source, so the same call
+counts the genes of a store that a previous run wrote.
 
 `README.md` in this directory covers installation, use, and development.
 """
@@ -171,6 +175,7 @@ from . import store_format as store_format  # a public module; callers name it
 # The store format, re-exported, so a caller writes census2_dataset_writer.X.
 from .store_format import DATASET_ID_COLUMN as DATASET_ID_COLUMN
 from .store_format import DERIVED_OBS_COLUMNS as DERIVED_OBS_COLUMNS
+from .store_format import GENE_NNZ_VERSION as GENE_NNZ_VERSION
 from .store_format import MEASURED_COLUMN as MEASURED_COLUMN
 from .store_format import OBS_COLUMNS as OBS_COLUMNS
 from .store_format import SUMMARY_KEY as SUMMARY_KEY
@@ -179,6 +184,7 @@ from .store_format import SUMMARY_VERSION as SUMMARY_VERSION
 from .store_format import ColType as ColType
 from .store_format import SummaryRecord as SummaryRecord
 from .store_format import SummaryRecordError as SummaryRecordError
+from .store_format import gene_nnz_name as gene_nnz_name
 from .store_format import validate_summary as validate_summary
 
 if TYPE_CHECKING:  # these are only ever types here, never constructed
@@ -1057,6 +1063,43 @@ def read_summary(dest: StoreLike | zarr.Group) -> SummaryRecord | None:
     if SUMMARY_KEY not in namespace:
         return None
     return validate_summary(namespace[SUMMARY_KEY])
+
+
+def gene_nnz(dest: StoreLike | zarr.Group) -> npt.NDArray[np.int64]:
+    """For each gene of `var`, the number of cells of a store with a nonzero count.
+
+    `dest` is a store's location, or its root group already open. The function
+    reads `X/indices` and `X/data` in slices of about `BLOCK_BYTES`.
+
+    The writer merges the duplicate entries of a source and keeps its explicit
+    zeros. Thus each stored value that is not zero is one cell of its gene.
+    Census 1 counts the same cells, because it merges the duplicates and removes
+    the explicit zeros before it counts.
+
+    The result is in `var` order. A caller saves it with `numpy.save` next to
+    the store, under the name that `store_format.gene_nnz_name` gives.
+    """
+    root = (
+        dest
+        if isinstance(dest, zarr.Group)
+        else zarr.open_group(as_store(dest), mode="r")
+    )
+    x = root["X"]
+    if not isinstance(x, zarr.Group):
+        raise TypeError(f"{root.store_path}: X must be an encoded sparse matrix")
+    if x.attrs.get("encoding-type") != "csr_matrix":
+        raise ValueError(f"{root.store_path}: X must be a CSR matrix")
+    indices, data = x["indices"], x["data"]
+    if not (isinstance(indices, zarr.Array) and isinstance(data, zarr.Array)):
+        raise TypeError(f"{root.store_path}: X must hold indices and data arrays")
+    n_var = int(cast("list[int]", x.attrs["shape"])[1])
+    step = max(1, BLOCK_BYTES // (indices.dtype.itemsize + data.dtype.itemsize))
+    counts = np.zeros(n_var, dtype=np.int64)
+    for start in range(0, indices.shape[0], step):
+        part = slice(start, start + step)
+        nonzero = np.asarray(data[part]) != 0
+        counts += np.bincount(np.asarray(indices[part])[nonzero], minlength=n_var)
+    return counts
 
 
 @contextlib.contextmanager

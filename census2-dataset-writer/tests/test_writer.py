@@ -956,6 +956,51 @@ def test_the_store_holds_the_count_statistics(tmp_path: Path) -> None:
     assert set(obs["n_measured_vars"]) == {source.raw.n_vars}
 
 
+# --- the per-gene nnz ----------------------------------------------------------
+
+
+def test_gene_nnz_counts_the_cells_with_a_nonzero_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit zero does not count, and duplicate entries are one value."""
+    source = dataset(n_obs=4, raw=False)
+    # Row 0 holds gene 0 two times and an explicit zero. The two entries of
+    # gene 0 in row 3 add up to zero. Row 2 is empty.
+    data = np.array([1, 2, 0, 5, 0, 0, 0, 4], dtype=np.float32)
+    indices = np.array([0, 0, 1, 1, 2, 0, 0, 3], dtype=np.int32)
+    indptr = np.array([0, 3, 5, 5, 8], dtype=np.int32)
+    source.X = sp.csr_matrix((data, indices, indptr), shape=(4, source.n_vars))
+    source.write_h5ad(tmp_path / "source.h5ad")
+    with h5py.File(tmp_path / "source.h5ad") as f:
+        # The file holds the duplicates and the explicit zeros.
+        assert values(f["X/data"]).tolist() == data.tolist()
+        assert values(f["X/indices"]).tolist() == indices.tolist()
+    dest = tmp_path / "store.zarr"
+    create(tmp_path / "source.h5ad", dest, refdata=tmp_path / "refdata")
+    stored = stored_x(dest)
+    # The store holds one value for each duplicate pair, and the explicit zeros.
+    assert stored.nnz == 6
+    assert (stored.data == 0).sum() == 3
+
+    nnz = census2_dataset_writer.gene_nnz(dest)
+
+    want = np.zeros(len(REF_IDS), dtype=np.int64)
+    for gene, cells in {0: 1, 1: 1, 3: 1}.items():
+        want[REF_IDS.index(f"ENSG{gene:05d}")] = cells
+    assert nnz.dtype == np.int64
+    assert nnz.tolist() == want.tolist()
+    obs: Any = read_elem(zarr.open_consolidated(dest, mode="r")["obs"])
+    assert nnz.sum() == obs["nnz"].sum() == 3
+    # A slice of one stored value gives the same counts.
+    monkeypatch.setattr(census2_dataset_writer, "BLOCK_BYTES", 1)
+    assert census2_dataset_writer.gene_nnz(dest).tolist() == want.tolist()
+
+
+def test_gene_nnz_name_holds_the_version() -> None:
+    name = census2_dataset_writer.gene_nnz_name("version-1")
+    assert name == f"version-1.gene_nnz.v{census2_dataset_writer.GENE_NNZ_VERSION}.npy"
+
+
 def test_default_allowlist_holds_rna_and_spatial() -> None:
     """The default is Census 1's two lists, merged."""
     allowlist = set(census2_dataset_writer.DEFAULTS["assay_allowlist"])

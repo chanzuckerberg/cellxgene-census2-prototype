@@ -10,6 +10,8 @@ format, so that the writer and a reader of a store use one definition:
 - The summary record in the root group's attributes, under
   `attrs[SUMMARY_NAMESPACE][SUMMARY_KEY]`: `SummaryRecord`, `SUMMARY_VERSION`,
   and `validate_summary`, which raises `SummaryRecordError`.
+- `gene_nnz_name`, the name of the per-gene nnz file next to a store, and
+  `GENE_NNZ_VERSION`, the version in that name.
 
 The module imports only the standard library, so a reader could depend on it
 without the writer's dependencies. The package re-exports these names. The SDK
@@ -81,6 +83,22 @@ def validate_summary(obj: object) -> SummaryRecord:
                 f"summary record {field} is {obj[field]!r}, not a string"
             )
     return cast("SummaryRecord", obj)
+
+
+# The version of the per-gene nnz file. Raise it when the definition of the
+# values or the format of the file changes. The new files then get new names,
+# and the stores stay as they are.
+GENE_NNZ_VERSION = 1
+
+
+def gene_nnz_name(dataset_version_id: str) -> str:
+    """The name of the per-gene nnz file of a store (design 3.4).
+
+    The file is next to `<dataset_version_id>.zarr`, and is not part of the
+    store. It is one `.npy` array of `int64` in `var` order. For each gene, the
+    array holds the number of cells with a nonzero count.
+    """
+    return f"{dataset_version_id}.gene_nnz.v{GENE_NNZ_VERSION}.npy"
 
 
 class ColType(Enum):

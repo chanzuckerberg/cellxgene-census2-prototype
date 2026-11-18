@@ -160,6 +160,28 @@ has a `dataset_id` column is an error: `build` raises `ValueError`, because that
 store. `write` refuses an AnnData whose `dataset_id` column does not hold the summary record's
 `dataset_id`.
 
+## Per-gene nnz
+
+`gene_nnz(dest)` reads a written store and returns one `int64` array in `var` order. For each gene,
+the array holds the number of cells with a nonzero count. The writer merges the duplicate entries of
+a source and keeps its explicit zeros, so the function counts each stored value that is not zero.
+Census 1 counts the same cells for the `nnz` of its `var`.
+
+```python
+import numpy as np
+
+nnz = census2_dataset_writer.gene_nnz("store.zarr")
+np.save(census2_dataset_writer.gene_nnz_name(dataset_version_id), nnz)
+```
+
+A caller saves the array as one `.npy` file next to the store (design 3.4). The file is not part of
+the store. `store_format.gene_nnz_name` gives its name, `<dataset_version_id>.gene_nnz.v1.npy`, and
+the `v1` is `GENE_NNZ_VERSION`. A new definition of the values gets a new version and new files, and
+the stores stay as they are.
+
+The function reads `X/indices` and `X/data` in slices of about `BLOCK_BYTES`, and it reads no
+source. Thus the same call counts the genes of a store that a previous run wrote.
+
 ## Receipts
 
 A receipt is the JSON a pipeline writes beside a store, about one run of the pipeline. `Receipt`
