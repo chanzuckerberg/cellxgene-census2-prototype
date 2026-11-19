@@ -259,6 +259,12 @@ def build(
     if unnamed:
         # A group step drops these rows, and the presence files then lack their stores.
         raise ValueError(f"{live_catalog}: {unnamed} rows record no organism")
+    repeated = sorted(
+        {str(d) for d in frame["dataset_id"][frame["dataset_id"].duplicated()]}
+    )
+    if repeated:
+        # The SDK refuses a source that holds a dataset more than one time.
+        raise ValueError(f"{live_catalog}: more than one row names {repeated}")
     versions = reference_versions(frame)
     for name_of_organism in versions:
         _require_name(name_of_organism, "organism")

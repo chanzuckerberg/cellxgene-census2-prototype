@@ -592,6 +592,16 @@ def test_the_builder_refuses_a_row_without_an_organism(
     assert not (live["catalog"].parent / "releases").exists()
 
 
+def test_the_builder_refuses_a_dataset_in_two_rows(live: dict[str, Path]) -> None:
+    """The SDK refuses such a catalog, so the builder writes no release from it."""
+    frame = pd.read_parquet(live["catalog"])
+    repeated = str(frame["dataset_id"].iloc[0])
+    pd.concat([frame, frame.iloc[[0]]], ignore_index=True).to_parquet(live["catalog"])
+    with pytest.raises(ValueError, match=f"more than one row names .*{repeated}"):
+        built(live)
+    assert not (live["catalog"].parent / "releases").exists()
+
+
 def test_the_builder_refuses_a_directory_that_holds_a_release(
     live: dict[str, Path],
 ) -> None:
