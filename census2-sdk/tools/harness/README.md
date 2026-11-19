@@ -145,7 +145,7 @@ list.
 
 | Finding | Direction | Reason | Until |
 | --- | --- | --- | --- |
-| The 17,397 human genes of the pinned reference that the Census 1 build lacks | SDK only | The SDK's `var` is the whole pinned reference | Permanent |
+| The genes of the pinned reference that the Census 1 build lacks (17,397 human, 24,933 mouse) | SDK only | The SDK's `var` is the whole pinned reference | Permanent |
 | `var.feature_version` | SDK only | The SDK keeps this column of the pinned reference | Permanent |
 | `var.nnz`, `var.n_measured_obs` | Census 1 only | Corpus aggregates. The release builder sums them from per-gene files, and it does not do so yet. | Temporary |
 | `obs.raw_sum`, `obs.raw_mean_nnz` values | Both | The Census 1 build summed float32 counts in float32, so it rounds a row sum above 2^24. The writer keeps the exact sum. | Permanent |
