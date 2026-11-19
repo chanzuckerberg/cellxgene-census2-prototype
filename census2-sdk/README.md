@@ -41,6 +41,60 @@ ontology term), and `is_primary_data`. The builder counts in the same pass that 
 For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
 117,712 entries, and the catalog is 1,014 KiB.
 
+## Build a release
+
+A release is a directory that pins the live catalog at one point in time (design 3.3).
+`tools/build_release.py` is the prototype stand-in for the release builder. It reads the live
+catalog one time, the `var` of each store, and the per-gene nnz file next to each store. It reads
+no expression data.
+
+```bash
+python census2-sdk/tools/build_release.py catalog.parquet releases/ 2026-09-01
+```
+
+```text
+releases/2026-09-01/
+├── catalog.parquet               the live catalog content, unchanged
+├── presence/<organism>.parquet   dataset_id, dataset_version_id, measured
+├── aggregates/var.parquet        organism, feature_id, nnz, n_measured_obs
+└── manifest.json                 the last write
+```
+
+- `catalog.parquet` is the content that the builder read. The snapshot keeps the `store_uri`
+  column, so a release query opens the stores at the same locations.
+- Each presence file has one row for each store of the organism. `measured` lists the positions in
+  `var` of the genes that the dataset measured.
+- `aggregates/var.parquet` has one row for each gene of each organism. `nnz` is the number of
+  cells with a nonzero count of the gene. `n_measured_obs` is the number of cells of the datasets
+  that measured the gene. For `nnz`, the builder adds the per-gene nnz files that the ingest task
+  writes next to the stores (design 3.4). A store without its file stops the build.
+- `manifest.json` pins the snapshot, the presence files, the aggregates, and the
+  `dataset_version_id` of each store. The section "Query a release" lists its fields.
+
+The caller gives the name of the release. The builder writes the manifest last, so a directory with
+a manifest is a complete release. Each release is a new directory, and the builder refuses a
+directory that exists. A build that stopped leaves a directory without a manifest. Remove that
+directory before the next build. The builder writes the directory to the local file system. The
+live catalog and the stores can be remote.
+
+A release holds one gene reference version for each organism (design 1.5). The builder refuses a
+catalog in which the rows of one organism record two versions, or in which a row records none.
+`open_census` applies the same rule to the snapshot of a release.
+
+The builder adds the nnz arrays by position, and the presence files hold positions. A position
+names one gene in each store only when the stores hold the same genes in the same order. Thus the
+builder compares the ordered gene identifiers of each store with those of the first store of the
+organism. It stops at a store that differs. For this check, the builder reads the index of `var`
+of each store, which is one string for each gene (78,894 for a human store).
+
+The builder checks each nnz file before it adds the array. The array must be `int64` with one value
+for each gene of `var`. A gene that the dataset did not measure must have zero, and no value can be
+above the `n_obs` of the store.
+
+This version of the release builder makes no dictionary file, compares no store with an inventory,
+and adds no entry to a release index. The live catalog has no dictionary, and a store has no
+inventory.
+
 ## Query
 
 ```python
@@ -64,9 +118,52 @@ The result holds:
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
 - `obs_names`, `<dataset_id>_<observation_joinid>`
-- `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
+- `uns["census2"]`, the sources, the releases among them, the count of catalog rows for the
+  organism, and the count of stores opened
 
 When no cell matches, `get_anndata` returns None.
+
+## Query a release
+
+A source is a catalog or the manifest of a release. A release is a directory that holds a snapshot
+of the catalog, `catalog.parquet`, and a `manifest.json` (design 3.3). The manifest pins the
+snapshot by its SHA-256 and lists the `dataset_version_id` of each store.
+
+```python
+census = census2_sdk.open_census(
+    sources=["releases/2026-09-01/manifest.json", "my_lab_catalog.parquet"]
+)
+```
+
+The SDK reads `catalog.parquet` from the directory of the manifest, and then queries that snapshot
+as it queries a catalog. Thus `get_anndata`, `count_cells`, and the checks before concatenation are
+the same for a release, a catalog, and a mix of the two. A later write to the live catalog does not
+change the snapshot. `uns["census2"]["releases"]` maps the name of each release among the sources
+to the SHA-256 of its manifest. The SDK refuses two sources that name the same release.
+
+The manifest is UTF-8 JSON with five fields, and `census2_sdk.release` defines them:
+
+| Field | Content |
+| --- | --- |
+| `version` | `1`, the format of the manifest |
+| `release` | the name of the release, which is the name of its directory |
+| `gene_reference_version` | the gene reference version of each organism |
+| `stores` | one `{"dataset_version_id": ...}` for each store |
+| `files` | the SHA-256 of each other file of the release, by its path in the directory |
+
+The manifest pins the identity of each store and not its content. It holds no `writer_version` and
+no content digest of a store, because no store and no catalog row records either value. The design
+record reserves the format of the manifest, so these fields are the format of version 1.
+
+The SDK compares three parts of the snapshot with the manifest. The parts are the SHA-256 of the
+file, the `dataset_version_id` of the rows, and the gene reference version of each organism. The
+rows of an organism must record the one version that the manifest gives for it, and the manifest
+must name no other organism. A row that records no version fails this comparison.
+
+`open_census` raises `release.ReleaseError`, a `ValueError`, in three cases: a malformed manifest,
+an absent snapshot, and a snapshot that differs from the manifest. A source that does not exist
+raises `FileNotFoundError`. `open_census` opens no store. A store that does not exist fails the
+query that reads it, and the error names the store, the dataset, and the source.
 
 ## Count
 
@@ -135,7 +232,8 @@ mypy
 ```
 
 The catalog builder in `tools/` imports `census2-dataset-writer` for the summary record: its type,
-its location in the store, and the check of its fields. The tests and mypy therefore need the
+its location in the store, and the check of its fields. The release builder imports it for the name
+of the `measured` column and the name of the per-gene nnz file. Thus the tests and mypy need the
 writer installed. The SDK package itself does not depend on it.
 
 Run both from this directory. `pytest` and `mypy` read their settings from `pyproject.toml` here. The tests write

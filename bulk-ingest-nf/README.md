@@ -68,7 +68,8 @@ nextflow run . -profile docker \
     --outdir ./out
 ```
 
-The stores go to `./out/<dataset_version_id>.zarr`, with one receipt JSON beside each store.
+The stores go to `./out/<dataset_version_id>.zarr`. Each store has one receipt JSON and one per-gene
+nnz file next to it.
 
 To write directly to S3, give `--outdir` an `s3://` prefix and read the manifest from S3 as well.
 The task writes each store to its final location; there is no staging step.
@@ -88,7 +89,7 @@ nextflow run . -profile docker \
 | `--manifest` | none, required | JSONL manifest from `tools/cxg-manifest.py`. Local path or `s3://` URI. |
 | `--outdir` | `./out` | Local path or `s3://` prefix. |
 | `--all_slots` | `false` | Carry `obsm`, `varm`, `obsp`, `varp`, `layers`, and the full `uns`, instead of the default Census slot set. |
-| `--check` | `false` | Verify each output against its source: the summary record, `obs` against the obs schema and the source values, and the counts at their gene reference positions. Each slot that the store holds is compared, or the receipt lists it in `not_compared`. A failure goes into the receipt, and `REPORT` fails the run. |
+| `--check` | `false` | Verify each output against its source: the summary record, `obs` against the obs schema and the source values, the counts at their gene reference positions, and the per-gene nnz file against a count from the source. Each slot that the store holds is compared, or the receipt lists it in `not_compared`. A failure goes into the receipt, and `REPORT` fails the run. |
 | `--config` | none | Ingestion configuration file, staged into every task. The file format is not defined yet. |
 | `--refdata` | none, required | Directory or `s3://` prefix that holds the gene references from `tools/stage-refdata.py`, staged into every task. |
 | `--report_dir` | none | Where the run report publishes. The `healthomics` profile sets it. |
@@ -156,13 +157,19 @@ tools/census1-sample.py --census-version 2025-11-08 \
 ## Output layout
 
 ```
-<outdir>/<dataset_version_id>.zarr/    the store, if the dataset was admitted
-<outdir>/<dataset_version_id>.json     the receipt, always
+<outdir>/<dataset_version_id>.zarr/              the store, if the dataset was admitted
+<outdir>/<dataset_version_id>.gene_nnz.v1.npy    the per-gene nnz file, if the dataset was admitted
+<outdir>/<dataset_version_id>.json               the receipt, always
 ```
 
 The store holds its summary record, with the dataset's identifiers and the gene reference version,
 in the attributes of its root `zarr.json`. The `census2-dataset-writer` README describes the
 record. The receipt is the run log of the pipeline, and the run report reads it.
+
+The per-gene nnz file holds, for each gene of the store's `var`, the number of cells with a nonzero
+count (design 3.4). The task counts them from the written store with
+`census2_dataset_writer.gene_nnz`. The file is one `.npy` array of `int64`, and it is not part of the
+store. The `census2-dataset-writer` README describes the file and its name.
 
 A rejection is not an error: the task succeeds, no store is written, and the receipt records
 `admitted: false` with a reason.

@@ -19,7 +19,8 @@ contains; its README and module docstring cover the three decisions and their st
 written.
 
 `cxg-ingest.py` handles what running that package as a pipeline needs: fetching the source,
-publishing, and the receipt. It gives the writer the dataset's identifiers from the manifest
+publishing, and the receipt. It also saves the per-gene nnz file of a store next to the store, under
+the name that the writer package gives. It gives the writer the dataset's identifiers from the manifest
 record, and the writer puts the facts about a store into the store, in its summary record. The
 receipt is the pipeline's run log. Only `ingestion-report.py` reads it, and the catalog reads the
 store. For an admitted dataset, the receipt holds a copy of the summary record, so that the report

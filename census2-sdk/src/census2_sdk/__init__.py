@@ -9,13 +9,18 @@ gene position (design 4.1 to 4.4).
     census = census2_sdk.open_census(sources=["catalog.parquet"])
     adata = census.get_anndata("homo_sapiens", obs_filter={"tissue": "lung"})
 
+A source is a catalog or the manifest of a release. A manifest pins a snapshot of the
+catalog, and the SDK queries that snapshot as it queries a catalog. Thus a release and
+a catalog compose in one call. `census2_sdk.release` defines the manifest.
+
 `obs_filter` maps a catalog column to one value or to a list of values. The SDK selects
 a cell when every column holds one of its values. The columns are the 18 indexed
 columns of design 2.2 and `dataset_id`. A filter grammar is open (design section 8).
 
 The result carries the counts in `X` and the pinned gene reference as `var`. Its `obs`
 has the columns that all selected stores hold. `uns["census2"]` has the sources, the
-number of catalog rows for the organism, and the number of stores opened. The cell
+releases among them, the number of catalog rows for the organism, and the number of
+stores opened. The cell
 key `(dataset_id, observation_joinid)` is in `obs`, and `obs_names` is
 `<dataset_id>_<observation_joinid>`. When no cell matches, `get_anndata` returns None.
 
@@ -38,6 +43,8 @@ Each store's `obs` holds `dataset_id`, which the writer adds. The SDK refuses a
 store whose `dataset_id` differs from the dataset of its catalog row.
 """
 
+import hashlib
+import io
 import os
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -53,6 +60,7 @@ from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
+from census2_sdk import release as _release
 from census2_sdk.catalog import CanonicalFilter, Filter, members, open_store, unrecorded
 from census2_sdk.gene_reference import MEASURED_COLUMN, ORGANISMS
 
@@ -78,8 +86,24 @@ class Census:
     def __init__(self, sources: Sequence[PathLike]) -> None:
         self.sources = [str(s) for s in sources]
         self._counts: pd.DataFrame | None = None
+        # The name of each release among the sources, and the SHA-256 of its manifest.
+        self.releases: dict[str, str] = {}
         # One read per catalog, so that the rows and the counts come from one version.
-        self._contents = [_catalog.read(source) for source in self.sources]
+        self._contents: list[io.BytesIO] = []
+        for source in self.sources:
+            content = _catalog.read(source)
+            # A Parquet file starts with this magic number. Other content must be
+            # a release manifest, and the catalog is then the snapshot that it pins.
+            if not content.getvalue().startswith(b"PAR1"):
+                raw = content.getvalue()
+                manifest, content = _release.open_manifest(source, raw)
+                name = manifest["release"]
+                if name in self.releases:
+                    raise SourceConflict(
+                        f"the release {name!r} occurs in more than one source"
+                    )
+                self.releases[name] = hashlib.sha256(raw).hexdigest()
+            self._contents.append(content)
         frames = []
         for source, content in zip(self.sources, self._contents, strict=True):
             frame = _catalog.load(content)
@@ -149,6 +173,7 @@ class Census:
         result.var = var.drop(columns=MEASURED_COLUMN, errors="ignore")
         result.uns["census2"] = {
             "sources": self.sources,
+            "releases": dict(self.releases),
             "stores_in_catalog": int((self.catalog["organism"] == organism).sum()),
             "stores_opened": len(rows),
         }
@@ -209,7 +234,14 @@ class Census:
 
 
 def open_census(sources: Sequence[PathLike]) -> Census:
-    """Open catalogs."""
+    """Open catalogs and release manifests.
+
+    Each source is a catalog or the manifest of a release (design 4.1). For a
+    manifest, the SDK reads the catalog snapshot of the release and checks it against
+    the manifest. A release that fails this check raises `release.ReleaseError`. A
+    source that does not exist raises `FileNotFoundError`. `open_census` opens no
+    store, so a store that does not exist fails the query that reads it.
+    """
     return Census(sources)
 
 
@@ -226,7 +258,7 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     result of two or more stores refuses it. One store always composes with
     itself. A catalog without the column records no value.
     """
-    recorded = _recorded(rows, "gene_reference_version")
+    recorded = _catalog.recorded(rows, "gene_reference_version")
     missing = sorted(
         str(d) for d, v in zip(rows["dataset_id"], recorded, strict=True) if v is None
     )
@@ -239,22 +271,12 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
         )
     if len(rows) < 2:
         return
-    spatial = _recorded(rows, "spatial")
+    spatial = _catalog.recorded(rows, "spatial")
     unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
     if unknown:
         raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
     if len({bool(v) for v in spatial}) > 1:
         raise SourceConflict("spatial and non-spatial stores in one result")
-
-
-def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
-    """One entry per row: the recorded value, or None when the row records none.
-
-    A catalog without the column records none. `unrecorded` gives the rule.
-    """
-    if column not in rows.columns:
-        return [None] * len(rows)
-    return [None if unrecorded(v) else v for v in rows[column]]
 
 
 def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
@@ -295,7 +317,14 @@ def _read_store(
     the layers to calculate from the counts. `bucket_clients` holds the obstore clients
     of the query (`catalog.clients`).
     """
-    group = open_store(row["store_uri"], bucket_clients)
+    try:
+        group = open_store(row["store_uri"], bucket_clients)
+    except FileNotFoundError as e:
+        # zarr names only the path. A missing store fails the query (design 4.4).
+        raise FileNotFoundError(
+            f"{row['store_uri']}: no store for the dataset {row['dataset_id']} "
+            f"of the source {row['source']}"
+        ) from e
     obs_group = group["obs"]
     if not isinstance(obs_group, zarr.Group):
         raise TypeError(f"{row['store_uri']}: obs must be an encoded dataframe")

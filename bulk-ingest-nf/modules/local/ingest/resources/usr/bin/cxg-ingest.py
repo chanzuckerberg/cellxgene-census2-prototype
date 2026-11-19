@@ -9,7 +9,9 @@ alongside other stores and not merely the Discover h5ad in another container.
 This script owns the I/O: fetch the source, write the store, publish it, and
 record a receipt. The data model lives in the `census2_dataset_writer` package,
 which decides which slots a store carries and applies harmonization: it projects
-the counts onto the pinned gene reference staged in `--refdata`.
+the counts onto the pinned gene reference staged in `--refdata`. The package
+also counts the per-gene nnz of the written store, and this script saves the
+counts in one file next to the store (design 3.4).
 
 Memory discipline: this script never calls `read_h5ad`. It hands the source path
 to `census2_dataset_writer.create`, which keeps the small slots in memory and
@@ -146,7 +148,21 @@ def row_stats(x: sp.csr_matrix) -> np.ndarray:
     return np.column_stack([total, nnz, mean, var])
 
 
-def check(src: str, dst: str, written: dict, summary: dict) -> dict:
+def gene_counts(x: sp.csr_matrix) -> np.ndarray:
+    """For each column, the number of rows with a nonzero value.
+
+    This is the Census 1 count, written here apart from the writer: duplicates
+    merged and explicit zeros removed. The per-gene nnz file must match it.
+    """
+    x = x.copy()
+    x.sum_duplicates()
+    x.eliminate_zeros()
+    return np.bincount(x.indices, minlength=x.shape[1])
+
+
+def check(
+    src: str, dst: str, written: dict, summary: dict, gene_nnz: np.ndarray
+) -> dict:
     """Compare the Zarr output against the h5ad source, field by field.
 
     `compared` lists what the comparison covered, so a check that silently
@@ -184,6 +200,11 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
     the check reads each position back. Thus the check does not repeat the
     writer's code. Equal nonzero counts per block show that no value is outside
     those positions.
+
+    `gene_nnz` is the array of the per-gene nnz file. It must be `int64` in the
+    order of the store's `var`. At the position of each kept source feature, it
+    must hold the number of kept cells with a nonzero count of that feature. It
+    must hold zero at each other position. The check counts from the source.
     """
 
     result: dict = {"passed": True, "compared": []}
@@ -301,6 +322,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                 step = census2_dataset_writer.row_chunk(h5o, n_rows)
                 nnz = 0
                 expected = []
+                source_nnz = np.zeros(len(columns), dtype=np.int64)
                 # The store keeps source order, so a running offset finds each block.
                 start = 0
                 for i in range(0, n_rows, step):
@@ -310,6 +332,7 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                     want = sp.csr_matrix(source_x[rows])[kept_rows][:, columns]
                     got = sp.csr_matrix(store_x[start:stop])
                     expected.append(row_stats(want))
+                    source_nnz += gene_counts(want)
                     start = stop
                     nnz += got.count_nonzero()
                     if got.dtype != want.dtype:
@@ -335,6 +358,14 @@ def check(src: str, dst: str, written: dict, summary: dict) -> dict:
                     if (b["n_measured_vars"] != len(columns)).any():
                         fail("obs.n_measured_vars", f"is not {len(columns)}")
                     result["compared"].append("obs statistics")
+                if complete:
+                    want_nnz = np.zeros(len(var), dtype=np.int64)
+                    want_nnz[positions] = source_nnz
+                    if gene_nnz.dtype != np.int64:
+                        fail("gene_nnz", f"dtype {gene_nnz.dtype}, not int64")
+                    elif not np.array_equal(gene_nnz, want_nnz):
+                        fail("gene_nnz", "differs from the source counts")
+                    result["compared"].append("gene_nnz")
         result["compared"].append("X")
 
     required = {"summary"} | {slot_group(s) for s in written["slots"]}
@@ -380,15 +411,15 @@ def store_bytes(uri: str) -> int:
     return sum(int(item["size"]) for page in obstore.list(store) for item in page)
 
 
-def write_text(uri: str, text: str) -> str:
-    """Write a small file beside the store, local or remote."""
+def write_bytes(uri: str, data: bytes) -> str:
+    """Write a small file next to the store, local or remote."""
     import obstore
     import obstore.store
 
     parent, name = uri.rsplit("/", 1)
     if not census2_dataset_writer.is_remote(uri):
         os.makedirs(parent, exist_ok=True)
-    obstore.put(obstore.store.from_url(_obstore_url(parent)), name, text.encode())
+    obstore.put(obstore.store.from_url(_obstore_url(parent)), name, data)
     return uri
 
 
@@ -421,8 +452,9 @@ def main() -> int:
     p.add_argument(
         "--stage-local",
         action="store_true",
-        help="write the store and receipt into the working directory for the "
-        "workflow to publish, instead of writing them to --outdir directly",
+        help="write the store, the per-gene nnz file, and the receipt into the "
+        "working directory for the workflow to publish, instead of writing them "
+        "to --outdir directly",
     )
     p.add_argument(
         "--keep-source", action="store_true", help="do not delete the staged h5ad"
@@ -525,9 +557,17 @@ def main() -> int:
         )
         if not args.stage_local:
             verify_written(dest)
+        # The per-gene nnz file is a declared Nextflow output, as the receipt is.
+        # It comes from the written store, so it needs the write to be complete.
+        nnz_name = census2_dataset_writer.gene_nnz_name(version_id)
+        np.save(nnz_name, census2_dataset_writer.gene_nnz(dest))
+        if not args.stage_local:
+            with open(nnz_name, "rb") as fh:
+                write_bytes(store_uri(args.outdir, nnz_name), fh.read())
+        log(f"  wrote {nnz_name}")
         if args.check:
             log("check round trip")
-            receipt["check"] = check(src, dest, result, summary)
+            receipt["check"] = check(src, dest, result, summary, np.load(nnz_name))
             if not receipt["check"]["passed"]:
                 for fmsg in receipt["check"].get("failures", []):
                     log(f"  FAIL {fmsg}")
@@ -547,7 +587,7 @@ def main() -> int:
     with open(local_receipt, "w") as fh:
         fh.write(text)
     if not args.stage_local:
-        write_text(store_uri(args.outdir, local_receipt), text)
+        write_bytes(store_uri(args.outdir, local_receipt), text.encode())
 
     if result["admitted"]:
         log(

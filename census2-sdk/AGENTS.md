@@ -43,6 +43,41 @@ accessors of pandas in about 20 ms. pyarrow ships no type information, so its im
 from that content, so they agree also when the catalog changes later. The live catalog of design
 3.3 changes with each update of the catalog builder.
 
+## The release builder
+
+`tools/build_release.py` imports the SDK and `census2-dataset-writer`. The SDK defines the manifest
+in `census2_sdk.release`. The writer defines the name of the `measured` column and the name of the
+per-gene nnz file. The SDK and the writer do not import each other, and neither imports the release
+builder.
+
+The snapshot is the content that the builder read with `catalog.read`, and not a frame that pandas
+writes again. Thus the snapshot equals the live catalog, and the presence files and the manifest
+come from the same catalog version. The builder writes the manifest last, under another name, and
+then renames it. Thus `manifest.json` is complete when it exists. A build that stops leaves a
+directory without a manifest, which `open_census` does not open. The builder refuses a directory
+that exists, so a release holds no file of a previous build.
+
+`open_census` finds a manifest by the content of the source. A Parquet file starts with `PAR1`, and
+other content must be a manifest. The name of the file has no effect.
+
+The manifest pins the identity of each store. It records no `writer_version` and no content digest
+of a store, because no store and no catalog row records either value. A store that changes at its
+location after the build changes the result of a release query.
+
+The builder makes one presence file for each organism, and one set of aggregate rows. The catalog
+also holds the `spatial` column, and the builder does not use it. Thus the file and the rows of an
+organism cover its spatial and its non-spatial stores.
+
+The builder adds the nnz arrays of an organism by position and reads the `feature_id` values from
+the first store. One gene reference version does not prove that the stores hold their genes in one
+order. Thus the builder compares the ordered gene identifiers of each store with those of the first
+store, and it stops at a store that differs. It reads the index of `var` in the open that reads
+`measured`, so each store opens one time. It keeps the identifiers of the first store only, so the
+memory of the check does not increase with the number of stores.
+
+The builder writes to the local file system only. To publish a release to object storage, copy
+`manifest.json` last.
+
 ## The gene reference
 
 The writer projects each store onto the pinned gene reference of its organism: `X` holds the

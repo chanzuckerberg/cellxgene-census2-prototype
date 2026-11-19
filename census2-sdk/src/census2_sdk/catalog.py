@@ -231,6 +231,16 @@ def unrecorded(value: Any) -> bool:
     return value is None or (np.ndim(value) == 0 and bool(pd.isna(value)))
 
 
+def recorded(rows: pd.DataFrame, column: str) -> list[Any]:
+    """One entry per row: the recorded value, or None when the row records none.
+
+    A catalog without the column records none. `unrecorded` gives the rule.
+    """
+    if column not in rows.columns:
+        return [None] * len(rows)
+    return [None if unrecorded(v) else v for v in rows[column]]
+
+
 def excludes(row: Mapping[str, Any], obs_filter: CanonicalFilter) -> bool:
     """True when the row proves that no cell of the dataset matches `obs_filter`.
 
