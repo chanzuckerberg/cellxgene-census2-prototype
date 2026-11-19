@@ -10,6 +10,10 @@ The top-level SDK accessors do not reach the spatial experiments. A spatial
 the code path `get_anndata` reaches internally. Spatial `obs`, `var`,
 and presence queries read the SOMA objects directly. Each result records which path ran.
 
+A row of a presence matrix is a row of the Census 1 datasets table. A column is a row of
+the `var` of the experiment. A presence result thus also records the `dataset_id` of each
+row and the `feature_id` of each column.
+
 The snapshot is bounded. An obs-filtered query is clamped to the N smallest datasets
 of each experiment (`snapshot_manifest.json`, built once from each experiment's obs).
 Differential validation is meaningful at one to five datasets, and a
@@ -36,7 +40,7 @@ import tiledbsoma as soma
 from harness.canonical import (
     canonicalize_anndata,
     canonicalize_frame,
-    layer_arrays,
+    presence_arrays,
     result_digest,
     write_result,
 )
@@ -119,6 +123,15 @@ def build_manifest(values, picks=None):
     print(f"wrote {MANIFEST}")
 
 
+def row_labels(table, column, count):
+    """`column` of a SOMA table for the rows with `soma_joinid` 0 to `count - 1`, in order."""
+    frame = table.read(column_names=["soma_joinid", column]).concat().to_pandas()
+    labels = frame.set_index("soma_joinid")[column].sort_index()
+    if list(labels.index) != list(range(count)):
+        raise ValueError(f"{column}: the table does not hold the rows 0 to {count - 1}")
+    return labels.tolist()
+
+
 def run_query(census, q, sample):
     """Execute one bound query. Return the canonical arrays and the path that ran."""
     label = ORGANISM_LABEL[q.experiment]
@@ -128,20 +141,21 @@ def run_query(census, q, sample):
     )
 
     if q.accessor == "get_presence_matrix":
+        rna = census[q.modality][q.experiment].ms["RNA"]
         if q.modality == "census_data":
             pm = cellxgene_census.get_presence_matrix(census, label, "RNA")
             path = "sdk"
         else:  # spatial: the same array, read directly
-            exp = census[q.modality][q.experiment]
             pm = (
-                exp.ms["RNA"]["feature_dataset_presence_matrix"]
-                .read()
-                .coos()
-                .concat()
-                .to_scipy()
+                rna["feature_dataset_presence_matrix"].read().coos().concat().to_scipy()
             )
             path = "direct"
-        return layer_arrays("presence", pm.tocsr()), path
+        datasets, genes = pm.shape
+        return presence_arrays(
+            pm.tocsr(),
+            row_labels(census["census_info"]["datasets"], "dataset_id", datasets),
+            row_labels(rna.var, "feature_id", genes),
+        ), path
 
     if q.accessor == "get_var":
         if q.modality == "census_data":

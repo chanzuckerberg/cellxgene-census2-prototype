@@ -51,6 +51,12 @@ digests on 2026-10-02 from a clean environment on one host. That run proves the 
 the pins on that host. 64 of the 74 digests equal those of v1.0. The 10 others are the
 human queries that the new human sample changes.
 
+A presence result holds the matrix in the row order and the column order of Census 1. It
+also holds the `dataset_id` of each row and the `feature_id` of each column. The seven
+presence results got these labels on 2026-11-19, and their digests changed. Their matrix
+arrays are byte-equal to those of 2026-10-02. To add the labels to an older snapshot, do
+step 3 with `--only presence_matrix`.
+
 `snapshot_manifest.json` is committed. A change to the dataset sample can change the digest
 of every clamped query, so regenerate it (`oracle_runner build-manifest`) only with a
 corpus version bump.

@@ -11,6 +11,9 @@ rules:
 - Each X layer is reordered to the sorted obs x sorted var coordinate space, as CSR
   with duplicate coordinates summed, explicit zeros removed, and sorted indices, dtype
   preserved. Raw counts are exact.
+- A presence matrix keeps the row order and the column order of its stack. Two string
+  columns hold the `dataset_id` of each row and the `feature_id` of each column, and a
+  comparison aligns two matrices by these labels.
 - Every array is written as `.npy`, whose bytes are a function of shape, dtype, and
   content only. A string column becomes two arrays, uint64 offsets and UTF-8 bytes.
   Zip, gzip, and Parquet embed timestamps or writer metadata, so they are not used.
@@ -95,6 +98,24 @@ def layer_arrays(name: str, matrix: sparse.csr_matrix) -> Arrays:
         f"X.{name}.data": m.data,
         f"X.{name}.shape": np.asarray(m.shape, dtype=np.int64),
     }
+
+
+def presence_arrays(
+    matrix: sparse.csr_matrix, dataset_id: Iterable[Any], feature_id: Iterable[Any]
+) -> Arrays:
+    """The arrays of a presence matrix, with the label of each row and of each column."""
+    arrays = layer_arrays("presence", matrix)
+    labels = (("dataset_id", dataset_id), ("feature_id", feature_id))
+    for (name, values), size in zip(labels, matrix.shape, strict=True):
+        parts = _string_arrays(values)
+        if len(parts["offsets"]) - 1 != size:
+            raise ValueError(
+                f"the presence matrix has shape {matrix.shape}, and {name} holds "
+                f"{len(parts['offsets']) - 1} labels"
+            )
+        arrays[f"presence.{name}.offsets"] = parts["offsets"]
+        arrays[f"presence.{name}.bytes"] = parts["bytes"]
+    return arrays
 
 
 def decode_strings(offsets: np.ndarray, data: np.ndarray) -> list[str]:
