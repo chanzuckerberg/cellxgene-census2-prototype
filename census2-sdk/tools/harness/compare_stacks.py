@@ -384,8 +384,8 @@ def run_one(
             detail = f"{len(genes)} genes; X compared on {len(shared)} shared genes"
             findings.append(Finding("row-set", where, detail))
     if presence:
-        # The restriction below removes the genes that only the SDK holds. Census 1 builds
-        # its `var` from the genes of its datasets, so these columns must be empty.
+        # The restriction below removes the genes that only the SDK holds. A measured
+        # value in such a gene has no Census 1 column to agree with, so it is a finding.
         unknown = _measured_genes(sdk) & (genes_sdk - genes_c1)
         if unknown:
             detail = (

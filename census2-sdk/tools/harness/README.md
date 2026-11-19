@@ -144,10 +144,11 @@ driver compares the two matrices by label: a row is a dataset, and a column is a
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
 while the gene sets differ. The driver thus restricts both sides to the shared genes. A
-Census 1 gene that the SDK does not hold fails the query. Census 1 builds its `var` from
-the genes of its datasets. In a presence result, a gene that only the SDK holds must thus
-be a gene that no dataset measured. A measured value in such a gene fails the query. Each
-finding names the task that owns it (the `OWNERS` table in `compare_stacks.py`).
+Census 1 gene that the SDK does not hold fails the query. In a presence result, a gene
+that only the SDK holds has no Census 1 column. The driver thus requires that no dataset
+measured such a gene, and a measured value in it fails the query. The recorded run finds
+no such gene. Each finding names the task that owns it (the `OWNERS` table in
+`compare_stacks.py`).
 
 ### Expected differences
 
