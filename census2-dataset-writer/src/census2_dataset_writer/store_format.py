@@ -85,9 +85,8 @@ def validate_summary(obj: object) -> SummaryRecord:
     return cast("SummaryRecord", obj)
 
 
-# The version of the per-gene nnz file. Raise it when the definition of the
-# values or the format of the file changes. The new files then get new names,
-# and the stores stay as they are.
+# Raise it when the values or the format of the per-gene nnz file change. The
+# new files then get new names, and the stores stay as they are.
 GENE_NNZ_VERSION = 1
 
 
