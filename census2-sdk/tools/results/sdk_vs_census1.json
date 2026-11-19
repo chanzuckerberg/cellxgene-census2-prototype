@@ -7,8 +7,8 @@
  "summary": {
   "status": {
    "vacuous": 7,
-   "pass": 14,
-   "unsupported": 4,
+   "pass": 16,
+   "unsupported": 2,
    "skip": 49
   },
   "by_owner": {
@@ -18,7 +18,7 @@
    },
    "4.2": {
     "column-set var.feature_version (expected)": 13,
-    "row-set var genes, SDK only (expected)": 8
+    "row-set var genes, SDK only (expected)": 10
    },
    "4.5": {
     "value obs.raw_mean_nnz (expected)": 1,
@@ -56,7 +56,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 12.6,
+   "seconds": 13.3,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -122,7 +122,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 14.5,
+   "seconds": 19.0,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -174,7 +174,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 7.8,
+   "seconds": 10.9,
    "notes": [],
    "cells": {
     "census1": 4778,
@@ -226,7 +226,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 27.4,
+   "seconds": 18.5,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -278,7 +278,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 19.9,
+   "seconds": 15.8,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -324,7 +324,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 13.4,
+   "seconds": 13.3,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -370,7 +370,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 8.5,
+   "seconds": 9.0,
    "notes": [],
    "cells": {
     "census1": 12822,
@@ -422,7 +422,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 2.3,
+   "seconds": 2.4,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -472,7 +472,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 13.1,
+   "seconds": 13.2,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -524,7 +524,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 1.9,
+   "seconds": 2.1,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -599,9 +599,31 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "status": "unsupported",
-   "reason": "the recorded Census 1 presence matrix names no dataset and no gene",
-   "owner": "6.2"
+   "seconds": 18.2,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "datasets": {
+    "census1": 1086,
+    "sdk": 1086
+   },
+   "genes": {
+    "census1": 61497,
+    "sdk": 78894
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference that the Census 1 build does not hold",
+     "expected": "the SDK's var is the whole pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "wmg_production:census_data/mus_musculus",
@@ -684,7 +706,7 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "seconds": 15.7,
+   "seconds": 15.2,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -765,7 +787,7 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "seconds": 3.0,
+   "seconds": 2.6,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -853,7 +875,7 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "seconds": 2.6,
+   "seconds": 2.8,
    "notes": [],
    "cells": {
     "census1": 0,
@@ -909,9 +931,31 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "status": "unsupported",
-   "reason": "the recorded Census 1 presence matrix names no dataset and no gene",
-   "owner": "6.2"
+   "seconds": 5.7,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "datasets": {
+    "census1": 172,
+    "sdk": 172
+   },
+   "genes": {
+    "census1": 53384,
+    "sdk": 78317
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes, SDK only",
+     "detail": "24933 genes; X compared on 53384 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference that the Census 1 build does not hold",
+     "expected": "the SDK's var is the whole pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "wmg_production:census_data/macaca_mulatta",
