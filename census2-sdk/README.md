@@ -78,8 +78,13 @@ directory before the next build. The builder writes the directory to the local f
 live catalog and the stores can be remote.
 
 A release holds one gene reference version for each organism (design 1.5). The builder refuses a
-catalog in which the rows of one organism record two versions. The stores of one organism then
-have the same genes in `var`, so the builder adds the nnz arrays by position.
+catalog in which the rows of one organism record two versions.
+
+The builder adds the nnz arrays by position, and the presence files hold positions. A position
+names one gene in each store only when the stores hold the same genes in the same order. Thus the
+builder compares the ordered gene identifiers of each store with those of the first store of the
+organism. It stops at a store that differs. For this check, the builder reads the index of `var`
+of each store, which is one string for each gene (78,894 for a human store).
 
 The builder checks each nnz file before it adds the array. The array must be `int64` with one value
 for each gene of `var`. A gene that the dataset did not measure must have zero, and no value can be

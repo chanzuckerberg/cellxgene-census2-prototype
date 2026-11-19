@@ -69,8 +69,11 @@ also holds the `spatial` column, and the builder does not use it. Thus the file 
 organism cover its spatial and its non-spatial stores.
 
 The builder adds the nnz arrays of an organism by position and reads the `feature_id` values from
-the first store. It compares the length of `var` between the stores and not the gene identifiers.
-One gene reference version for each organism is the reason that the positions agree.
+the first store. One gene reference version does not prove that the stores hold their genes in one
+order. Thus the builder compares the ordered gene identifiers of each store with those of the first
+store, and it stops at a store that differs. It reads the index of `var` in the open that reads
+`measured`, so each store opens one time. It keeps the identifiers of the first store only, so the
+memory of the check does not increase with the number of stores.
 
 The builder writes to the local file system only. To publish a release to object storage, copy
 `manifest.json` last.

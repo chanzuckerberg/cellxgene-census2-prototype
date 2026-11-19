@@ -475,7 +475,7 @@ def test_a_later_write_does_not_change_the_release(live: dict[str, Path]) -> Non
     ("owner", "step", "written"),
     [
         # The build stops after the snapshot, and then at the rename of the manifest.
-        (build_release, "measured_genes", [release.CATALOG_NAME]),
+        (build_release, "read_var", [release.CATALOG_NAME]),
         (
             Path,
             "replace",
@@ -569,23 +569,42 @@ def test_the_builder_refuses_two_reference_versions_of_one_organism(
     assert not (live["catalog"].parent / "releases").exists()
 
 
-def test_the_builder_refuses_stores_with_another_var_length(
-    live: dict[str, Path],
+@pytest.mark.parametrize(
+    "var_ids",
+    [
+        # The same genes in another order, another gene, and fewer genes.
+        REFERENCE_IDS[::-1],
+        [*REFERENCE_IDS[:-1], "ENSG99999999999"],
+        REFERENCE_IDS[:7],
+    ],
+)
+def test_the_builder_refuses_a_store_with_other_genes_in_var(
+    live: dict[str, Path], var_ids: list[str]
 ) -> None:
+    """Positions in `var` need the same genes in the same order in each store."""
     adata = make_store(
-        "ds-short",
-        4,
-        REFERENCE_IDS[:3],
-        ["lung"],
-        ["normal"],
-        51,
-        var_ids=REFERENCE_IDS[:7],
+        "ds-other", 4, REFERENCE_IDS[:3], ["lung"], ["normal"], 51, var_ids=var_ids
     )
-    add_store(live, adata, "ds-short")
-    with pytest.raises(ValueError, match=r"homo_sapiens.*\[7, 20\]"):
+    add_store(live, adata, "ds-other")
+    with pytest.raises(ValueError, match=r"v-ds-other.zarr.*v-ds-a.zarr.*homo_sapiens"):
         built(live)
     directory = live["catalog"].parent / "releases" / NAME
     assert not (directory / release.MANIFEST_NAME).exists()
+
+
+def test_the_builder_opens_each_store_one_time(
+    live: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened = []
+    open_store = catalog.open_store
+
+    def counted(uri: Any, bucket_clients: Any = None) -> Any:
+        opened.append(Path(str(uri)).name)
+        return open_store(uri, bucket_clients)
+
+    monkeypatch.setattr(catalog, "open_store", counted)
+    built(live)
+    assert opened == [f"v-{dataset_id}.zarr" for dataset_id in STORES]
 
 
 def test_the_builder_refuses_a_store_without_measured(live: dict[str, Path]) -> None:

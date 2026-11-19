@@ -21,12 +21,19 @@ Each presence file has one row for each store of the organism. `measured` lists 
 positions in `var` of the genes that the dataset measured, from the `measured` column
 of the store's `var`. The builder reads `var` and no expression data.
 
+A position has one meaning in each store of an organism only when the stores hold the
+same genes in the same order. Thus the builder compares the ordered gene identifiers
+of each store with those of the first store of the organism. It stops at a store that
+differs. For this check, the builder reads the index of `var` of each store, which is
+one string for each gene (78,894 for a human store). It reads the index in the same
+open that reads `measured`.
+
 `aggregates/var.parquet` has one row for each gene of each organism. `nnz` is the
 number of cells with a nonzero count of the gene. The builder adds the per-gene nnz
 files that the writer makes next to the stores (design 3.4). `n_measured_obs` is the
 number of cells of the datasets that measured the gene. The builder adds the arrays by
-position, because the stores of one organism and one gene reference version have one
-`var` (design 1.5). A store without its file stops the build.
+position, which the check of the gene identifiers makes valid. A store without its
+file stops the build.
 
 The builder writes `manifest.json` last, so a directory with a manifest is a complete
 release. `census2_sdk.release` defines the manifest. Each release is a new directory,
@@ -99,31 +106,54 @@ def reference_versions(frame: pd.DataFrame) -> dict[str, str]:
     return versions
 
 
-def _var(store_uri: str, bucket_clients: catalog.Clients) -> zarr.Group:
+def read_var(
+    store_uri: str, bucket_clients: catalog.Clients
+) -> tuple[np.ndarray, np.ndarray]:
+    """The gene identifiers of the `var` of one store, in order, and its `measured` flags.
+
+    The function opens the store one time. It reads the index of `var`, which is one
+    string for each gene, and the `measured` column, which is one flag for each gene.
+    """
     var = catalog.open_store(store_uri, bucket_clients)["var"]
     if not isinstance(var, zarr.Group):
         raise TypeError(f"{store_uri}: var must be an encoded dataframe")
-    return var
-
-
-def measured_genes(store_uri: str, bucket_clients: catalog.Clients) -> np.ndarray:
-    """The `measured` column of the `var` of one store: one flag for each gene."""
-    var = _var(store_uri, bucket_clients)
     if MEASURED not in var:
         raise ValueError(f"{store_uri}: var holds no {MEASURED} column")
-    return np.asarray(read_elem(var[MEASURED]), dtype=bool)
+    feature_ids = np.asarray(read_elem(var[str(var.attrs["_index"])])).astype(str)
+    return feature_ids, np.asarray(read_elem(var[MEASURED]), dtype=bool)
 
 
-def presence(organism: str, rows: pd.DataFrame, measured: list[np.ndarray]) -> pa.Table:
+def organism_var(
+    organism: str, uris: list[str], bucket_clients: catalog.Clients
+) -> tuple[np.ndarray, list[np.ndarray]]:
+    """The gene identifiers of one organism, and the `measured` flags of each store.
+
+    The stores of one organism must hold the same genes in the same order. A position
+    in `var` then names one gene in each store (design 1.5). One gene reference
+    version does not prove that order. Thus the function compares the
+    identifiers of each store with those of the first store, and it refuses a store
+    that differs. It keeps the identifiers of the first store only.
+    """
+    feature_ids, flags = read_var(uris[0], bucket_clients)
+    measured = [flags]
+    for uri in uris[1:]:
+        other, flags = read_var(uri, bucket_clients)
+        if not np.array_equal(other, feature_ids):
+            raise ValueError(
+                f"{uri}: the genes of var differ from {uris[0]}, the first store of "
+                f"{organism}, in identifier or in order"
+            )
+        measured.append(flags)
+    return feature_ids, measured
+
+
+def presence(rows: pd.DataFrame, measured: list[np.ndarray]) -> pa.Table:
     """The presence table of one organism: the measured genes of each store.
 
-    `measured` holds the flags of each row of `rows`, from `measured_genes`. The
-    stores of one organism have one `var`, so the positions of one store are valid
-    in each other store. The builder refuses stores whose `var` differ in length.
+    `measured` holds the flags of each row of `rows`, from `organism_var`. The
+    stores hold the same genes in the same order, so a position names one gene in
+    each store.
     """
-    lengths = sorted({len(flags) for flags in measured})
-    if len(lengths) != 1:
-        raise ValueError(f"{organism}: the stores have var of {lengths} genes")
     positions = [np.flatnonzero(flags) for flags in measured]
     return pa.table(
         {
@@ -172,27 +202,29 @@ def gene_nnz(
 def aggregates(
     organism: str,
     rows: pd.DataFrame,
+    feature_ids: np.ndarray,
     measured: list[np.ndarray],
-    bucket_clients: catalog.Clients,
 ) -> pa.Table:
     """The per-gene aggregates of one organism, one row for each gene of `var`.
 
     `nnz` is the sum of the per-gene nnz files of the stores. `n_measured_obs` is the
-    sum of `n_obs` over the datasets that measured the gene. `feature_id` comes from
-    the `var` of the first store. `measured` holds the flags of each row of `rows`.
+    sum of `n_obs` over the datasets that measured the gene. `feature_ids` and
+    `measured` come from `organism_var`, and `measured` holds the flags of each row
+    of `rows`.
     """
     # Each sum is at most the cells of the organism, so this limit excludes an overflow.
     if sum(int(n) for n in rows["n_obs"]) > np.iinfo(np.int64).max:
         raise ValueError(f"{organism}: the n_obs of the catalog rows exceed int64")
-    uris = [str(uri) for uri in rows["store_uri"]]
-    var = _var(uris[0], bucket_clients)
-    feature_ids = np.asarray(read_elem(var[str(var.attrs["_index"])])).astype(str)
     nnz = np.zeros(len(feature_ids), dtype=np.int64)
     n_measured_obs = np.zeros(len(feature_ids), dtype=np.int64)
     for uri, version_id, n_obs, flags in zip(
-        uris, rows["dataset_version_id"], rows["n_obs"], measured, strict=True
+        rows["store_uri"],
+        rows["dataset_version_id"],
+        rows["n_obs"],
+        measured,
+        strict=True,
     ):
-        nnz += gene_nnz(uri, str(version_id), flags, int(n_obs))
+        nnz += gene_nnz(str(uri), str(version_id), flags, int(n_obs))
         n_measured_obs += flags * int(n_obs)
     return pa.table(
         {
@@ -236,13 +268,11 @@ def build(
     bucket_clients = catalog.clients(frame["store_uri"].astype(str))
     tables = []
     for organism, rows in frame.groupby("organism", sort=True):
-        measured = [
-            measured_genes(uri, bucket_clients) for uri in rows["store_uri"].astype(str)
-        ]
+        uris = [str(uri) for uri in rows["store_uri"]]
+        feature_ids, measured = organism_var(str(organism), uris, bucket_clients)
         path = f"presence/{organism}.parquet"
-        table = presence(str(organism), rows, measured)
-        files[path] = _write(directory, path, _parquet(table))
-        tables.append(aggregates(str(organism), rows, measured, bucket_clients))
+        files[path] = _write(directory, path, _parquet(presence(rows, measured)))
+        tables.append(aggregates(str(organism), rows, feature_ids, measured))
     files[AGGREGATES] = _write(
         directory, AGGREGATES, _parquet(pa.concat_tables(tables))
     )
