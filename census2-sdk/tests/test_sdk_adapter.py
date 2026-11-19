@@ -330,8 +330,6 @@ def test_run_one_names_the_owner_of_an_unsupported_query(
     assert "names no dataset and no gene" in record["reason"]
 
 
-# --- the accessors over stores ------------------------------------------------
-
 LUNG = ("ds-a", "ds-b")  # the stores of `test_sdk` that hold lung cells
 OBS_QUERY = replace(
     QUERY,

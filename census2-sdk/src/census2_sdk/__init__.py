@@ -241,9 +241,8 @@ class Census:
         labels are the `feature_id`s. A value is True when the dataset measured
         the gene.
 
-        The call opens every store of the organism. From each store, it reads
-        only the `measured` column of `var`, which holds one boolean for each
-        gene. It reads no `obs` and no `X`. `get_var` supplies the genes, so the
+        The call opens every store of the organism, and it reads only the
+        `measured` column of `var` from each. `get_var` supplies the genes, so the
         first store opens one more time. `max_workers` is the largest number of
         stores that the SDK reads at the same time.
 
