@@ -17,9 +17,11 @@ import scipy.sparse as sp
 from harness.canonical import (
     canonicalize_anndata,
     canonicalize_frame,
+    decode_strings,
     frame_arrays,
     layer_arrays,
     load_result,
+    presence_arrays,
     result_digest,
     write_result,
 )
@@ -243,6 +245,20 @@ def test_absent_axis_is_not_compared() -> None:
         layer_arrays("presence", presence.copy()),
     )
     assert compare(left, right) == []
+
+
+def test_presence_arrays_hold_the_matrix_and_its_labels() -> None:
+    """The matrix keeps its order. Each axis takes one label for each position."""
+    presence = sp.csr_matrix(np.array([[1, 0, 1], [0, 0, 0]], dtype=np.uint8))
+    labels = {"dataset_id": ["d2", "d1"], "feature_id": ["g3", "g1", "g2"]}
+    arrays = presence_arrays(presence, **labels)
+    for name, array in layer_arrays("presence", presence).items():
+        assert np.array_equal(arrays[name], array), name
+    for name, want in labels.items():
+        offsets = arrays[f"presence.{name}.offsets"]
+        assert decode_strings(offsets, arrays[f"presence.{name}.bytes"]) == want
+    with pytest.raises(ValueError, match="feature_id holds 2 labels"):
+        presence_arrays(presence, ["d2", "d1"], ["g3", "g1"])
 
 
 def test_large_integers_compare_exactly() -> None:

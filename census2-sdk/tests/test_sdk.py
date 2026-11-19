@@ -1015,3 +1015,204 @@ def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
         census.get_anndata("homo_sapiens", layers=["scaled"])
+
+
+# --- get_obs ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "obs_filter",
+    [None, {"tissue": "lung"}, {"disease": "flu"}, {"dataset_id": "ds-b"}],
+)
+def test_get_obs_equals_the_obs_of_get_anndata(
+    corpus: dict[str, Path], obs_filter: dict[str, str] | None
+) -> None:
+    """No filter selects three stores, and `lung` selects two."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    want = cast("pd.DataFrame", query(census, obs_filter).obs)
+    for max_workers in (1, len(STORES)):
+        obs = census.get_obs("homo_sapiens", obs_filter, max_workers=max_workers)
+        assert obs is not None
+        pd.testing.assert_frame_equal(obs, want)
+
+
+def test_get_obs_reads_no_x_and_no_var(corpus: dict[str, Path], tmp_path: Path) -> None:
+    """`get_obs` answers from copies of the stores that hold no `X` and no `var`."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    want = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert want is not None
+    shutil.copytree(corpus["prefix"], tmp_path / "out")
+    for store in (tmp_path / "out").iterdir():
+        shutil.rmtree(store / "X")
+        shutil.rmtree(store / "var")
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [str(tmp_path / "out" / name) for name in names]
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert obs is not None
+    pd.testing.assert_frame_equal(obs, want)
+
+
+def test_get_obs_reads_the_named_columns_only(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The result holds the named columns in the given order, and the same cells."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    full = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert full is not None
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    columns = ["disease", "dataset_id", "disease"]  # a repeated name counts once
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"}, column_names=columns)
+    assert obs is not None
+    pd.testing.assert_frame_equal(obs, full[["disease", "dataset_id"]])
+    # The SDK reads the filter column `tissue` and leaves it out of the result.
+    # It reads no column that the call does not need.
+    assert "is_primary_data" in full.columns
+    assert "/obs/is_primary_data" not in names
+    with pytest.raises(ValueError, match=r"v-ds-a.zarr: obs has no column \['donor"):
+        census.get_obs("homo_sapiens", column_names=["tissue", "donor_id"])
+
+
+def test_get_obs_returns_none_and_applies_the_checks(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    assert census.get_obs("homo_sapiens", {"tissue": "brain"}) is None
+    assert census.get_obs("homo_sapiens", {"tissue_general": "lung"}) is None
+    frame = catalog.load(corpus["catalog"])
+    frame.loc[frame["dataset_id"] == "ds-a", "spatial"] = True
+    frame.to_parquet(tmp_path / "catalog.parquet", index=False)
+    mixed = census2_sdk.open_census([tmp_path / "catalog.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match="spatial"):
+        mixed.get_obs("homo_sapiens", {"tissue": "lung"})
+
+
+# --- get_var ------------------------------------------------------------------
+
+
+def test_get_var_is_the_var_of_a_result(corpus: dict[str, Path]) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    var = census.get_var("homo_sapiens")
+    pd.testing.assert_frame_equal(var, cast("pd.DataFrame", query(census, None).var))
+    assert list(var.index) == REFERENCE_IDS
+    assert list(var.columns) == list(reference_var(REFERENCE_IDS).columns)
+
+
+def test_get_var_checks_the_reference_of_every_row(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """`get_var` joins no cells, so a spatial store next to the others is no conflict."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="hold no store of mus_musculus"):
+        census.get_var("mus_musculus")
+    frame = catalog.load(corpus["catalog"])
+    frame.loc[frame["dataset_id"] == "ds-a", "spatial"] = True
+    frame.to_parquet(tmp_path / "spatial.parquet", index=False)
+    mixed = census2_sdk.open_census([tmp_path / "spatial.parquet"])
+    assert list(mixed.get_var("homo_sapiens").index) == REFERENCE_IDS
+    frame.loc[frame["dataset_id"] == "ds-c", "gene_reference_version"] = "GENCODE v47"
+    frame.to_parquet(tmp_path / "v47.parquet", index=False)
+    other = census2_sdk.open_census([tmp_path / "v47.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match="v47.*pinned.*v48"):
+        other.get_var("homo_sapiens")
+
+
+# --- get_presence_matrix ------------------------------------------------------
+
+
+def test_presence_matrix_holds_the_measured_genes_of_each_store(
+    corpus: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The call answers from copies of the stores that hold no `obs` and no `X`.
+
+    `get_var` opens the first store for the genes. The call then opens each store.
+    """
+    census = census2_sdk.open_census([corpus["catalog"]])
+    shutil.copytree(corpus["prefix"], tmp_path / "out")
+    for store in (tmp_path / "out").iterdir():
+        shutil.rmtree(store / "obs")
+        shutil.rmtree(store / "X")
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [str(tmp_path / "out" / name) for name in names]
+    opened: list[str] = []
+
+    def spy(uri: str, bucket_clients: Any = None) -> zarr.Group:
+        opened.append(Path(uri).name)
+        return catalog.open_store(uri, bucket_clients)
+
+    monkeypatch.setattr(census2_sdk, "open_store", spy)
+    for max_workers in (1, len(STORES)):
+        opened.clear()
+        presence = census.get_presence_matrix("homo_sapiens", max_workers=max_workers)
+        assert sorted(opened) == sorted([names[0], *names])
+        assert list(presence.index) == list(STORES)
+        assert list(presence.columns) == REFERENCE_IDS
+        assert set(presence.dtypes) == {np.dtype(bool)}
+        for dataset_id, (_, measured, _, _) in STORES.items():
+            assert (
+                list(presence.columns[presence.loc[dataset_id].to_numpy()]) == measured
+            )
+    with pytest.raises(ValueError, match="hold no store of mus_musculus"):
+        census.get_presence_matrix("mus_musculus")
+
+
+@pytest.mark.parametrize(
+    ("change", "error", "match"),
+    [
+        ("absent", ValueError, "var has no measured column"),
+        ("integer", TypeError, "var measured must be a boolean array"),
+        ("short", ValueError, r"var measured holds 10 values.*has 20 genes"),
+    ],
+)
+def test_presence_matrix_refuses_a_store_without_its_measured_genes(
+    tmp_path: Path, change: str, error: type[Exception], match: str
+) -> None:
+    """The error names the store. The first store supplies the genes."""
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    var_ids = REFERENCE_IDS[:10] if change == "short" else REFERENCE_IDS
+    for seed, dataset_id in enumerate(["ds-a", "ds-x"]):
+        ids = REFERENCE_IDS if dataset_id == "ds-a" else var_ids
+        adata = make_store(dataset_id, 5, ids, ["lung"], ["normal"], seed, var_ids=ids)
+        if dataset_id == "ds-x" and change == "absent":
+            adata.var = cast("pd.DataFrame", adata.var).drop(columns="measured")
+        if dataset_id == "ds-x" and change == "integer":
+            adata.var["measured"] = adata.var["measured"].astype(np.int8)
+        write_one(prefix, adata, dataset_id)
+    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
+    with pytest.raises(error, match=f"v-ds-x.zarr: {match}"):
+        census.get_presence_matrix("homo_sapiens")
+
+
+# --- the index of a result ----------------------------------------------------
+
+
+def test_result_of_two_stores_writes_to_h5ad(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """The index of a result has no name, so anndata writes the `obs`."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    result = query(census, {"tissue": "lung"})
+    assert result.uns["census2"]["stores_opened"] == 2
+    assert result.obs.index.name is None
+    result.write_h5ad(tmp_path / "lung.h5ad")
+    back = anndata.read_h5ad(tmp_path / "lung.h5ad")
+    assert list(back.obs_names) == list(result.obs_names)
+    assert list(back.var_names) == list(result.var_names)
+    assert np.array_equal(X(back).toarray(), X(result).toarray())
+    for column in result.obs.columns:
+        assert list(back.obs[column].astype(str)) == list(
+            result.obs[column].astype(str)
+        )
+    result.write_zarr(tmp_path / "lung.zarr")
+    assert list(anndata.read_zarr(tmp_path / "lung.zarr").obs_names) == list(
+        result.obs_names
+    )
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert obs is not None and obs.index.name is None

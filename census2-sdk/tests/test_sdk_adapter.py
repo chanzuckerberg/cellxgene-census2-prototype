@@ -1,26 +1,36 @@
 """The SDK adapter's filter translation and the driver's gene restriction and owners."""
 
 import pathlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any, cast
 
 import anndata as ad
+import build_catalog
 import numpy as np
 import pandas as pd
 import pytest
 from harness.canonical import (
     Arrays,
     canonicalize_anndata,
+    canonicalize_frame,
     frame_arrays,
     layer_arrays,
+    presence_arrays,
     write_result,
 )
 from harness.comparator import Finding
-from harness.compare_stacks import expected, owner, restrict_genes, run_one
+from harness.compare_stacks import (
+    SDK_ONLY_GENES,
+    expected,
+    owner,
+    restrict_genes,
+    run_one,
+)
 from harness.corpus import BoundQuery
 from harness.sdk_adapter import NoCells, Unsupported, answer, clauses, translate
 from scipy import sparse
+from test_sdk import REFERENCE_IDS, STORES, make_store, reference_var, write_one
 
 import census2_sdk
 from census2_sdk import SourceConflict
@@ -158,18 +168,22 @@ def test_answer_lets_an_sdk_defect_fail_the_run() -> None:
 
 
 def _run_one(
-    tmp_path: pathlib.Path, query: BoundQuery, census: object, census1: Arrays
+    tmp_path: pathlib.Path,
+    query: BoundQuery,
+    census: object,
+    census1: Arrays,
+    clamp: Sequence[str] = ("d1",),
 ) -> dict[str, Any]:
-    """`run_one` over a Census 1 result of `census1` and a clamp of one dataset."""
-    meta = {"clamp": ["d1"], "env": {"corpus_version": "1.1"}}
+    """`run_one` over a Census 1 result of `census1` and a clamp of `clamp`."""
+    meta = {"clamp": list(clamp), "env": {"corpus_version": "1.1"}}
     write_result(tmp_path / query.label.replace("/", "__"), census1, meta)
     return run_one(
         query,
         tmp_path,
         cast("census2_sdk.Census", census),
-        {"d1"},
+        set(clamp),
         {"census_data/homo_sapiens": PINS},
-        {"census_data/homo_sapiens": {"dataset_ids": ["d1"]}},
+        {"census_data/homo_sapiens": {"dataset_ids": list(clamp)}},
     )
 
 
@@ -310,9 +324,246 @@ def test_run_one_accepts_only_the_float32_rounding_of_raw_sum(
     assert record["status"] == status
 
 
-def test_run_one_names_the_task_that_adds_an_unsupported_accessor(
+def test_run_one_names_the_owner_of_an_unsupported_query(
     tmp_path: pathlib.Path,
 ) -> None:
-    query = replace(QUERY, accessor="get_obs")
-    record = _run_one(tmp_path, query, Empty(), {})
+    """A numeric clause waits for the filter interface. Triage takes any other reason."""
+    numeric = replace(QUERY, obs_filter="nnz >= 500")
+    record = _run_one(tmp_path, numeric, Empty(), {})
     assert (record["status"], record["owner"]) == ("unsupported", "6.7")
+    spatial = replace(QUERY, modality="census_spatial_sequencing")
+    record = run_one(
+        spatial,
+        tmp_path,
+        cast("census2_sdk.Census", Empty()),
+        {"d1"},
+        {"census_spatial_sequencing/homo_sapiens": PINS},
+        {"census_spatial_sequencing/homo_sapiens": {"dataset_ids": ["d1"]}},
+    )
+    assert (record["status"], record["owner"]) == ("unsupported", "6.2")
+    assert "no spatial experiment" in record["reason"]
+
+
+LUNG = ("ds-a", "ds-b")  # the stores of `test_sdk` that hold lung cells
+OBS_QUERY = replace(
+    QUERY,
+    key="obs_metadata_only",
+    accessor="get_obs",
+    obs_filter="tissue == 'lung'",
+    obs_columns=("tissue", "disease"),
+    label="obs_metadata_only:census_data/homo_sapiens",
+)
+
+
+@pytest.fixture(scope="module")
+def stores(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """The three stores of `test_sdk` in `out/`, and their `catalog.parquet`."""
+    root = tmp_path_factory.mktemp("stores")
+    (root / "out").mkdir()
+    for seed, (dataset_id, spec) in enumerate(STORES.items()):
+        write_one(root / "out", make_store(dataset_id, *spec, seed=seed), dataset_id)
+    build_catalog.build(str(root / "out"), root / "catalog.parquet")
+    return root
+
+
+def _lung_obs(stores: pathlib.Path) -> pd.DataFrame:
+    """The lung cells of the `LUNG` stores, as the Census 1 side of `OBS_QUERY`."""
+    frames = [ad.read_zarr(stores / "out" / f"v-{d}.zarr").obs for d in LUNG]
+    obs = pd.concat(cast("list[pd.DataFrame]", frames))
+    columns = ["dataset_id", "observation_joinid", *OBS_QUERY.obs_columns]
+    return obs.loc[obs["tissue"].astype(str) == "lung", columns]
+
+
+def test_answer_reads_obs_through_get_obs(stores: pathlib.Path) -> None:
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    arrays, notes = answer(OBS_QUERY, census, LUNG, PINS)
+    want = canonicalize_frame("obs", _lung_obs(stores))
+    assert notes == [] and len(want["obs.dataset_id.offsets"]) > 1
+    assert arrays.keys() == want.keys()
+    for name, array in want.items():
+        assert np.array_equal(arrays[name], array), name
+    with pytest.raises(NoCells):
+        answer(replace(OBS_QUERY, obs_filter="tissue == 'brain'"), census, LUNG, PINS)
+
+
+@pytest.mark.parametrize(("dropped", "status"), [(0, "pass"), (1, "fail")])
+def test_run_one_compares_a_get_obs_result(
+    tmp_path: pathlib.Path, stores: pathlib.Path, dropped: int, status: str
+) -> None:
+    """A result without `var` compares. A cell that Census 1 lacks fails the query."""
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    obs = _lung_obs(stores)
+    census1 = canonicalize_frame("obs", obs.iloc[dropped:])
+    record = _run_one(tmp_path, OBS_QUERY, census, census1, LUNG)
+    assert record["status"] == status
+    assert record["cells"] == {"census1": len(obs) - dropped, "sdk": len(obs)}
+    assert [f["kind"] for f in record["findings"]] == ["row-set"] * dropped
+
+
+VAR_QUERY = replace(
+    QUERY,
+    key="var_all_genes",
+    accessor="get_var",
+    obs_filter=None,
+    label="var_all_genes:census_data/homo_sapiens",
+)
+
+
+def test_answer_reads_var_through_get_var(stores: pathlib.Path) -> None:
+    """The clamp does not apply. A var filter selects genes after the read."""
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    reference = reference_var(REFERENCE_IDS)
+    arrays, notes = answer(VAR_QUERY, census, LUNG[:1], PINS)
+    want = canonicalize_frame("var", reference)
+    assert notes == [] and arrays.keys() == want.keys()
+    for name, array in want.items():
+        assert np.array_equal(arrays[name], array), name
+    one_name = replace(VAR_QUERY, var_filter="feature_name in ['GENE3', 'GENE7']")
+    arrays, notes = answer(one_name, census, LUNG, PINS)
+    assert list(arrays["var.feature_length"]) == [1000, 1000] and len(notes) == 1
+    for var_filter in ("feature_length >= 5", "symbol == 'GENE3'"):
+        with pytest.raises(Unsupported):
+            answer(replace(VAR_QUERY, var_filter=var_filter), census, LUNG, PINS)
+
+
+@pytest.mark.parametrize(
+    ("var_filter", "census1_name", "status"),
+    [
+        (None, "GENE3", "pass"),
+        (None, "OTHER", "fail"),  # a value differs
+        ("feature_name == 'GENE3'", "GENE3", "pass"),
+        ("feature_name == 'GENE3'", "OTHER", "fail"),
+        ("feature_name == 'NONE'", "GENE3", "vacuous"),
+    ],
+)
+def test_run_one_compares_a_get_var_result(
+    tmp_path: pathlib.Path,
+    stores: pathlib.Path,
+    var_filter: str | None,
+    census1_name: str,
+    status: str,
+) -> None:
+    """A result without `obs` compares, with the expected differences of `var`."""
+    census = census2_sdk.open_census([stores / "catalog.parquet"])
+    var = reference_var(REFERENCE_IDS).drop(columns="feature_version")
+    var["nnz"] = 5  # a corpus aggregate, which only Census 1 holds
+    if var_filter:
+        var = var[var["feature_name"] == var_filter.split("'")[1]]
+    var = var.replace({"feature_name": {"GENE3": census1_name}})
+    query = replace(VAR_QUERY, var_filter=var_filter)
+    record = _run_one(tmp_path, query, census, canonicalize_frame("var", var), LUNG)
+    assert record["status"] == status
+    assert record["genes"]["census1"] == len(var)
+    blocking = [f["kind"] for f in record["findings"] if "expected" not in f]
+    assert blocking == (["value"] if status == "fail" else [])
+
+
+PRESENCE_QUERY = replace(
+    QUERY,
+    key="presence_matrix",
+    accessor="get_presence_matrix",
+    obs_filter=None,
+    label="presence_matrix:census_data/homo_sapiens",
+)
+PRESENCE_STORES = ("ds-a", "ds-c")  # no store of the two measured an odd gene above 12
+
+
+@pytest.fixture(scope="module")
+def presence(tmp_path_factory: pytest.TempPathFactory) -> tuple[Any, pd.DataFrame]:
+    """A census of the `PRESENCE_STORES` of `test_sdk`, and its presence matrix."""
+    root = tmp_path_factory.mktemp("presence")
+    (root / "out").mkdir()
+    for seed, dataset_id in enumerate(PRESENCE_STORES):
+        adata = make_store(dataset_id, *STORES[dataset_id], seed=seed)
+        write_one(root / "out", adata, dataset_id)
+    build_catalog.build(str(root / "out"), root / "catalog.parquet")
+    census = census2_sdk.open_census([root / "catalog.parquet"])
+    return census, census.get_presence_matrix("homo_sapiens")
+
+
+def _census1_presence(frame: pd.DataFrame) -> Arrays:
+    """`frame` in the form of the Census 1 recording.
+
+    The rows and the columns are in the opposite order. One more row holds no gene, as
+    the row of a dataset of another experiment does.
+    """
+    frame = frame.iloc[::-1, ::-1].copy()
+    frame.loc["ds-other"] = False
+    matrix = sparse.csr_matrix(frame.to_numpy(dtype=np.uint8))
+    return presence_arrays(matrix, frame.index, frame.columns)
+
+
+def _measured_only(frame: pd.DataFrame) -> pd.DataFrame:
+    """As the Census 1 build: only the genes that a dataset measured."""
+    return frame.loc[:, frame.any()]
+
+
+def _flipped(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = _measured_only(frame)
+    frame.iloc[1, 3] = not frame.iloc[1, 3]
+    return frame
+
+
+def _one_more_dataset(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = _measured_only(frame)
+    frame.loc["ds-z"] = True
+    return frame
+
+
+def _dataset_without_a_gene(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = _measured_only(frame)
+    frame.loc["ds-c"] = False
+    return frame
+
+
+def _without_a_measured_gene(frame: pd.DataFrame) -> pd.DataFrame:
+    return _measured_only(frame).drop(columns=REFERENCE_IDS[0])
+
+
+def _one_more_gene(frame: pd.DataFrame) -> pd.DataFrame:
+    return _measured_only(frame).assign(ENSG99999999999=True)
+
+
+@pytest.mark.parametrize(
+    ("census1_form", "status", "blocking"),
+    [
+        (pd.DataFrame.copy, "pass", []),
+        (_measured_only, "pass", []),
+        (_flipped, "fail", ["X.presence.indptr"]),
+        (_one_more_dataset, "fail", ["presence datasets, Census 1 only"]),
+        (_dataset_without_a_gene, "fail", ["presence datasets, SDK only"]),
+        (_without_a_measured_gene, "fail", ["X.presence"]),
+        (_one_more_gene, "fail", ["var genes, Census 1 only"]),
+    ],
+)
+def test_run_one_compares_a_presence_result_by_label(
+    tmp_path: pathlib.Path,
+    presence: tuple[Any, pd.DataFrame],
+    census1_form: Callable[[pd.DataFrame], pd.DataFrame],
+    status: str,
+    blocking: list[str],
+) -> None:
+    """The order of a side plays no part. A dataset on one side only fails the query.
+
+    A gene that only the SDK holds is an expected difference when no dataset measured it.
+    """
+    census, sdk = presence
+    census1 = census1_form(sdk)
+    arrays = _census1_presence(census1)
+    record = _run_one(tmp_path, PRESENCE_QUERY, census, arrays, PRESENCE_STORES)
+    assert record["status"] == status
+    assert record["datasets"] == {"census1": int(census1.any(axis=1).sum()), "sdk": 2}
+    assert record["genes"] == {"census1": census1.shape[1], "sdk": len(REFERENCE_IDS)}
+    found = {f["where"]: "expected" in f for f in record["findings"]}
+    assert [where for where, known in found.items() if not known] == blocking
+    assert found.get(SDK_ONLY_GENES, True)
+    assert (SDK_ONLY_GENES in found) == (census1_form is not pd.DataFrame.copy)
+
+
+def test_run_one_refuses_a_presence_result_without_labels(
+    tmp_path: pathlib.Path, presence: tuple[Any, pd.DataFrame]
+) -> None:
+    census, sdk = presence
+    arrays = layer_arrays("presence", sparse.csr_matrix(sdk.to_numpy()))
+    with pytest.raises(SystemExit, match="names no dataset"):
+        _run_one(tmp_path, PRESENCE_QUERY, census, arrays, PRESENCE_STORES)
