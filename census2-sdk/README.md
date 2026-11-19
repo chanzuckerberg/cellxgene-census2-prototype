@@ -78,7 +78,8 @@ directory before the next build. The builder writes the directory to the local f
 live catalog and the stores can be remote.
 
 A release holds one gene reference version for each organism (design 1.5). The builder refuses a
-catalog in which the rows of one organism record two versions.
+catalog in which the rows of one organism record two versions, or in which a row records none.
+`open_census` applies the same rule to the snapshot of a release.
 
 The builder adds the nnz arrays by position, and the presence files hold positions. A position
 names one gene in each store only when the stores hold the same genes in the same order. Thus the
@@ -153,6 +154,11 @@ The manifest is UTF-8 JSON with five fields, and `census2_sdk.release` defines t
 The manifest pins the identity of each store and not its content. It holds no `writer_version` and
 no content digest of a store, because no store and no catalog row records either value. The design
 record reserves the format of the manifest, so these fields are the format of version 1.
+
+The SDK compares three parts of the snapshot with the manifest. The parts are the SHA-256 of the
+file, the `dataset_version_id` of the rows, and the gene reference version of each organism. The
+rows of an organism must record the one version that the manifest gives for it, and the manifest
+must name no other organism. A row that records no version fails this comparison.
 
 `open_census` raises `release.ReleaseError`, a `ValueError`, in three cases: a malformed manifest,
 an absent snapshot, and a snapshot that differs from the manifest. A source that does not exist

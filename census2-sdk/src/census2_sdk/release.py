@@ -9,6 +9,11 @@ manifest is a complete release.
 catalog snapshot from the directory of the manifest and checks it against the manifest.
 The SDK then uses the snapshot as it uses a catalog.
 
+A release holds one gene reference version for each organism (design 1.5). Thus each
+row of the snapshot must record the version that the manifest gives for its organism.
+The SDK refuses a release with a row that records no version, and the release builder
+refuses a catalog with such a row.
+
 The manifest is UTF-8 JSON, and `Manifest` declares its fields. `validate_manifest`
 checks them. The design record reserves the format of the manifest (design section 8),
 so these fields are the format of `MANIFEST_VERSION`.
@@ -23,7 +28,7 @@ import io
 import json
 import pathlib
 import re
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from census2_sdk import catalog
 
@@ -126,13 +131,19 @@ def _sibling(source: str, name: str) -> str:
     return str(pathlib.Path(source).with_name(name))
 
 
+def _strings(values: list[Any]) -> list[str | None]:
+    return [None if value is None else str(value) for value in values]
+
+
 def open_manifest(source: str, raw: bytes) -> tuple[Manifest, io.BytesIO]:
     """The manifest in `raw`, and the content of the catalog snapshot that it pins.
 
     `raw` is the content of `source`. The snapshot is `CATALOG_NAME` in the directory
     of `source`. Its SHA-256 must be the digest in the manifest. It must be a catalog,
-    and its rows must name the stores of the manifest. Each failure raises
-    `ReleaseError`, and the message names `source`.
+    and its rows must name the stores of the manifest. The rows of each organism must
+    record the one gene reference version that the manifest gives for that organism.
+    The manifest must name no other organism. Each failure raises `ReleaseError`, and
+    the message names `source`.
     """
     try:
         manifest = validate_manifest(json.loads(raw))
@@ -152,12 +163,30 @@ def open_manifest(source: str, raw: bytes) -> tuple[Manifest, io.BytesIO]:
             f"and the manifest pins {pinned}"
         )
     try:
-        rows = sorted(str(v) for v in catalog.load(snapshot)["dataset_version_id"])
+        frame = catalog.load(snapshot)
+        rows = sorted(str(v) for v in frame["dataset_version_id"])
     except (KeyError, ValueError, OSError) as e:
         # pyarrow raises a ValueError or an OSError for content that is not Parquet.
         raise ReleaseError(f"{source}: {CATALOG_NAME} is not a catalog: {e!r}") from e
     if rows != sorted(store["dataset_version_id"] for store in manifest["stores"]):
         raise ReleaseError(
             f"{source}: the rows of {CATALOG_NAME} are not the stores of the manifest"
+        )
+    # A row that records no organism or no version gives None, which no manifest holds.
+    # Each other value is compared as a string, which is how the release builder
+    # writes it into the manifest.
+    found: dict[str | None, set[str | None]] = {}
+    for organism, version in zip(
+        _strings(catalog.recorded(frame, "organism")),
+        _strings(catalog.recorded(frame, "gene_reference_version")),
+        strict=True,
+    ):
+        found.setdefault(organism, set()).add(version)
+    versions = manifest["gene_reference_version"]
+    if found != {organism: {version} for organism, version in versions.items()}:
+        listing = {o: sorted(found[o], key=str) for o in sorted(found, key=str)}
+        raise ReleaseError(
+            f"{source}: the rows of {CATALOG_NAME} record the gene reference versions "
+            f"{listing}, and the manifest gives {versions}"
         )
     return manifest, snapshot

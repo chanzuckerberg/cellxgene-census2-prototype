@@ -91,13 +91,14 @@ def reference_versions(frame: pd.DataFrame) -> dict[str, str]:
     """The gene reference version of each organism of the catalog (design 1.5).
 
     A release holds one version for each organism. The builder refuses an organism
-    whose rows record two versions, or a row that records none.
+    whose rows record two versions, or a row that records none. `open_manifest` of
+    the SDK applies the same rule to the snapshot of a release.
     """
     versions: dict[str, str] = {}
     for organism, rows in frame.groupby("organism", sort=True):
-        recorded = rows["gene_reference_version"]
-        found = sorted({str(v) for v in recorded.dropna()})
-        if bool(recorded.isna().any()) or len(found) != 1:
+        recorded = catalog.recorded(rows, "gene_reference_version")
+        found = sorted({str(v) for v in recorded if v is not None})
+        if None in recorded or len(found) != 1:
             raise ValueError(
                 f"{organism}: a release holds one gene reference version for each "
                 f"organism, and the catalog rows record {found}"

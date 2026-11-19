@@ -230,6 +230,66 @@ def test_a_pinned_snapshot_that_is_no_catalog_is_refused(
     assert str(manifest) in str(error.value)
 
 
+@pytest.mark.parametrize(
+    "versions",
+    [
+        # No entry for the organism, one more organism, and another version.
+        {},
+        {"homo_sapiens": "GENCODE v48", "mus_musculus": "GENCODE M37"},
+        {"homo_sapiens": "GENCODE v47"},
+    ],
+)
+def test_a_manifest_with_other_reference_versions_is_refused(
+    live: dict[str, Path], versions: dict[str, str]
+) -> None:
+    """The rows of the snapshot record `GENCODE v48` for `homo_sapiens`."""
+    manifest = make_release(live, gene_reference_version=versions)
+    with pytest.raises(release.ReleaseError, match="gene reference versions") as error:
+        census2_sdk.open_census([manifest])
+    assert str(manifest) in str(error.value)
+    assert "GENCODE v48" in str(error.value)
+
+
+def test_a_row_without_a_reference_version_is_refused_on_both_sides(
+    live: dict[str, Path],
+) -> None:
+    """A release holds one version for each organism, so no row can record none."""
+    frame = pd.read_parquet(live["catalog"])
+    frame.loc[0, "gene_reference_version"] = None
+    frame.to_parquet(live["catalog"])
+    manifest = make_release(live)
+    with pytest.raises(release.ReleaseError, match="gene reference versions") as error:
+        census2_sdk.open_census([manifest])
+    assert str(manifest) in str(error.value)
+    with pytest.raises(ValueError, match="one gene reference version"):
+        build_release.build(live["catalog"], live["catalog"].parent / "built", NAME)
+    assert not (live["catalog"].parent / "built").exists()
+
+
+def test_a_version_that_is_no_string_is_compared_as_a_string(
+    live: dict[str, Path],
+) -> None:
+    """The release builder writes each version as a string, and the SDK reads it so."""
+    frame = pd.read_parquet(live["catalog"])
+    frame["gene_reference_version"] = 48
+    frame.to_parquet(live["catalog"])
+    releases = live["catalog"].parent / "built"
+    manifest = build_release.build(live["catalog"], releases, NAME)
+    assert manifest["gene_reference_version"] == {"homo_sapiens": "48"}
+    census = census2_sdk.open_census([releases / NAME / release.MANIFEST_NAME])
+    assert census.count_cells("homo_sapiens") == 75
+
+
+def test_a_version_that_is_a_list_is_refused(live: dict[str, Path]) -> None:
+    frame = pd.read_parquet(live["catalog"])
+    frame["gene_reference_version"] = [["GENCODE v48"]] * len(frame)
+    frame.to_parquet(live["catalog"])
+    manifest = make_release(live)
+    with pytest.raises(release.ReleaseError, match="gene reference versions") as error:
+        census2_sdk.open_census([manifest])
+    assert str(manifest) in str(error.value)
+
+
 def test_a_snapshot_with_other_stores_is_refused(live: dict[str, Path]) -> None:
     manifest = make_release(live, stores=[{"dataset_version_id": "v-ds-a"}])
     with pytest.raises(release.ReleaseError, match="not the stores") as error:

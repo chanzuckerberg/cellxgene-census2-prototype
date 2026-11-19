@@ -257,7 +257,7 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     result of two or more stores refuses it. One store always composes with
     itself. A catalog without the column records no value.
     """
-    recorded = _recorded(rows, "gene_reference_version")
+    recorded = _catalog.recorded(rows, "gene_reference_version")
     missing = sorted(
         str(d) for d, v in zip(rows["dataset_id"], recorded, strict=True) if v is None
     )
@@ -270,22 +270,12 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
         )
     if len(rows) < 2:
         return
-    spatial = _recorded(rows, "spatial")
+    spatial = _catalog.recorded(rows, "spatial")
     unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
     if unknown:
         raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
     if len({bool(v) for v in spatial}) > 1:
         raise SourceConflict("spatial and non-spatial stores in one result")
-
-
-def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
-    """One entry per row: the recorded value, or None when the row records none.
-
-    A catalog without the column records none. `unrecorded` gives the rule.
-    """
-    if column not in rows.columns:
-        return [None] * len(rows)
-    return [None if unrecorded(v) else v for v in rows[column]]
 
 
 def _mask(obs: pd.DataFrame, obs_filter: CanonicalFilter) -> np.ndarray:
