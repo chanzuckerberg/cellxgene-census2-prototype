@@ -121,7 +121,7 @@ The driver prints one line for each query:
 | --- | --- |
 | `pass` | No finding, other than the expected differences below |
 | `fail` | At least one other finding. The first five follow the line. |
-| `vacuous` | Neither side holds a cell, or a gene for a `get_var` query. The findings stay on record. |
+| `vacuous` | Neither side holds a cell. For a `get_var` query, neither side holds a gene. For a presence query, neither side holds a dataset. The findings stay on record. |
 | `unsupported` | The SDK cannot express the query. The line names the reason and the task that adds what the query needs. An unsupported query does not fail the run. |
 | `skip` | The catalog holds no store of the experiment's clamp sample |
 
@@ -132,15 +132,22 @@ runner. The SDK has no var filter, so the adapter applies a var filter of one eq
 membership clause to the result after the read. A numeric or `!=` clause and a column
 that the catalog does not index are unsupported.
 
-A presence query is also unsupported. The recorded Census 1 matrix orders its rows and its
-columns by Census 1 row numbers. The oracle snapshot names no dataset and no gene for these
-numbers. Thus the driver cannot align the matrix with the result of the SDK's
-`get_presence_matrix`, which has `dataset_id` and `feature_id` labels.
+A presence query has no clamp either, so the SDK's `get_presence_matrix` opens every store
+of the organism. The adapter reads 32 stores at the same time (`PRESENCE_WORKERS`). The
+driver compares the two matrices by label: a row is a dataset, and a column is a gene.
+
+- Census 1 holds a row for each dataset of the release. A row without a gene is a dataset
+  of another experiment, and the driver removes it.
+- A dataset that only one side holds fails the query. No rule excuses a catalog that holds
+  only a part of the release.
+- The driver compares the values on the datasets that both sides hold.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
 while the gene sets differ. The driver thus restricts both sides to the shared genes. A
-Census 1 gene that the SDK does not hold fails the query. Each finding names the task that
-owns it (the `OWNERS` table in `compare_stacks.py`).
+Census 1 gene that the SDK does not hold fails the query. Census 1 builds its `var` from
+the genes of its datasets. In a presence result, a gene that only the SDK holds must thus
+be a gene that no dataset measured. A measured value in such a gene fails the query. Each
+finding names the task that owns it (the `OWNERS` table in `compare_stacks.py`).
 
 ### Expected differences
 

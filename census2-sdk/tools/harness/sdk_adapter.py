@@ -2,8 +2,9 @@
 
 `answer` takes one bound corpus query and the clamp of its recorded Census 1 result. It
 translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping. It runs
-`get_anndata`, `get_obs`, or `get_var` over the catalog and returns the canonical arrays
-of the result. The comparator then reads the two sides in the same form.
+`get_anndata`, `get_obs`, `get_var`, or `get_presence_matrix` over the catalog and returns
+the canonical arrays of the result. The comparator then reads the two sides in the same
+form.
 
 The SDK takes equality and membership on the indexed catalog columns and on
 `dataset_id`. A query that it cannot express raises `Unsupported` with the reason, so
@@ -11,10 +12,9 @@ the driver lists the query instead of a false difference. The SDK has no var fil
 The adapter applies a var filter of one equality or membership clause to the result
 after the read. The notes of the answer say so.
 
-A presence query is unsupported, although the SDK has `get_presence_matrix`. The
-recorded Census 1 matrix orders its rows and its columns by Census 1 row numbers. The
-oracle snapshot names no dataset and no gene for these numbers, so the two matrices do
-not align.
+A presence result is the matrix of `get_presence_matrix` in the order of the SDK. It
+also holds the `dataset_id` of each row and the `feature_id` of each column. The driver
+aligns it with the Census 1 matrix by these labels.
 """
 
 import ast
@@ -24,13 +24,22 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
+from scipy import sparse
 
 import census2_sdk
 from census2_sdk.gene_reference import ORGANISMS
-from harness.canonical import Arrays, canonicalize_anndata, canonicalize_frame
+from harness.canonical import (
+    Arrays,
+    canonicalize_anndata,
+    canonicalize_frame,
+    presence_arrays,
+)
 from harness.corpus import BoundQuery
 
 CLAUSE = re.compile(r"^(?P<column>\w+) (?P<op>==|in) (?P<value>.+)$")
+# A presence query opens every store of the organism. With one worker, the open of the
+# 1,086 human stores from outside the bucket region takes minutes.
+PRESENCE_WORKERS = 32
 
 
 class Unsupported(Exception):
@@ -117,17 +126,19 @@ def answer(
     pins: dict[str, Any],
 ) -> tuple[Arrays, list[str]]:
     """The canonical arrays of the SDK's answer to `query`, and notes on how it ran."""
-    if query.accessor == "get_presence_matrix":
-        raise Unsupported(
-            "the recorded Census 1 presence matrix names no dataset and no gene"
-        )
-    if query.accessor not in {"get_anndata", "get_obs", "get_var"}:
+    accessors = {"get_anndata", "get_obs", "get_var", "get_presence_matrix"}
+    if query.accessor not in accessors:
         raise Unsupported(f"the SDK has no {query.accessor} accessor")
     if query.modality != "census_data":
         raise Unsupported("the SDK reads no spatial experiment")
     organism = query.experiment
     if organism not in ORGANISMS:
         raise Unsupported(f"the SDK pins no gene reference for {organism}")
+    if query.accessor == "get_presence_matrix":
+        # The oracle runner does not clamp a presence query, so the clamp does not apply.
+        presence = census.get_presence_matrix(organism, max_workers=PRESENCE_WORKERS)
+        matrix = sparse.csr_matrix(presence.to_numpy())
+        return presence_arrays(matrix, presence.index, presence.columns), []
     selected = "genes selected after the read; the SDK has no var filter"
     if query.accessor == "get_var":
         # The oracle runner does not clamp a `get_var` query, so the clamp does not apply.
