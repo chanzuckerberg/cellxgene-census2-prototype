@@ -41,8 +41,10 @@ round-trip: anndata cannot write an AnnData whose `obs` is a `Dataset2D`, and `r
 `read_elem_lazy`. Because `X` is then an unevaluated dask graph, the `h5py` handle stays open
 until the store is written.
 
-The round trip widens the sparse index arrays of `X` from int32 to int64; the values do not
-change. Compare index arrays by value and not by stored bytes.
+The store holds `X/indices` in the smallest unsigned integer type that holds the gene count,
+because `write` sets anndata's `write_csr_csc_indices_with_min_possible_dtype`. That type is uint32
+for the pinned references, and a source h5ad usually holds int32. The values do not change. Compare
+index arrays by value and not by stored bytes.
 
 The gene projection remaps `X` with `map_blocks` over the dask row blocks. Thus it needs a matrix
 that is one block wide, as `lazy_matrix` gives. Each output block is a `csr_matrix`, and `meta`

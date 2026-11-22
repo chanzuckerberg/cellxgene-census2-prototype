@@ -28,7 +28,8 @@ read efficient and the store usable on its own:
   default, which is often one chunk for a column, because a reader reads its
   `obs` whole.
 - `X/data` and `X/indices` have fixed chunks of `X_CHUNK_VALUES` values in shards
-  of `X_SHARD_VALUES` values.
+  of `X_SHARD_VALUES` values. `X/indices` has the widest index type of the
+  members, which is the writer's type when the members come from one writer.
 - Each categorical column holds the union of the members' categories: the
   observed values, sorted, so no category is unused. A reader of one member
   removes the categories that its rows do not use, and so gets the categories
@@ -302,7 +303,10 @@ def _copy_x(members: Sequence[_Member], x: zarr.Group, n_var: int) -> np.ndarray
     n_obs = sum(m.n_obs for m in members)
     nnz = sum(m.nnz for m in members)
     first = _x_part(members[0].group, "data")
-    first_indices = _x_part(members[0].group, "indices")
+    # The writer stores `indices` in the smallest unsigned type that holds the gene
+    # count, and a store from an earlier writer can hold a wider type. The widest
+    # type of the members holds every value, whatever the member order.
+    index_type = np.result_type(*(_x_part(m.group, "indices").dtype for m in members))
     x.attrs.update(
         {
             "encoding-type": "csr_matrix",
@@ -315,12 +319,12 @@ def _copy_x(members: Sequence[_Member], x: zarr.Group, n_var: int) -> np.ndarray
             x.create_array(
                 name,
                 shape=(nnz,),
-                dtype=source.dtype,
+                dtype=dtype,
                 chunks=(X_CHUNK_VALUES,),
                 shards=(X_SHARD_VALUES,),
             )
         )
-        for name, source in (("data", first), ("indices", first_indices))
+        for name, dtype in (("data", first.dtype), ("indices", index_type))
     }
     indptr = np.zeros(n_obs + 1, dtype=np.int64)
     row, offset = 0, 0
@@ -331,7 +335,7 @@ def _copy_x(members: Sequence[_Member], x: zarr.Group, n_var: int) -> np.ndarray
         for name, writer in writers.items():
             array = _x_part(m.group, name)
             for part in _slices(m.nnz, X_SHARD_VALUES):
-                writer.append(np.asarray(array[part]))
+                writer.append(np.asarray(array[part], dtype=writer.array.dtype))
         row += n
         offset += m.nnz
     for writer in writers.values():

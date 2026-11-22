@@ -34,11 +34,19 @@ store, of either kind.
   `fanout.py`, which counts the datasets and the stores that each query reads from a catalog and a
   plan, with no store open.
 
-The branch holds `main` as of the merge of #38. The writer of that `main` applies the Census 1
+The branch holds `main` as of the merge of #50. The writer of that `main` applies the Census 1
 cell filters, writes the `tissue_general` pair and the five count statistics into `obs`, marks
-the dataset's assayed genes in the `measured` column of `var`, and checks the cell key on every
-write. The SDK of that `main` skips the `obs` index, decodes the cell key of the kept cells only,
-and calculates the normalized layer on read. All of these hold on the consolidated path as well.
+the dataset's assayed genes in the `measured` column of `var`, checks the cell key on every
+write, and stores `X/indices` in the smallest unsigned type that holds the gene count. The SDK of
+that `main` skips the `obs` index, reads only the codes of the categorical `obs` columns that the
+catalog row lists, decodes the cell key of the kept cells only, reads each run of kept rows as one
+range of `X`, shares one obstore client for each bucket in a query, and calculates the normalized
+layer on read. All of these hold on the consolidated path as well, with two differences: a member
+read takes its categories from the consolidated store, whose open reads them once, and the
+consolidated `X/indices` has the widest index type of its members.
+
+The measures of sections 4 to 8 come from the branch at the merge of #38, and are not yet repeated
+on the later `main`. Section 6 lists what the later changes can move.
 
 ## 2. Size distribution and strategy
 
@@ -192,33 +200,33 @@ result of the per-dataset path by construction as well as by test. The path:
    each categorical `obs` column.
 4. Read each dataset, up to `max_workers` at the same time. `obs` reads up to 8 columns at the
    same time, without the index and without `observation_joinid`: each column whole for a
-   per-dataset store, as `read_elem` reads it, and the member's rows for a consolidated store. The
-   filter then gives the kept rows, and the read takes `observation_joinid` for the kept rows only.
-   `X` reads `indptr` from the first to the last kept row, then the `data` and `indices` of the
-   kept rows. `layers=["normalized"]` calculates the layer from these counts, with
+   per-dataset store, as `main` reads it (only the codes of a categorical column that the catalog
+   row lists), and the member's rows for a consolidated store. The filter then gives the kept rows,
+   and the read takes `observation_joinid` for the kept rows only. `X` reads `indptr` from the
+   first to the last kept row, then one range of `data` and `indices` for each run of adjacent kept
+   rows. `layers=["normalized"]` calculates the layer from these counts, with
    `feature_length` from the store's `var` for a full-gene assay. The datasets of one consolidated
    store read at the same time.
 5. Concatenate in catalog order, as before, and take `var` from the first store, without
    `measured`.
 
 `anndata.io.sparse_dataset` reads the whole `indptr`, which in a consolidated store holds every
-member's rows, so the SDK reads `X` itself. When the kept rows follow one another, it reads one
-slice; otherwise one integer selection of every kept stored value, as anndata's row read makes. The
-open pull request #40 reads each run of adjacent kept rows as one range of `data` and `indices`,
-and keeps anndata's read above 256 runs. The two overlap: a member read that keeps all its rows is
-one run, and #40's read, given row numbers from `row_start` and an `indptr` read over the member's
-rows only, would replace the slice case here and add the case of a few runs. The branch does not
-depend on #40.
+member's rows, so the SDK reads `X` itself. It takes the run read of `main` (#40), with row numbers
+from the member's `row_start`, and reads `indptr` from the first to the last kept row only. A
+member read that keeps all its rows is one run: one range of `data` and one of `indices`. Above 256
+runs, `main` uses anndata's row read. The branch makes the same selection by position of every kept
+stored value, over the same part of `indptr`.
 
 anndata 0.13 has no public partial read of a dataframe, so `_obs_rows` reads each column's row
 range with the type that `read_elem` gives it. `anndata.experimental.read_elem_lazy` reads a
 dataframe lazily, but needs xarray.
 
-The branch reader also changes the per-dataset path: it reads the `obs` columns at the same time,
-and a single-dataset query reads one slice of `X` where anndata built an integer selection of every
-stored value. The measures therefore have three configurations, so that the reader and
-consolidation show apart: `main` (the SDK of `main`), `per_dataset` (this branch, consolidation
-off), and `consolidated`.
+The branch reader also changes the per-dataset path. It reads the `obs` columns of a dataset at the
+same time, and reads `indptr` over the kept rows only. At the merge of #38, where the measures were
+made, it also read a single dataset as one slice of `X`, where `main` built an integer selection of
+every stored value; `main` now reads that slice as well (#40). The measures therefore have three
+configurations, so that the reader and consolidation show apart: `main` (the SDK of `main`),
+`per_dataset` (this branch, consolidation off), and `consolidated`.
 
 The tests check the equality of `obs` (with types and categories), `var`, `X`, and
 `layers["normalized"]` between the two paths, with 1 and 4 workers, over two members that assayed
@@ -236,19 +244,32 @@ bucket, with a large spread between runs). Both run anndata 0.13.4, zarr 3.4.2, 
 
 The configurations:
 
-- `main`: the SDK of `main` at the merge point, over the per-dataset catalog. This is the baseline.
+- `main`: the SDK of `main` at the merge of #38, over the per-dataset catalog. This is the baseline.
 - `per_dataset`: this branch, with `open_census(..., consolidated=False)`.
 - `consolidated`: this branch, over the catalog of the plan (44 stores).
 
 Two store opens apply to both layouts (`bench.run --reader`):
 
-- `sdk`: the open of `catalog.open_store`, a new obstore client for each store and no Zarr format
-  (4 requests).
+- `sdk`: the open of `catalog.open_store` at the merge of #38: a new obstore client for each store,
+  and no Zarr format (4 requests).
 - `lean`: `zarr_format=3` and one obstore client for the bucket (1 request).
 
 The corpus shapes (`open`, `obs` of every store) also run over 8 processes with the `lean` open.
 `open` and `obs` of every store do not call `get_anndata`, so `main` and `per_dataset` are the same
 for them; they run as `per_dataset`.
+
+The measures are not yet repeated on the later `main`. These of its changes can move them:
+
+- #44 gives the SDK's open one obstore client for each bucket in a query. The open of a query thus
+  lies between the `sdk` and the `lean` opens below: it keeps the 4 requests, without the 13 ms of
+  CPU for a new client and without new connections. The corpus shapes of the bench still give each
+  store a client of its own, so `open` and `obs` of every store keep the `sdk` open below.
+- #40 reads each run of kept rows as one range of `X`. It changes `main` most (a single dataset
+  reads one slice), and the selective queries of both layouts less.
+- #45 reads only the codes of the listed categorical `obs` columns of a per-dataset store, and #50
+  builds the kept cell keys through pyarrow. Both remove work from a dataset read; #45 does not
+  apply to a member read.
+- #49 stores `X/indices` in 4 bytes for each value, where the measured stores hold 8.
 
 The queries are in `census2-sdk/tools/results/consolidation-queries.json`:
 
@@ -446,7 +467,7 @@ consolidation does, and more with processes, and the two compose.
    1.62 s) and 3.4 times faster from the laptop at 1 thread (68.1 → 19.9 s). 8 processes make them
    open in 0.43 s, 6.7 times faster than the SDK's open on 8 threads, and faster than consolidated
    stores with any threaded open. Together with consolidation: 3.9 times in region with threads, 9 times from
-   the laptop.
+   the laptop. The SDK now shares the client (#44); it does not yet give `zarr_format=3`.
 3. **`obs` of every store gains while round trips or one core limit it.** Requests fall 42% (6,021 →
    3,477) for the same 452 MB. The time falls 1.9 times at 1 thread, 1.4 times at 8 threads
    (27.2 → 19.0 s), and 1.3 times at 32. Over 8 processes it does not fall (8.37 → 8.15 s): the
@@ -459,8 +480,8 @@ consolidation does, and more with processes, and the two compose.
    per-dataset path, one dataset reads in 2.23 s in place of 5.77 s, with 1.6 GB in place of 4.3 GB
    at peak, because the branch reads one slice of `X` where anndata's row read builds an index of
    every stored value; and a false positive takes 1.11 s in place of 2.32 s, because the branch
-   reads the `obs` columns at the same time. These are gains for per-dataset stores; #40 covers
-   part of the `X` read.
+   reads the `obs` columns at the same time. These are gains for per-dataset stores. `main` now
+   reads that slice of `X` as well (#40); it does not yet read the `obs` columns at the same time.
 6. **The laptop is latency-bound, the instance CPU-bound.** On the laptop at 1 thread, the CPU is 7%
    of the wall time of `open`, and each open costs its round trips (0.66 s with the SDK's open, 0.19
    s with a warm shared client). In region at 8 threads and more, the wall time of `open` and of
@@ -610,10 +631,11 @@ python -m bench.matrix --catalog catalog-size.parquet --queries $Q --only open,c
 
 ## 13. Sharp edges
 
-- `catalog.open_store` makes a new obstore client for each store, and opens without a Zarr format.
-  The client costs about 13 ms of CPU, and the open makes 4 requests, 3 of them for Zarr v2 keys that
-  do not exist. A new client also opens new connections, which on a remote link costs round trips.
-  `bench.run --reader lean` shows the open without both.
+- `catalog.open_store` opens without a Zarr format, so the open makes 4 requests, 3 of them for
+  Zarr v2 keys that do not exist. A store whose bucket has no client in the query gets a new obstore
+  client, which costs about 13 ms of CPU and opens new connections; on a remote link, that costs
+  round trips. `get_anndata` makes one client for each bucket. `bench.run --reader lean` shows the
+  open with `zarr_format=3` and a shared client.
 - At 8 and more threads, the wall time of `open` and of `obs` of every store is about equal to the
   CPU time of the process: one core under the GIL is the limit, and more threads do not help. More
   processes do.
@@ -624,7 +646,7 @@ python -m bench.matrix --catalog catalog-size.parquet --queries $Q --only open,c
   frame with a cell-name index becomes all nulls, without an error. `consolidation.union_obs` builds
   from arrays for that reason, and `consolidate` refuses a null `observation_joinid`.
 - anndata's row selection on a backed CSR matrix builds an integer array of every selected stored
-  value. Reading one slice when the rows follow one another avoids that array.
+  value. A read of one range for each run of kept rows avoids that array, up to 256 runs.
 - A 1-D zarr array without explicit chunks gets one chunk for a small array. A partial read of it
   reads the whole column. The consolidated store sets its chunks.
 - The open of a consolidated store reads the categories of each categorical `obs` column. Read one

@@ -204,6 +204,30 @@ def test_x_copies_across_shard_boundaries(
     assert np.array_equal(x.toarray(), want.toarray())
 
 
+def test_indices_take_the_widest_type_of_the_members(tmp_path: Path) -> None:
+    """A store of an earlier writer holds int64 indices, here the second member."""
+    stores = per_dataset_stores(tmp_path, (10, 12))
+
+    def index_type(path: Path) -> np.dtype[Any]:
+        indices = zarr.open_group(path, mode="r")["X/indices"]
+        assert isinstance(indices, zarr.Array)
+        return indices.dtype
+
+    assert index_type(stores[0]) == np.uint8
+    same = tmp_path / "same.zarr"
+    consolidation.consolidate(stores, same)
+    assert index_type(same) == np.uint8
+
+    x = x_of(stores[1])
+    x.indices = x.indices.astype(np.int64)
+    write_elem(zarr.open_group(stores[1], mode="r+", use_consolidated=False), "X", x)
+    zarr.consolidate_metadata(stores[1])
+    wide = tmp_path / "wide.zarr"
+    consolidation.consolidate(stores, wide)
+    assert index_type(wide) == np.int64
+    assert consolidation.verify(wide, stores) == []
+
+
 def test_verify_finds_a_changed_value(tmp_path: Path) -> None:
     stores, dest, record = consolidated(tmp_path)
     data = zarr.open_group(dest, mode="r+")["X/data"]

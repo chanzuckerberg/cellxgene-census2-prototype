@@ -57,9 +57,10 @@ from typing import Any, cast
 import anndata
 import numpy as np
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
 import scipy.sparse as sp
 import zarr
-from anndata.io import read_elem
+from anndata.io import read_elem, sparse_dataset
 
 from census2_sdk import catalog as _catalog
 from census2_sdk import normalize as _normalize
@@ -149,12 +150,15 @@ class Census:
         # Each store opens once, for all of its selected datasets.
         uris = list(dict.fromkeys(r.uri for r in reads))
         consolidated = {r.uri for r in reads if r.rows is not None}
-        # ponytail: serial by default; raise the default after the store-count benchmark.
+        bucket_clients = _catalog.clients(uris)
+        # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
             opened = dict(
                 zip(
                     uris,
-                    pool.map(lambda u: _open(u, u in consolidated), uris),
+                    pool.map(
+                        lambda u: _open(u, u in consolidated, bucket_clients), uris
+                    ),
                     strict=True,
                 )
             )
@@ -373,15 +377,18 @@ def _group(parent: zarr.Group, name: str, uri: str, kind: str) -> zarr.Group:
     return node
 
 
-def _open(uri: str, consolidated: bool) -> _Opened:
+def _open(
+    uri: str, consolidated: bool, bucket_clients: _catalog.Clients | None = None
+) -> _Opened:
     """Open a store, and read what its datasets share: the var index, and categories.
 
     `var` holds only the index, the `feature_id`s, which is all that `_check_var`
     compares. `get_anndata` reads the var columns from one store. The number of
     rows comes from the attributes of `X`, which the open already read. The
     categories of a consolidated store's `obs` columns serve each member's read.
+    `bucket_clients` holds the obstore clients of the query (`catalog.clients`).
     """
-    group = open_store(uri)
+    group = open_store(uri, bucket_clients)
     var_group = _group(group, "var", uri, "an encoded dataframe")
     index = read_elem(var_group[str(var_group.attrs["_index"])])
     var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
@@ -467,7 +474,8 @@ def _read_rows(
     # reads the cell key after the filter, for the kept cells only.
     columns = [str(c) for c in cast("list[str]", obs_group.attrs["column-order"])]
     key = "observation_joinid"
-    obs = _obs_rows(opened, obs_group, [c for c in columns if c != key], start, stop)
+    names = [c for c in columns if c != key]
+    obs = _obs_rows(opened, obs_group, names, read.row, start, stop)
     _check_dataset_id(obs, dataset_id, where)
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
@@ -495,11 +503,17 @@ OBS_THREADS = 8
 
 
 def _obs_rows(
-    opened: _Opened, group: zarr.Group, columns: list[str], start: int, stop: int
+    opened: _Opened,
+    group: zarr.Group,
+    columns: list[str],
+    row: dict[str, Any],
+    start: int,
+    stop: int,
 ) -> pd.DataFrame:
     """Rows `start` to `stop` of the `obs` columns `columns`, without the other rows.
 
-    A read of all the rows of a store reads each column whole with `read_elem`.
+    `row` is the catalog row of the dataset. A read of all the rows of a store reads
+    each column whole with `_read_obs_column`, which gives the column of `read_elem`.
     A read of part of the rows gives each column the type that `read_elem` gives
     it, and a categorical column keeps only the categories that its rows use. A
     per-dataset store holds no unused category, because the writer writes none, so
@@ -509,7 +523,7 @@ def _obs_rows(
 
     def one(name: str) -> Any:
         if whole:
-            return read_elem(group[name])
+            return _read_obs_column(group[name], row.get(name), name)
         return _column_rows(opened, group, name, start, stop)
 
     # Each column is a read of its own, with a round trip or two, so read them at the
@@ -552,6 +566,40 @@ def _column_rows(
     return cast("Any", read_elem(node))[start:stop]
 
 
+def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:
+    """One `obs` column of a store. `listed` is the catalog row's entry for `name`.
+
+    This function is a faster form of `read_elem(node)` and returns the same column.
+    For a listed categorical column, the function reads only the codes and takes the
+    categories from the row. The writer stores the sorted values of the column as its
+    categories, and the catalog builder checks that order.
+
+    A column keeps `read_elem` when the store has a different number of categories
+    than the row lists. `dataset_id` keeps `read_elem`, because `_check_dataset_id`
+    compares the store with the row.
+    """
+    if (
+        name not in _catalog.INDEXED
+        or unrecorded(listed)
+        or not isinstance(node, zarr.Group)
+        or node.attrs.get("encoding-type") != "categorical"
+    ):
+        return read_elem(node)
+    codes, categories = node["codes"], node["categories"]
+    values = sorted(str(v) for v in listed)
+    if not (
+        isinstance(codes, zarr.Array)
+        and isinstance(categories, zarr.Array)
+        and categories.shape == (len(values),)
+    ):
+        return read_elem(node)
+    return pd.Categorical.from_codes(
+        cast("Any", np.asarray(codes[:])),
+        categories=pd.Index(values),
+        ordered=bool(node.attrs.get("ordered", False)),
+    )
+
+
 def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> None:
     """The store's `dataset_id` column names the dataset of its catalog row."""
     if "dataset_id" not in obs.columns:
@@ -569,7 +617,8 @@ def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> A
     """The values of one `obs` column at the row positions `rows`.
 
     For a nullable string column, the SDK makes strings for these rows only. The
-    dtype is the one that `anndata` reads for the same column.
+    dtype is the one that `anndata` reads for the same column. The SDK builds the
+    pandas array through pyarrow, which is faster than the pandas conversion.
     """
     if node.attrs.get("encoding-type") != "nullable-string-array":
         return pd.array(cast("Any", read_elem(node)))[rows]
@@ -585,9 +634,14 @@ def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> A
     # One run of rows reads as a slice, which zarr reads faster than a selection.
     contiguous = rows[-1] - rows[0] + 1 == rows.size
     selection: Any = slice(int(rows[0]), int(rows[-1]) + 1) if contiguous else rows
-    result: Any = pd.array(np.asarray(values.oindex[selection]), dtype=dtype)
-    result[np.asarray(mask.oindex[selection])] = pd.NA
-    return result
+    strings = np.asarray(values.oindex[selection])
+    nulls = np.asarray(mask.oindex[selection])
+    try:
+        arrow = pa.array(strings, mask=nulls)
+    except pa.ArrowNotImplementedError:
+        # pyarrow before 26 does not read the NumPy string dtype.
+        arrow = pa.array(strings.astype(object), mask=nulls)
+    return pd.array(arrow, dtype=dtype)
 
 
 def _check_cell_key(obs: pd.DataFrame, store_uri: str) -> None:
@@ -615,36 +669,76 @@ def _check_var(parts: list[anndata.AnnData], store_uris: list[str]) -> None:
             )
 
 
+# These limits are fixed. Tune them when stores change their row order or chunk size.
+MAX_RUNS = 256
+RUN_THREADS = 16  # range reads in flight for one store
+
+
 def _rows(
     node: zarr.Array[Any] | zarr.Group, keep: np.ndarray, start: int = 0
 ) -> sp.csr_matrix:
-    """The selected rows of a CSR matrix, read without loading the rest.
+    """The rows `keep` of a CSR matrix, read without the other rows.
 
-    `keep` holds row numbers from `start`. The read takes `indptr` from the first
-    to the last selected row, then the `data` and `indices` of the selected rows.
-    When the selected rows follow one another, that is one slice. Otherwise it is
-    one selection of every selected stored value, as anndata's row read makes.
+    `keep` holds row numbers from `start`. A member of a consolidated store starts
+    at its row in the store.
+
+    The plain call is `sparse_dataset(node)[start + keep]`. anndata then reads all of
+    `indptr`, which in a consolidated store holds the rows of every member. For row
+    positions, it makes one array position for each stored value of each kept row.
+    zarr then selects the values by position. The CPU time and the memory of that
+    read increase with the stored values.
+
+    This function reads `indptr` from the first to the last kept row only. The stored
+    values of adjacent kept rows are one span of `data` and of `indices`. Thus this
+    function reads one slice of each array for each run of adjacent kept rows. Above
+    `MAX_RUNS` runs, it selects the values by position, as the plain call does, which
+    makes fewer requests. A matrix in another encoding, such as CSC, uses the plain
+    call.
     """
     if not isinstance(node, zarr.Group):
         raise TypeError(f"{node.store_path} must be an encoded sparse matrix")
     arrays = [node[name] for name in ("data", "indices", "indptr")]
     if not all(isinstance(a, zarr.Array) for a in arrays):
         raise TypeError(f"{node.store_path} must hold data, indices, and indptr arrays")
-    data_array, indices_array, indptr_array = cast("list[zarr.Array[Any]]", arrays)
-    n_var = int(cast("list[int]", node.attrs["shape"])[1])
+    data, indices, indptr_node = cast("list[zarr.Array[Any]]", arrays)
+    n_vars = int(cast("list[int]", node.attrs["shape"])[1])
     if not len(keep):
-        return sp.csr_matrix((0, n_var), dtype=data_array.dtype)
+        return sp.csr_matrix((0, n_vars), dtype=data.dtype)
+    if node.attrs.get("encoding-type") != "csr_matrix":
+        return sp.csr_matrix(cast("sp.csr_matrix", sparse_dataset(node)[start + keep]))
+
     first, last = start + int(keep[0]), start + int(keep[-1])
-    indptr = np.asarray(indptr_array[first : last + 2])
-    local = keep - keep[0]
-    begins, lengths = indptr[local], indptr[local + 1] - indptr[local]
-    selection: slice | np.ndarray
-    if len(keep) == last - first + 1:
-        selection = slice(int(indptr[0]), int(indptr[-1]))
+    indptr = np.asarray(indptr_node[first : last + 2], dtype=np.int64)
+    local = keep - keep[0]  # the kept rows, as positions in `indptr`
+    begins = indptr[local]
+    row_nnz = indptr[local + 1] - begins
+
+    # A new run starts at each kept row that does not follow the kept row before it.
+    breaks = np.flatnonzero(np.diff(keep) != 1) + 1
+    if len(breaks) + 1 > MAX_RUNS:
+        # One position for each stored value of each kept row, as the plain call makes.
+        offsets = np.cumsum(row_nnz) - row_nnz
+        positions = np.arange(int(row_nnz.sum())) + np.repeat(begins - offsets, row_nnz)
+        kept_data, kept_indices = (np.asarray(a[positions]) for a in (data, indices))
     else:
-        offsets = np.cumsum(lengths) - lengths
-        selection = np.arange(int(lengths.sum())) + np.repeat(begins - offsets, lengths)
-    data = np.asarray(data_array[selection])
-    indices = np.asarray(indices_array[selection])
-    new_indptr = np.concatenate([[0], np.cumsum(lengths)])
-    return sp.csr_matrix((data, indices, new_indptr), shape=(len(keep), n_var))
+        runs = np.split(local, breaks)
+        spans = [slice(int(indptr[run[0]]), int(indptr[run[-1] + 1])) for run in runs]
+        # A zarr slice read blocks the thread that calls it, so one thread reads one
+        # span at a time. This pool keeps as many as RUN_THREADS spans of the store in
+        # flight. `get_anndata` calls this function from one thread for each dataset
+        # that it reads. Thus a query has no more than max_workers * RUN_THREADS span
+        # reads in flight. On 103 stores, the pool decreases the wall time of a query
+        # by 5 to 60 percent. It adds as much as 10 percent of CPU time.
+        with ThreadPoolExecutor(min(RUN_THREADS, 2 * len(spans))) as pool:
+            # `map` submits each read at once, so both arrays are in flight before the
+            # wait.
+            pending = [pool.map(array.__getitem__, spans) for array in (data, indices)]
+            kept_data, kept_indices = (
+                np.concatenate([np.asarray(part) for part in parts])
+                for parts in pending
+            )
+
+    return sp.csr_matrix(
+        (kept_data, kept_indices, np.r_[0, np.cumsum(row_nnz)]),
+        shape=(len(keep), n_vars),
+    )

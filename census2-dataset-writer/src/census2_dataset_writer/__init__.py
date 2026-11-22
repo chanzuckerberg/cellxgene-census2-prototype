@@ -151,6 +151,7 @@ from __future__ import annotations
 import contextlib
 import importlib.metadata
 import os
+import threading
 from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias, TypedDict, assert_never, cast
 
@@ -242,8 +243,9 @@ BLOCK_BYTES = 64 * 1024**2
 # encoding, the slot policy, and harmonization. Raise it when any of those
 # change, so that a receipt says which format its store holds. Nothing is keyed
 # on it: a store's location is its dataset version alone. v2 adds the fixed `obs`
-# schema, the Census 1 cell filters, `tissue_general`, the count statistics, and
-# the `measured` column of `var`.
+# schema, the Census 1 cell filters, `tissue_general`, the count statistics, the
+# `measured` column of `var`, and `X/indices` in the smallest unsigned integer
+# type that holds the gene count.
 RECIPE = "v2"
 
 # anndata 0.13 writes Zarr v3 by default. Recorded, so that a reader does not
@@ -933,6 +935,10 @@ def as_store(dest: StoreLike) -> StoreLike:
     return dest
 
 
+# Held while `write` changes the anndata settings of the process.
+_WRITE_LOCK = threading.Lock()
+
+
 def _thread_limit(threads: int | None) -> contextlib.AbstractContextManager[Any]:
     """Bound the dask threads to `threads`, or leave the default when None.
 
@@ -993,7 +999,18 @@ def write(
         )
     _require_unique(obs["observation_joinid"], "observation_joinid")
     store = as_store(dest)
-    with _thread_limit(threads):
+    # anndata widens the indices of a lazy sparse matrix to int64 before it
+    # writes them. With this setting anndata stores `X/indices` in the smallest
+    # unsigned type that holds the gene count, which is uint32 for the pinned
+    # references. A reader then decodes 4 bytes for each stored value, where
+    # int64 takes 8. The setting is process-wide, and the exit of one write
+    # turns it off for a concurrent write, so the lock lets one thread at a time
+    # write.
+    with (
+        _WRITE_LOCK,
+        _thread_limit(threads),
+        anndata.settings.override(write_csr_csc_indices_with_min_possible_dtype=True),
+    ):
         adata.write_zarr(store, consolidate_metadata=consolidate)
     root = zarr.open_group(store, mode="r+")
     root.update_attributes({SUMMARY_NAMESPACE: {SUMMARY_KEY: dict(summary)}})

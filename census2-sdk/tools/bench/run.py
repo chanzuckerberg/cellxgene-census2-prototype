@@ -19,11 +19,12 @@ holds the elapsed time of the catalog read and of the query, and the CPU time of
 the query (user and system). It also holds the number of datasets selected, of
 stores opened, and of cells, the reads and the payload, and the peak memory.
 
-`--reader` selects how a store opens. `sdk` is `census2_sdk.catalog.open_store`:
-a new obstore client for each store, and no Zarr format, so zarr looks for the
-metadata of both formats. `lean` gives `zarr_format=3` and shares one obstore
-client for each bucket. Both count the reads, and the SDK queries use the same
-open. `--processes` splits the stores of the corpus shapes over that many
+`--reader` selects how a store opens. `sdk` is `census2_sdk.catalog.open_store`,
+with no Zarr format, so zarr looks for the metadata of both formats. In an SDK
+query it shares one obstore client for each bucket, as `get_anndata` does; a
+corpus shape gives each store a client of its own. `lean` gives `zarr_format=3`
+and shares one obstore client for each bucket in every shape. Both count the
+reads. `--processes` splits the stores of the corpus shapes over that many
 processes, with `--workers` threads in all. The processes start, and import
 their modules, before the clock starts.
 
@@ -149,22 +150,22 @@ _BUCKETS: dict[str, CountingStore] = {}
 _BUCKETS_LOCK = threading.Lock()
 
 
-def open_counted(uri: str | os.PathLike[str]) -> zarr.Group:
+def open_counted(
+    uri: str | os.PathLike[str], bucket_clients: _catalog.Clients | None = None
+) -> zarr.Group:
     """Open a store through a counting store, by the open of `READER`.
 
-    `sdk` opens as `census2_sdk.catalog.open_store` does. `lean` opens with
-    `zarr_format=3`, and through one obstore client for each bucket.
+    `sdk` opens as `census2_sdk.catalog.open_store` does, with the client of the
+    store's bucket from `bucket_clients`. `lean` opens with `zarr_format=3`, and
+    through one obstore client for each bucket.
     """
     if READER == "lean":
         return open_lean(uri)
     if _catalog.is_remote(uri):
-        import obstore.store
-
-        base: Store = zarr.storage.ObjectStore(
-            obstore.store.from_url(str(uri)), read_only=True
-        )
-    else:
-        base = zarr.storage.LocalStore(str(uri), read_only=True)
+        bucket, path = _catalog.split_remote(str(uri)) or (str(uri), "")
+        base: Store = (bucket_clients or {}).get(bucket) or _catalog.client(bucket)
+        return zarr.open_group(CountingStore(base), path=path, mode="r")
+    base = zarr.storage.LocalStore(str(uri), read_only=True)
     return zarr.open_group(CountingStore(base), mode="r")
 
 
@@ -177,17 +178,12 @@ def open_lean(uri: str | os.PathLike[str]) -> zarr.Group:
     if not _catalog.is_remote(uri):
         local = CountingStore(zarr.storage.LocalStore(str(uri), read_only=True))
         return zarr.open_group(local, mode="r", zarr_format=3)
-    scheme, rest = str(uri).split("://", 1)
-    bucket, _, path = rest.partition("/")
+    bucket, path = _catalog.split_remote(str(uri)) or (str(uri), "")
     with _BUCKETS_LOCK:
         store = _BUCKETS.get(bucket)
         if store is None:
-            import obstore.store
-
-            client = obstore.store.from_url(f"{scheme}://{bucket}")
-            store = CountingStore(zarr.storage.ObjectStore(client, read_only=True))
-            _BUCKETS[bucket] = store
-    return zarr.open_group(store, path=path.rstrip("/"), mode="r", zarr_format=3)
+            store = _BUCKETS[bucket] = CountingStore(_catalog.client(bucket))
+    return zarr.open_group(store, path=path, mode="r", zarr_format=3)
 
 
 def read_obs(uri: str) -> int:

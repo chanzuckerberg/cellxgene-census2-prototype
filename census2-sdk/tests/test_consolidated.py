@@ -122,6 +122,36 @@ def test_one_open_serves_every_member(corpus: dict[str, Path]) -> None:
     assert lung.uns["census2"]["stores_opened"] == 1
 
 
+def test_consolidated_and_per_dataset_stores_share_the_client_of_their_bucket(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Remote URIs in one bucket name every store. A local store stands in for the
+    # obstore client of the bucket.
+    made: list[str] = []
+
+    def client(url: str) -> zarr.storage.LocalStore:
+        made.append(url)
+        return zarr.storage.LocalStore(corpus["root"], read_only=True)
+
+    monkeypatch.setattr(catalog, "client", client)
+    local = census2_sdk.open_census([corpus["catalog"]]).get_anndata("homo_sapiens")
+    census = census2_sdk.open_census([corpus["catalog"]])
+    root = corpus["root"]
+    for column in ("store_uri", "consolidated_store_uri"):
+        census.catalog[column] = [
+            None if pd.isna(u) else f"s3://a/{Path(u).relative_to(root)}"
+            for u in census.catalog[column]
+        ]
+    remote = census.get_anndata("homo_sapiens", max_workers=2)
+    assert made == ["s3://a"]
+    assert remote is not None and local is not None
+    assert remote.uns["census2"]["stores_opened"] == 2
+    pd.testing.assert_frame_equal(
+        cast("pd.DataFrame", remote.obs), cast("pd.DataFrame", local.obs)
+    )
+    assert np.array_equal(X(remote).toarray(), X(local).toarray())
+
+
 def test_a_member_keeps_the_categories_of_its_store(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     result = census.get_anndata("homo_sapiens", {"dataset_id": "ds-c"})

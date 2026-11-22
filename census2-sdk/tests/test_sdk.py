@@ -10,7 +10,7 @@ reference genes, so the others are zero columns.
 import shutil
 import threading
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import anndata
 import build_catalog
@@ -295,6 +295,59 @@ def test_concurrent_reads_match_one_at_a_time(
     assert many.uns["census2"] == one.uns["census2"]
 
 
+def test_stores_in_one_bucket_share_one_client(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Remote URIs in two buckets name the three stores. A local store stands in for
+    # the obstore client of each bucket.
+    made: list[str] = []
+
+    def client(url: str) -> zarr.storage.LocalStore:
+        made.append(url)
+        return zarr.storage.LocalStore(corpus["root"], read_only=True)
+
+    monkeypatch.setattr(catalog, "client", client)
+    obs_filter = {"tissue": ["lung", "kidney"]}  # selects all three stores
+    local = query(census2_sdk.open_census([corpus["catalog"]]), obs_filter)
+    census = census2_sdk.open_census([corpus["catalog"]])
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [
+        f"s3://{'a' if i else 'b'}/out/{name}" for i, name in enumerate(names)
+    ]
+    remote = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
+    assert sorted(made) == ["s3://a", "s3://b"]  # one client for each bucket
+    assert remote is not None
+    pd.testing.assert_frame_equal(
+        cast("pd.DataFrame", remote.obs), cast("pd.DataFrame", local.obs)
+    )
+    assert np.array_equal(X(remote).toarray(), X(local).toarray())
+
+
+@pytest.mark.parametrize(
+    ("uri", "split"),
+    [
+        ("s3://bucket/out/v-1.zarr/", ("s3://bucket", "out/v-1.zarr")),
+        ("gs://bucket/a.zarr", ("gs://bucket", "a.zarr")),
+        ("az://container/a.zarr", ("az://container", "a.zarr")),
+        ("s3://bucket", ("s3://bucket", "")),
+        ("s3://bucket/", ("s3://bucket", "")),
+        # These URIs keep a client of their own, which reads them as obstore does.
+        ("https://account.blob.core.windows.net/container/a.zarr", None),
+        ("abfs://container@account.dfs.core.windows.net/a.zarr", None),
+        ("s3://bucket/a.zarr?versionId=1", None),
+        ("s3://bucket/a%20b.zarr", None),
+        ("s3://bucket/%FF.zarr", None),
+        ("s3://bucket/a\\b.zarr", None),
+        ("s3://bucket/a/../b.zarr", None),
+        ("s3://bucket/a//b.zarr", None),
+        ("s3://bucket//", None),
+        ("s3://user@bucket/a.zarr", None),
+    ],
+)
+def test_split_remote(uri: str, split: tuple[str, str] | None) -> None:
+    assert catalog.split_remote(uri) == split
+
+
 @pytest.mark.parametrize("max_workers", [0, -1])
 def test_max_workers_must_be_positive(
     corpus: dict[str, Path], max_workers: int
@@ -446,8 +499,51 @@ def test_obs_index_is_not_read(
     monkeypatch.setattr(census2_sdk, "read_elem", spy)
     query(census2_sdk.open_census([corpus["catalog"]]), {"tissue": "lung"})
     # A read of the whole group would decode the index too.
-    assert "/obs/tissue" in names
+    assert "/obs/dataset_id" in names
     assert not {"/obs", "/obs/_index", "/obs/observation_joinid"} & set(names)
+
+
+@pytest.mark.parametrize("unused", [False, True])
+def test_categories_come_from_the_catalog_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, unused: bool
+) -> None:
+    """A listed column reads only its codes, and equals the column that anndata reads.
+
+    A store with a category that the row does not list keeps anndata's read.
+    """
+    adata = make_store("ds-c", 8, REFERENCE_IDS[:3], ["lung"], ["normal"], 4)
+    values = ["lung", "kidney", None, "lung", "heart", None, "kidney", "lung"]
+    tissue = pd.Categorical(values)
+    adata.obs["tissue"] = tissue.add_categories(["liver"]) if unused else tissue
+    path = one_store_catalog(tmp_path, adata, "ds-c")
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    result = census2_sdk.open_census([path]).get_anndata("homo_sapiens")
+    assert result is not None
+    assert ("/obs/tissue" in names) == unused
+    assert "/obs/disease" not in names
+    store = zarr.open_group(tmp_path / "out" / "v-ds-c.zarr", mode="r")
+    stored = cast("pd.DataFrame", read_elem(store["obs"]))
+    for column in ("tissue", "disease"):
+        pd.testing.assert_extension_array_equal(
+            result.obs[column].array, stored[column].array
+        )
+    assert int(result.obs["tissue"].isna().sum()) == 2
+
+
+def test_catalog_refuses_unsorted_categories(tmp_path: Path) -> None:
+    """The SDK takes the categories from the row, so the row needs the writer's order."""
+    adata = make_store("ds-u", 4, REFERENCE_IDS[:3], ["lung"], ["normal"], 5)
+    adata.obs["tissue"] = pd.Categorical(
+        ["lung", "kidney", "lung", "kidney"], categories=["lung", "kidney"]
+    )
+    with pytest.raises(ValueError, match="tissue: the categories are not sorted"):
+        one_store_catalog(tmp_path, adata, "ds-u")
 
 
 @pytest.mark.parametrize(
@@ -493,6 +589,41 @@ def test_cell_key_checked_on_kept_cells(
             census.get_anndata("homo_sapiens", {"tissue": tissue})
 
 
+@pytest.mark.parametrize("na_value", [pd.NA, np.nan])
+@pytest.mark.parametrize("old_pyarrow", [False, True])
+def test_string_rows_equal_the_anndata_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, na_value: Any, old_pyarrow: bool
+) -> None:
+    """The pyarrow route gives the array that `read_elem` gives, nulls included.
+
+    `old_pyarrow` forces the object route that pyarrow before 26 takes.
+    """
+    import pyarrow as pa  # type: ignore[import-untyped]  # pyarrow has no types
+
+    root = zarr.open_group(tmp_path / "s.zarr", mode="w")
+    keys = pd.array(["k", "l", None, "m", "n"], dtype=pd.StringDtype(na_value=na_value))
+    write_elem(root, "key", keys)
+    node = root["key"]
+    assert node.attrs["encoding-type"] == "nullable-string-array"
+    if old_pyarrow:
+        real = pa.array
+
+        def refuse(values: Any, **kwargs: Any) -> Any:
+            if values.dtype != object:
+                raise pa.ArrowNotImplementedError("Unsupported numpy type")
+            return real(values, **kwargs)
+
+        monkeypatch.setattr(pa, "array", refuse)
+    rows = np.array([0, 2, 3])
+    got = census2_sdk._read_column_rows(node, rows)
+    monkeypatch.undo()
+    want: Any = read_elem(node)
+    assert got.dtype == want.dtype
+    assert type(got) is type(want[rows])
+    assert pd.Series(got).equals(pd.Series(want[rows]))
+    assert pd.isna(got[1])
+
+
 def test_malformed_store_refused(tmp_path: Path) -> None:
     """A store node of the wrong kind raises a TypeError that names the node.
 
@@ -510,6 +641,69 @@ def test_malformed_store_refused(tmp_path: Path) -> None:
         census2_sdk._read_column_rows(key, np.array([0]))
     with pytest.raises(ValueError, match="needs feature_length"):
         census2_sdk.normalize.normalized(sp.csr_matrix([[1]]), np.array([True]), None)
+
+
+@pytest.mark.parametrize(
+    ("fmt", "max_runs", "row_reads", "by_position"),
+    [
+        ("csr", census2_sdk.MAX_RUNS, 0, 0),
+        ("csr", 3, 0, 1),
+        ("csc", census2_sdk.MAX_RUNS, 3, 0),
+    ],
+)
+@pytest.mark.parametrize("start", [0, 5])
+def test_rows_read_runs_as_ranges(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fmt: Literal["csr", "csc"],
+    max_runs: int,
+    row_reads: int,
+    by_position: int,
+    start: int,
+) -> None:
+    """Each selection equals the matrix rows from row `start`, as a member read starts.
+
+    A CSR read takes `indptr` from the first to the last kept row only, and one slice
+    of `data` for each run. Above MAX_RUNS runs, it selects the values by position.
+    A CSC matrix uses anndata's row read.
+    """
+    x = sp.random(50, 7, density=0.3, format="csr", dtype="float32", random_state=0)
+    group = zarr.open_group(tmp_path / "x.zarr", mode="w")
+    anndata.io.write_elem(group, "X", x.asformat(fmt))
+    monkeypatch.setattr(census2_sdk, "MAX_RUNS", max_runs)
+    calls: list[Any] = []
+
+    def spy(node: Any) -> Any:
+        calls.append(node)
+        return anndata.io.sparse_dataset(node)
+
+    monkeypatch.setattr(census2_sdk, "sparse_dataset", spy)
+    reads: list[tuple[str, Any]] = []
+    getitem = zarr.Array.__getitem__
+
+    def record(array: zarr.Array[Any], selection: Any) -> Any:
+        reads.append((array.basename, selection))
+        return getitem(array, selection)
+
+    monkeypatch.setattr(zarr.Array, "__getitem__", record)
+    dense = x.toarray()
+    positions = 0
+    for keep in ([], [3], list(range(10, 20)), [0, 1, 2, 9, 30, 31, 44]):
+        reads.clear()
+        rows = np.array(keep, dtype=np.int64)
+        got = census2_sdk._rows(group["X"], rows, start)
+        assert got.shape == (len(rows), 7) and np.array_equal(
+            got.toarray(), dense[start + rows]
+        )
+        if fmt == "csr" and keep:
+            indptr = [s for name, s in reads if name == "indptr"]
+            assert indptr == [slice(start + keep[0], start + keep[-1] + 2)]
+            data = [s for name, s in reads if name == "data"]
+            positions += sum(isinstance(s, np.ndarray) for s in data)
+    # Only the last selection has more than 3 runs (4). A CSC matrix uses the row
+    # read for each selection that is not empty.
+    assert len(calls) == row_reads
+    assert positions == by_position
 
 
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:

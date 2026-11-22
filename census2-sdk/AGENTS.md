@@ -8,8 +8,6 @@ This file records the sharp edges of the code, and the scaffolding that the writ
 
 ## Prototype scaffolding
 
-The `ponytail:` comments in the code mark the list columns.
-
 - The catalog holds the distinct values of each indexed column as a list of strings. The bitmaps of
   design 2.2 replace the lists when the catalog size matters.
 - The catalog holds no numeric ranges and the filter accepts no numeric column. The stores hold no
@@ -60,7 +58,9 @@ does not remap genes.
 The SDK reads a row range of a store, because a consolidated store holds several datasets and a
 query reads only the rows of the selected ones. A per-dataset store is the range of all its rows, so
 one read path serves both kinds of store. For all the rows of a store, `_obs_rows` reads each `obs`
-column whole with `read_elem`. For part of the rows, it reads the row range of each column, with the
+column whole with `_read_obs_column`: a categorical column that the catalog row lists reads only its
+codes and takes its categories from the row, and another column reads with `read_elem`. For part of
+the rows, it reads the row range of each column, with the
 type that `read_elem` gives the column, because anndata 0.13 has no public partial read of a
 dataframe. `anndata.experimental.read_elem_lazy` reads a dataframe lazily, but needs xarray. A
 categorical column keeps only the categories that its rows use: in a consolidated store, that gives
@@ -69,11 +69,10 @@ was read. `read_lazy` is not used because it does not round-trip in anndata 0.13
 `AGENTS.md`).
 
 `anndata.io.sparse_dataset` over a CSR group reads the full `indptr`, which in a consolidated store
-holds every member's rows, so `_rows` reads `X` itself: `indptr` from the first to the last
-selected row, then the `data` and `indices` of the selected rows. When the selected rows follow one
-another, that is one slice; otherwise it is one integer selection of every selected stored value, as
-anndata's row read makes. A read of runs of kept rows as ranges, one range for each run, would
-generalize the slice; a member read would then pass row numbers from `row_start`.
+holds every member's rows. Thus `_rows` reads `X` itself, with row numbers from the first row of the
+dataset: `indptr` from the first to the last kept row, then one range of `data` and `indices` for
+each run of adjacent kept rows. Above `MAX_RUNS` runs, it makes one selection by position of every
+kept stored value, as anndata's row read makes, over the same part of `indptr`.
 
 `get_anndata` opens each store once, then reads each selected dataset. Both steps use the thread
 pool of `max_workers`. A read does not wait for another task of the pool, so the two steps cannot
@@ -83,8 +82,8 @@ store, whose columns are sharded, a partial read of a column costs a round trip 
 and one for the data.
 
 Opening a store parses its Zarr consolidated metadata, about 100 KB of JSON for a store of either
-kind. `catalog.open_store` makes a new obstore client for each store, and zarr reads the metadata of
-both Zarr formats when the format is not given, so an open makes 4 requests. See
+kind. `get_anndata` shares one obstore client for each bucket (`catalog.clients`). zarr reads the
+metadata of both Zarr formats when the format is not given, so an open makes 4 requests. See
 `spikes/store-consolidation.md` for what that costs, and what a leaner open changes.
 
 zarr has no S3 client. A remote URI goes through `zarr.storage.ObjectStore` over `obstore`, as in
