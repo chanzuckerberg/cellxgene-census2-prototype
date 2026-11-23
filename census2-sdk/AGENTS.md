@@ -79,7 +79,10 @@ pool of `max_workers`. A read does not wait for another task of the pool, so the
 deadlock it. Each read of a dataset also reads its `obs` columns at the same time, with up to
 `OBS_THREADS` threads of its own pool. Each column is a read of its own, and in a consolidated
 store, whose columns are sharded, a partial read of a column costs a round trip for the shard index
-and one for the data.
+and one for the data. When the selected datasets hold at least `WHOLE_STORE_SHARE` of a
+consolidated store's rows, the open reads the needed `obs` columns of the store whole into
+`_Opened.preloaded`, and each member cuts its rows from memory. The store's columns then stay in
+memory until the query ends.
 
 Opening a store parses its Zarr consolidated metadata, about 100 KB of JSON for a store of either
 kind. `get_anndata` shares one obstore client for each bucket (`catalog.clients`). zarr reads the

@@ -78,10 +78,21 @@ def test_catalog_names_the_consolidated_store(corpus: dict[str, Path]) -> None:
     assert frame.loc["ds-a", "store_uri"] == str(corpus["prefix"] / "v-ds-a.zarr")
 
 
+@pytest.fixture(params=["whole", "members"])
+def store_read(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> str:
+    """Read each consolidated store whole, or each member's rows apart."""
+    share = 0.0 if request.param == "whole" else 2.0
+    monkeypatch.setattr(census2_sdk, "WHOLE_STORE_SHARE", share)
+    return str(request.param)
+
+
 @pytest.mark.parametrize("obs_filter", FILTERS)
 @pytest.mark.parametrize("max_workers", [1, 4])
 def test_consolidated_reads_equal_per_dataset_reads(
-    corpus: dict[str, Path], obs_filter: dict[str, Any], max_workers: int
+    corpus: dict[str, Path],
+    obs_filter: dict[str, Any],
+    max_workers: int,
+    store_read: str,
 ) -> None:
     fast = census2_sdk.open_census([corpus["catalog"]])
     slow = census2_sdk.open_census([corpus["catalog"]], consolidated=False)
@@ -114,11 +125,30 @@ def test_consolidated_reads_equal_per_dataset_reads(
 @pytest.mark.parametrize("obs_filter", FILTERS)
 @pytest.mark.parametrize("column_names", [None, ["disease", "dataset_id", "tissue"]])
 def test_get_obs_from_consolidated_stores_equals_per_dataset(
-    corpus: dict[str, Path], obs_filter: dict[str, Any], column_names: Any
+    corpus: dict[str, Path],
+    obs_filter: dict[str, Any],
+    column_names: Any,
+    store_read: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    read: list[Any] = []
+    read_whole = census2_sdk._read_whole
+
+    def spy(node: Any) -> Any:
+        read.append(node)
+        return read_whole(node)
+
+    monkeypatch.setattr(census2_sdk, "_read_whole", spy)
     fast = census2_sdk.open_census([corpus["catalog"]])
     slow = census2_sdk.open_census([corpus["catalog"]], consolidated=False)
     got = fast.get_obs("homo_sapiens", obs_filter, column_names=column_names)
+    # The consolidated store holds ds-a and ds-b; a store read whole reads only the
+    # columns that the query needs.
+    selects_a_member = not (obs_filter.get("dataset_id") in ("ds-c", ["ds-c"]))
+    assert bool(read) == (store_read == "whole" and selects_a_member)
+    if column_names is not None and read:
+        needed = {*column_names, *obs_filter, "dataset_id", "observation_joinid"}
+        assert {node.basename for node in read} == needed
     want = slow.get_obs(
         "homo_sapiens", obs_filter, column_names=column_names, max_workers=4
     )

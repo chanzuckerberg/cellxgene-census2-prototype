@@ -60,8 +60,11 @@ datasets in one store, with the rows of its dataset there (`consolidated_store_u
 the consolidated store, and opens each store once for all of its selected datasets.
 Exclusion stays per dataset, so a consolidated store opens only when one of its
 datasets can match. The SDK reads only the rows of the selected datasets, and the
-result is the result of the per-dataset stores. `open_census(..., consolidated=False)`
-reads the per-dataset stores, which stay the primary copy.
+result is the result of the per-dataset stores. When the selected datasets hold at
+least `WHOLE_STORE_SHARE` of the rows of a consolidated store, the SDK reads the `obs`
+columns of that store whole, once, and cuts each dataset's rows from memory.
+`open_census(..., consolidated=False)` reads the per-dataset stores, which stay the
+primary copy.
 """
 
 import os
@@ -229,8 +232,14 @@ class Census:
             obs = _read_obs(opened[r.uri], r, canonical, column_names)[0]
             return anndata.AnnData(obs=obs)
 
+        key = "observation_joinid"
+        columns = (
+            None
+            if column_names is None
+            else {*column_names, *canonical, "dataset_id", key}
+        )
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            opened = _open_stores(reads, pool, with_var=False)
+            opened = _open_stores(reads, pool, with_var=False, columns=columns)
             parts = list(pool.map(read, reads))
         if not sum(part.n_obs for part in parts):
             return None
@@ -448,7 +457,8 @@ class _Opened:
     """One open store, and what all of its datasets share.
 
     `var` holds only the index, or is None when the query reads no `X`. `n_obs` is
-    the number of rows of the store.
+    the number of rows of the store. `preloaded` holds the `obs` columns of a
+    consolidated store that the open read whole (`_read_whole`).
     `categories` holds the categories of each categorical `obs` column of a
     consolidated store, read once for all the datasets of the store.
     """
@@ -458,6 +468,7 @@ class _Opened:
     var: pd.DataFrame | None
     n_obs: int
     categories: dict[str, pd.Index] = field(default_factory=dict)
+    preloaded: dict[str, Any] = field(default_factory=dict)
 
 
 def _reads(rows: pd.DataFrame, consolidated: bool) -> list[_Read]:
@@ -487,20 +498,42 @@ def _group(parent: zarr.Group, name: str, uri: str, kind: str) -> zarr.Group:
     return node
 
 
+# A consolidated store reads its `obs` columns whole, once, when the selected datasets
+# hold at least this share of its rows. A member read then cuts its rows from memory.
+# Otherwise each member reads its own rows, and each partial read of a sharded array
+# also reads the shard index. The share is a first guess, not a measured optimum.
+WHOLE_STORE_SHARE = 0.5
+
+
 def _open_stores(
-    reads: list[_Read], pool: ThreadPoolExecutor, *, with_var: bool
+    reads: list[_Read],
+    pool: ThreadPoolExecutor,
+    *,
+    with_var: bool,
+    columns: set[str] | None = None,
 ) -> dict[str, _Opened]:
     """Open each store of `reads` once, in order, with the threads of `pool`.
 
     The stores of one bucket share one obstore client (`catalog.clients`). `with_var`
-    reads the var index of each store, which `get_anndata` compares.
+    reads the var index of each store, which `get_anndata` compares. `columns` names
+    the `obs` columns that the query reads, or None for all of them.
     """
     uris = list(dict.fromkeys(r.uri for r in reads))
-    consolidated = {r.uri for r in reads if r.rows is not None}
+    selected: dict[str, int] = {}
+    for r in reads:
+        if r.rows is not None:
+            selected[r.uri] = selected.get(r.uri, 0) + r.rows[1] - r.rows[0]
     bucket_clients = _catalog.clients(uris)
 
     def one(uri: str) -> _Opened:
-        return _open(uri, uri in consolidated, bucket_clients, with_var=with_var)
+        return _open(
+            uri,
+            uri in selected,
+            bucket_clients,
+            with_var=with_var,
+            selected_rows=selected.get(uri, 0),
+            columns=columns,
+        )
 
     return dict(zip(uris, pool.map(one, uris), strict=True))
 
@@ -511,6 +544,8 @@ def _open(
     bucket_clients: _catalog.Clients | None = None,
     *,
     with_var: bool = True,
+    selected_rows: int = 0,
+    columns: set[str] | None = None,
 ) -> _Opened:
     """Open a store, and read what its datasets share: the var index, and categories.
 
@@ -519,6 +554,10 @@ def _open(
     rows comes from the attributes of `X`, which the open already read. The
     categories of a consolidated store's `obs` columns serve each member's read.
     `bucket_clients` holds the obstore clients of the query (`catalog.clients`).
+
+    When the selected datasets of a consolidated store hold `selected_rows` of its
+    rows, at least `WHOLE_STORE_SHARE` of them, the open also reads the `obs`
+    columns that the query needs (`columns`, or all) whole, into `preloaded`.
     """
     group = open_store(uri, bucket_clients)
     var = None
@@ -543,14 +582,41 @@ def _open(
         node = _group(obs, name, uri, "an encoded categorical")
         return cast("pd.Index", pd.Index(np.asarray(read_elem(node["categories"]))))
 
+    whole = [
+        name
+        for name in names
+        if selected_rows >= WHOLE_STORE_SHARE * opened.n_obs
+        and (columns is None or name in columns)
+    ]
     # Each column is a read of its own, so read them at the same time, as `_obs_rows`
     # reads the columns of a dataset.
-    threads = max(1, min(len(categorical), OBS_THREADS))
+    threads = max(1, min(len(categorical) + len(whole), OBS_THREADS))
     with ThreadPoolExecutor(max_workers=threads) as pool:
-        opened.categories = dict(
-            zip(categorical, pool.map(categories, categorical), strict=True)
-        )
+        pending = pool.map(categories, categorical)
+        preloaded = pool.map(lambda name: _read_whole(obs[name]), whole)
+        opened.categories = dict(zip(categorical, pending, strict=True))
+        opened.preloaded = dict(zip(whole, preloaded, strict=True))
     return opened
+
+
+def _read_whole(node: zarr.Array[Any] | zarr.Group) -> Any:
+    """One `obs` column read whole, in the form that `_column_rows` cuts rows from.
+
+    That is the array of an array column, the codes of a categorical column, and the
+    values and the mask of a nullable string column. Another encoding reads with
+    `read_elem`.
+    """
+    kind = _encoding(node)
+    if isinstance(node, zarr.Array) and kind in ("array", "string-array"):
+        return node[:]
+    if isinstance(node, zarr.Group) and kind == "categorical":
+        return np.asarray(cast("zarr.Array[Any]", node["codes"])[:])
+    if isinstance(node, zarr.Group) and kind == "nullable-string-array":
+        values, mask = node["values"], node["mask"]
+        if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
+            raise TypeError(f"{node.store_path} must hold a values and a mask array")
+        return np.asarray(values[:]), np.asarray(mask[:])
+    return read_elem(node)
 
 
 def _encoding(node: zarr.Array[Any] | zarr.Group) -> str:
@@ -623,7 +689,9 @@ def _read_obs(
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
     if key in columns:
-        obs[key] = _read_column_rows(obs_group[key], start + keep)
+        obs[key] = _read_column_rows(
+            obs_group[key], start + keep, opened.preloaded.get(key)
+        )
     _check_cell_key(obs, where)
     # pandas gives the index the name of the key column. `write_h5ad` refuses an
     # index name that is also a column with other values, so the index has no name.
@@ -700,14 +768,17 @@ def _column_rows(
 
     The encodings that anndata writes for the store's column types read in part:
     categorical, array, string array, and nullable string array. Another encoding
-    reads whole, and then the rows are cut from it.
+    reads whole, and then the rows are cut from it. A column that the open read
+    whole (`opened.preloaded`) cuts the rows from memory.
     """
     node = group[name]
     kind = _encoding(node)
+    held = opened.preloaded.get(name)
     if isinstance(node, zarr.Array) and kind in ("array", "string-array"):
-        return node[start:stop]
+        return node[start:stop] if held is None else held[start:stop]
     if isinstance(node, zarr.Group) and kind == "categorical":
-        codes = np.asarray(cast("zarr.Array[Any]", node["codes"])[start:stop])
+        source = cast("zarr.Array[Any]", node["codes"]) if held is None else held
+        codes = np.asarray(source[start:stop])
         categories = opened.categories[name]
         used = np.unique(codes[codes >= 0])
         # Renumber the codes over the used categories. A null keeps the code -1,
@@ -720,9 +791,9 @@ def _column_rows(
             ordered=bool(node.attrs.get("ordered", False)),
         )
     if isinstance(node, zarr.Group) and kind == "nullable-string-array":
-        return _read_column_rows(node, np.arange(start, stop))
+        return _read_column_rows(node, np.arange(start, stop), held)
     # `read_elem` is typed for every element kind; here it is an array.
-    return cast("Any", read_elem(node))[start:stop]
+    return cast("Any", read_elem(node) if held is None else held)[start:stop]
 
 
 def _read_var(store_uri: str, bucket_clients: _catalog.Clients) -> pd.DataFrame:
@@ -798,12 +869,16 @@ def _check_dataset_id(obs: pd.DataFrame, dataset_id: str, store_uri: str) -> Non
         )
 
 
-def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> Any:
+def _read_column_rows(
+    node: zarr.Array[Any] | zarr.Group, rows: np.ndarray, held: Any = None
+) -> Any:
     """The values of one `obs` column at the row positions `rows`.
 
     For a nullable string column, the SDK makes strings for these rows only. The
     dtype is the one that `anndata` reads for the same column. The SDK builds the
     pandas array through pyarrow, which is faster than the pandas conversion.
+    `held` is the values and the mask of a nullable string column that the open
+    read whole (`_read_whole`), if any.
     """
     if node.attrs.get("encoding-type") != "nullable-string-array":
         return pd.array(cast("Any", read_elem(node)))[rows]
@@ -813,14 +888,17 @@ def _read_column_rows(node: zarr.Array[Any] | zarr.Group, rows: np.ndarray) -> A
     dtype = pd.StringDtype(na_value=na_value)
     if not rows.size:
         return pd.array([], dtype=dtype)
-    values, mask = node["values"], node["mask"]
-    if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
-        raise TypeError(f"{node.store_path} must hold a values and a mask array")
     # One run of rows reads as a slice, which zarr reads faster than a selection.
     contiguous = rows[-1] - rows[0] + 1 == rows.size
     selection: Any = slice(int(rows[0]), int(rows[-1]) + 1) if contiguous else rows
-    strings = np.asarray(values.oindex[selection])
-    nulls = np.asarray(mask.oindex[selection])
+    if held is not None:
+        strings, nulls = held[0][selection], held[1][selection]
+    else:
+        values, mask = node["values"], node["mask"]
+        if not (isinstance(values, zarr.Array) and isinstance(mask, zarr.Array)):
+            raise TypeError(f"{node.store_path} must hold a values and a mask array")
+        strings = np.asarray(values.oindex[selection])
+        nulls = np.asarray(mask.oindex[selection])
     try:
         arrow = pa.array(strings, mask=nulls)
     except pa.ArrowNotImplementedError:
