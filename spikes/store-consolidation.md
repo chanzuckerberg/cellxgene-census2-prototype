@@ -4,6 +4,7 @@ This file records the store consolidation spike on the branch `spike/store-compa
 built, what it measured, and what it found. The branch is a running-code reference and is not
 intended to merge in its current form. The draft pull request gives the summary; this file holds
 the details and the experience for a person or an agent who returns to this direction.
+`store-consolidation-full-scale.md` holds the round on the 1,258 stores of the full corpus.
 
 Consolidation writes a consolidated store: a lossless second copy of several small per-dataset
 stores in one store. The per-dataset stores stay, unchanged, as the primary copy. The design
