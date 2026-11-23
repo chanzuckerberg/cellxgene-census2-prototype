@@ -10,9 +10,11 @@ an earlier run. The shapes are:
   copies are not part of that share.
 - `filter`: `get_anndata` for the filter that `--filter` gives as JSON.
 - `obs`: `get_obs` for `--organism`, every column, with the filter of `--filter` if
-  given. Without a filter, this is the whole `obs` of the organism. `--digest` adds a
-  digest of the frame to the record, after the clock stops, so that two
-  configurations can show the same result.
+  given. Without a filter, this is the whole `obs` of the organism.
+
+`--digest` adds a digest of the result to the record, after the clock stops, so that
+two configurations can show the same result: of each `obs` column and the index for
+`obs`, and of `X` too for the `get_anndata` shapes.
 - `open`: open every store of the catalog and read nothing more.
 - `corpus_obs`: open every store and read its whole `obs`.
 - `corpus_x`: open every store and read all of `X`, one shard at a time, and keep
@@ -398,6 +400,17 @@ def frame_digest(frame: pd.DataFrame) -> dict[str, str]:
     return out
 
 
+def anndata_digest(adata: anndata.AnnData) -> dict[str, str]:
+    """`frame_digest` of `obs`, and a SHA-256 of `X` as CSR data, indices, and indptr."""
+    out = frame_digest(cast("pd.DataFrame", adata.obs))
+    x = cast("Any", adata.X)
+    digest = hashlib.sha256(str(x.dtype).encode())
+    for part in (x.data, x.indices.astype("int64"), x.indptr.astype("int64")):
+        digest.update(part.tobytes())
+    out["X"] = digest.hexdigest()[:16]
+    return out
+
+
 def run(
     catalog: str,
     shape: str,
@@ -459,6 +472,16 @@ def run(
                 in_concat[0] += time.monotonic() - start
 
         anndata.concat = timed_concat
+        # The count of obs columns that the SDK reads whole from consolidated stores.
+        # An SDK without the whole read has no `_read_whole`.
+        read_whole, whole_columns = getattr(census2_sdk, "_read_whole", None), [0]
+        if read_whole is not None:
+
+            def counted_whole(node: Any) -> Any:
+                whole_columns[0] += 1
+                return read_whole(node)
+
+            census2_sdk.__dict__["_read_whole"] = counted_whole
         user, system = cpu_seconds()
         try:
             result: pd.DataFrame | anndata.AnnData | None = (
@@ -470,8 +493,11 @@ def run(
             census2_sdk.__dict__["open_store"] = original
             _catalog.open_store = original
             anndata.concat = concat
+            if read_whole is not None:
+                census2_sdk.__dict__["_read_whole"] = read_whole
         t2 = time.monotonic()
         record["concat_seconds"] = round(in_concat[0], 3)
+        record["whole_columns"] = whole_columns[0]
         end_user, end_system = cpu_seconds()
         cpu = {"cpu_user": end_user - user, "cpu_sys": end_system - system}
         selected = _catalog.exclude(
@@ -488,6 +514,8 @@ def run(
             record["cells"] = (
                 int(result.n_obs) if isinstance(result, anndata.AnnData) else 0
             )
+            if digest and isinstance(result, anndata.AnnData):
+                record["digest"] = anndata_digest(result)
     elif processes > 1:
         uris = serving_uris(rows, per_dataset)
         total, start, t2 = read_corpus_processes(shape, uris, workers, processes)
@@ -543,7 +571,7 @@ def main() -> int:
         "--organism", default="homo_sapiens", help="the organism of the queries"
     )
     p.add_argument(
-        "--digest", action="store_true", help="digest the frame of the obs shape"
+        "--digest", action="store_true", help="digest the result, after the clock stops"
     )
     args = p.parse_args()
     if args.processes > 1 and args.shape not in CORPUS_READS:

@@ -120,6 +120,15 @@ def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> 
     assert record["mb_payload"] > 0
 
 
+def test_filter_digest_covers_x(stores: Path) -> None:
+    catalog = str(stores / "catalog.parquet")
+    obs_filter = {"cell_type": "T cell"}
+    one = run.run(catalog, "filter", 1, None, obs_filter=obs_filter, digest=True)
+    two = run.run(catalog, "filter", 2, None, obs_filter=obs_filter, digest=True)
+    assert one["digest"] == two["digest"] and "X" in one["digest"]
+    assert one["whole_columns"] == 0  # no consolidated store in this catalog
+
+
 def test_obs_digest_follows_the_values(stores: Path) -> None:
     catalog = str(stores / "catalog.parquet")
     one = run.run(catalog, "obs", 1, None, digest=True)
