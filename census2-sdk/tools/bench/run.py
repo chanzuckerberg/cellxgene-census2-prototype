@@ -447,6 +447,18 @@ def run(
         original = _catalog.open_store
         census2_sdk.__dict__["open_store"] = open_counted
         _catalog.open_store = open_counted
+        # The time in `anndata.concat` splits the query into the reads of the stores
+        # and the concatenation of their parts.
+        concat, in_concat = anndata.concat, [0.0]
+
+        def timed_concat(*args: Any, **kwargs: Any) -> Any:
+            start = time.monotonic()
+            try:
+                return concat(*args, **kwargs)
+            finally:
+                in_concat[0] += time.monotonic() - start
+
+        anndata.concat = timed_concat
         user, system = cpu_seconds()
         try:
             result: pd.DataFrame | anndata.AnnData | None = (
@@ -457,7 +469,9 @@ def run(
         finally:
             census2_sdk.__dict__["open_store"] = original
             _catalog.open_store = original
+            anndata.concat = concat
         t2 = time.monotonic()
+        record["concat_seconds"] = round(in_concat[0], 3)
         end_user, end_system = cpu_seconds()
         cpu = {"cpu_user": end_user - user, "cpu_sys": end_system - system}
         selected = _catalog.exclude(
