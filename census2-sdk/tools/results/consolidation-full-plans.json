@@ -1,0 +1,68 @@
+{
+ "corpus": {
+  "stores": 1258,
+  "cells": 202636280,
+  "bytes": 939514526118,
+  "ingest_run": "census1-lts-full-v3 (main at 2ab7c32)"
+ },
+ "plans": {
+  "halve": {
+   "small_mib": 256,
+   "target_mib": 1024,
+   "max_members": 64,
+   "strategy": "size",
+   "stores_after": 578,
+   "groups": 61,
+   "members": 741,
+   "groups_written": 61,
+   "groups_checked_ok": 61,
+   "cells_in_groups": 15788920,
+   "output_bytes": 63823291833,
+   "task_minutes": 238.4,
+   "max_task_minutes": 5.6,
+   "max_peak_rss_gib": 1.48,
+   "max_members_in_group": 64,
+   "max_cells_in_group": 430274,
+   "copy_share_of_corpus": 0.068
+  },
+  "t3": {
+   "small_mib": 3072,
+   "target_mib": 3072,
+   "max_members": 64,
+   "strategy": "size",
+   "stores_after": 203,
+   "groups": 142,
+   "members": 1197,
+   "groups_written": 142,
+   "groups_checked_ok": 142,
+   "cells_in_groups": 99171333,
+   "output_bytes": 455856061747,
+   "task_minutes": 1249.4,
+   "max_task_minutes": 11.4,
+   "max_peak_rss_gib": 1.74,
+   "max_members_in_group": 64,
+   "max_cells_in_group": 1574372,
+   "copy_share_of_corpus": 0.485
+  },
+  "t8": {
+   "small_mib": 8192,
+   "target_mib": 8192,
+   "max_members": 64,
+   "strategy": "size",
+   "stores_after": 101,
+   "groups": 84,
+   "members": 1241,
+   "groups_written": 84,
+   "groups_checked_ok": 84,
+   "cells_in_groups": 153881366,
+   "output_bytes": 681345129039,
+   "task_minutes": 1727.8,
+   "max_task_minutes": 24.2,
+   "max_peak_rss_gib": 3.11,
+   "max_members_in_group": 64,
+   "max_cells_in_group": 4593622,
+   "copy_share_of_corpus": 0.725
+  }
+ },
+ "note": "The first run of each plan started all of its groups at once, the three plans together. S3 returned SlowDown (503) on the scratch prefix, and obstore's 10 retries ended within seconds, so 5, 8, and 2 groups failed twice and were ignored. A second run of only those groups wrote them. task_minutes counts the attempt that wrote each group."
+}

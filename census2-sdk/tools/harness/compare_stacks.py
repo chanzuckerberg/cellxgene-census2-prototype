@@ -15,6 +15,11 @@ its build. The comparator compares no X value while the gene sets differ, so the
 restricts both sides to the shared genes. A Census 1 gene that the SDK does not hold
 fails the query.
 
+A presence result names the dataset of each row and the gene of each column. The driver
+puts both sides in label order and compares them on the shared datasets and the shared
+genes. A dataset that only one side holds fails the query. A Census 1 row without a gene
+is a dataset of another experiment, so it is not a dataset of the result.
+
 A finding in the declared list of expected differences (`EXPECTED` and `FLOAT32_SUMS`)
 stays on record and does not fail the query. Census 1 is the left side.
 """
@@ -39,6 +44,7 @@ from harness.canonical import (
     Arrays,
     decode_strings,
     frame_arrays,
+    identity_order,
     layer_arrays,
     load_result,
 )
@@ -78,7 +84,6 @@ COLUMN_RULES = {r"^obs\."}  # these rules apply to column-set findings only
 SDK_ONLY_GENES = "var genes, SDK only"
 # The task that adds what an unsupported query needs: (reason pattern, task).
 UNSUPPORTED_OWNERS: tuple[tuple[str, str], ...] = (
-    (r"has no (get_obs|get_var|get_presence_matrix) accessor", "6.7"),
     (r"takes equality and membership only", "6.7"),
 )
 
@@ -197,6 +202,12 @@ def _var_frame(arrays: Arrays) -> pd.DataFrame:
     return pd.DataFrame(columns)
 
 
+def _layer(arrays: Arrays, name: str) -> sparse.csr_matrix:
+    rows, cols = (int(n) for n in arrays[f"X.{name}.shape"])
+    parts = (arrays[f"X.{name}.{part}"] for part in ("data", "indices", "indptr"))
+    return sparse.csr_matrix(tuple(parts), shape=(rows, cols))
+
+
 def restrict_genes(arrays: Arrays, keep: set[str]) -> Arrays:
     """`arrays` with `var` and every layer restricted to the genes in `keep`."""
     var = _var_frame(arrays)
@@ -204,17 +215,66 @@ def restrict_genes(arrays: Arrays, keep: set[str]) -> Arrays:
     out = {k: v for k, v in arrays.items() if not k.startswith(("var.", "X."))}
     out.update(frame_arrays("var", var[mask].reset_index(drop=True)))
     for name in sorted({k.split(".")[1] for k in arrays if k.startswith("X.")}):
-        rows, cols = (int(n) for n in arrays[f"X.{name}.shape"])
-        matrix = sparse.csr_matrix(
-            (
-                arrays[f"X.{name}.data"],
-                arrays[f"X.{name}.indices"],
-                arrays[f"X.{name}.indptr"],
-            ),
-            shape=(rows, cols),
-        )
+        matrix = _layer(arrays, name)
         out.update(layer_arrays(name, matrix[:, np.flatnonzero(mask)].tocsr()))
     return out
+
+
+def _presence_labels(arrays: Arrays, name: str) -> np.ndarray:
+    """The `dataset_id` of each row of a presence result, or the `feature_id` of each column."""
+    key = f"presence.{name}"
+    labels = decode_strings(arrays[f"{key}.offsets"], arrays[f"{key}.bytes"])
+    return np.asarray(labels, dtype=object)
+
+
+def presence_by_label(arrays: Arrays, datasets: set[str]) -> Arrays:
+    """`var` and the matrix of a presence result in label order, for the rows of `datasets`.
+
+    The columns are in `feature_id` order and the rows are in `dataset_id` order. The
+    result holds no `obs`, because a row is a dataset and not a cell.
+    """
+    ids = _presence_labels(arrays, "dataset_id")
+    var = pd.DataFrame({"feature_id": _presence_labels(arrays, "feature_id")})
+    rows = [i for i in np.argsort(ids, kind="stable") if ids[i] in datasets]
+    cols = identity_order("var", var)
+    out = frame_arrays("var", var.iloc[cols].reset_index(drop=True))
+    out.update(layer_arrays("presence", _layer(arrays, "presence")[rows][:, cols]))
+    return out
+
+
+def align_presence(
+    census1: Arrays, sdk: Arrays
+) -> tuple[Arrays, Arrays, list[Finding], dict[str, int]]:
+    """Both presence results in label order, on the datasets that both sides hold.
+
+    Also the findings on the datasets, and the number of datasets on each side. Census 1
+    holds a row for each dataset of the release. A row without a gene is a dataset of
+    another experiment, so it is not a dataset of the result.
+    """
+    ids = _presence_labels(census1, "dataset_id")
+    in_census1 = set(ids[np.diff(census1["X.presence.indptr"]) > 0])
+    in_sdk = set(_presence_labels(sdk, "dataset_id"))
+    shared = in_census1 & in_sdk
+    findings: list[Finding] = []
+    for where, datasets in (
+        ("presence datasets, SDK only", in_sdk - in_census1),
+        ("presence datasets, Census 1 only", in_census1 - in_sdk),
+    ):
+        if datasets:
+            detail = (
+                f"{len(datasets)} datasets, first {min(datasets)!r}; "
+                f"presence compared on {len(shared)} shared datasets"
+            )
+            findings.append(Finding("row-set", where, detail))
+    counts = {"census1": len(in_census1), "sdk": len(in_sdk)}
+    census1, sdk = presence_by_label(census1, shared), presence_by_label(sdk, shared)
+    return census1, sdk, findings, counts
+
+
+def _measured_genes(arrays: Arrays) -> set[str]:
+    """The genes that a dataset of a presence result in label order measured."""
+    genes = _var_frame(arrays)["feature_id"].to_numpy()
+    return set(genes[np.unique(arrays["X.presence.indices"])])
 
 
 def _obs_rows(arrays: Arrays) -> int:
@@ -267,6 +327,12 @@ def run_one(
         raise SystemExit(
             f"{query.label}: the recorded clamp differs from snapshot_manifest.json"
         )
+    presence = query.accessor == "get_presence_matrix"
+    if presence and "presence.dataset_id.offsets" not in meta["files"]:
+        raise SystemExit(
+            f"{query.label}: the recorded result names no dataset; record it again "
+            "with `oracle_runner run --only presence_matrix`"
+        )
     record["oracle"] = {"corpus_version": meta["env"]["corpus_version"], "clamp": clamp}
     pins = values[f"{query.modality}/{query.experiment}"]
     t0 = time.monotonic()
@@ -297,8 +363,18 @@ def run_one(
     record["cells"] = {"census1": _obs_rows(census1), "sdk": _obs_rows(sdk)}
 
     findings: list[Finding] = []
-    genes_c1 = set(_var_frame(census1)["feature_id"])
-    genes_sdk = set(_var_frame(sdk)["feature_id"])
+    selected = record["cells"]
+    if presence:
+        # A presence query selects datasets and no cell.
+        census1, sdk, findings, selected = align_presence(census1, sdk)
+        record["datasets"] = selected
+    # A `get_obs` result holds no `var`, so neither side has a gene.
+    genes_c1 = set(_var_frame(census1).get("feature_id", []))
+    genes_sdk = set(_var_frame(sdk).get("feature_id", []))
+    if presence or query.accessor == "get_var":
+        record["genes"] = {"census1": len(genes_c1), "sdk": len(genes_sdk)}
+    if query.accessor == "get_var":
+        selected = record["genes"]  # a `get_var` query selects genes and no cell
     shared = genes_c1 & genes_sdk
     for where, genes in (
         (SDK_ONLY_GENES, genes_sdk - genes_c1),
@@ -307,6 +383,16 @@ def run_one(
         if genes:
             detail = f"{len(genes)} genes; X compared on {len(shared)} shared genes"
             findings.append(Finding("row-set", where, detail))
+    if presence:
+        # The restriction below removes the genes that only the SDK holds. A measured
+        # value in such a gene has no Census 1 column to agree with, so it is a finding.
+        unknown = _measured_genes(sdk) & (genes_sdk - genes_c1)
+        if unknown:
+            detail = (
+                f"{len(unknown)} genes that only the SDK holds are measured, "
+                f"first {min(unknown)!r}"
+            )
+            findings.append(Finding("value", "X.presence", detail))
     if genes_c1 != genes_sdk:
         census1, sdk = restrict_genes(census1, shared), restrict_genes(sdk, shared)
     findings += compare(census1, sdk)
@@ -316,8 +402,8 @@ def run_one(
         _finding_record(f, row_columns, expected(f, census1, sdk)) for f in findings
     ]
     blocking = [f for f in record["findings"] if "expected" not in f]
-    if record["cells"]["census1"] == 0 and record["cells"]["sdk"] == 0:
-        record["status"] = "vacuous"  # no cell to compare; the findings stay on record
+    if selected["census1"] == 0 and selected["sdk"] == 0:
+        record["status"] = "vacuous"  # no row to compare; the findings stay on record
     else:
         record["status"] = "fail" if blocking else "pass"
     return record

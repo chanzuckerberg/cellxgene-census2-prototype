@@ -55,10 +55,39 @@ does not remap genes.
 
 ## Sharp edges: anndata and zarr
 
-`anndata.io.sparse_dataset` over a CSR group reads the full `indptr`. It then reads only the `data`
-and `indices` of the selected rows, so a query does not load the whole `X`. `obs` and `var` are read
-whole. `read_lazy` is not used because it does not round-trip in
-anndata 0.13 (see the writer's `AGENTS.md`).
+The SDK reads a row range of a store, because a consolidated store holds several datasets and a
+query reads only the rows of the selected ones. A per-dataset store is the range of all its rows, so
+one read path serves both kinds of store. For all the rows of a store, `_obs_rows` reads each `obs`
+column whole with `_read_obs_column`: a categorical column that the catalog row lists reads only its
+codes and takes its categories from the row, and another column reads with `read_elem`. For part of
+the rows, it reads the row range of each column, with the
+type that `read_elem` gives the column, because anndata 0.13 has no public partial read of a
+dataframe. `anndata.experimental.read_elem_lazy` reads a dataframe lazily, but needs xarray. A
+categorical column keeps only the categories that its rows use: in a consolidated store, that gives
+a member the categories of its per-dataset store, and the result does not depend on where a dataset
+was read. `read_lazy` is not used because it does not round-trip in anndata 0.13 (see the writer's
+`AGENTS.md`).
+
+`anndata.io.sparse_dataset` over a CSR group reads the full `indptr`, which in a consolidated store
+holds every member's rows. Thus `_rows` reads `X` itself, with row numbers from the first row of the
+dataset: `indptr` from the first to the last kept row, then one range of `data` and `indices` for
+each run of adjacent kept rows. Above `MAX_RUNS` runs, it makes one selection by position of every
+kept stored value, as anndata's row read makes, over the same part of `indptr`.
+
+`get_anndata` opens each store once, then reads each selected dataset. Both steps use the thread
+pool of `max_workers`. A read does not wait for another task of the pool, so the two steps cannot
+deadlock it. Each read of a dataset also reads its `obs` columns at the same time, with up to
+`OBS_THREADS` threads of its own pool. Each column is a read of its own, and in a consolidated
+store, whose columns are sharded, a partial read of a column costs a round trip for the shard index
+and one for the data. When the selected datasets hold at least `WHOLE_STORE_SHARE` of a
+consolidated store's rows, the open reads the needed `obs` columns of the store whole into
+`_Opened.preloaded`, and each member cuts its rows from memory. The store's columns then stay in
+memory until the query ends.
+
+Opening a store parses its Zarr consolidated metadata, about 100 KB of JSON for a store of either
+kind. `get_anndata` shares one obstore client for each bucket (`catalog.clients`). zarr reads the
+metadata of both Zarr formats when the format is not given, so an open makes 4 requests. See
+`spikes/store-consolidation.md` for what that costs, and what a leaner open changes.
 
 zarr has no S3 client. A remote URI goes through `zarr.storage.ObjectStore` over `obstore`, as in
 the writer. `obstore` reads credentials from the environment and not from an AWS profile, so export

@@ -1,0 +1,65 @@
+{
+ "rare_19": {
+  "filter": {
+   "cell_type": [
+    "ionocyte",
+    "leukocyte",
+    "myeloid dendritic cell",
+    "erythroid lineage cell",
+    "plasmacytoid dendritic cell, human",
+    "common myeloid progenitor",
+    "granulocyte",
+    "L5 extratelencephalic projecting glutamatergic cortical neuron",
+    "enteroendocrine cell",
+    "myoepithelial cell",
+    "dendritic cell",
+    "podocyte",
+    "ciliated epithelial cell",
+    "ependymal cell",
+    "dendritic cell, human",
+    "plasmablast",
+    "mature NK T cell",
+    "Bergmann glial cell",
+    "immature B cell"
+   ]
+  },
+  "organism": "homo_sapiens",
+  "datasets_kept": 530,
+  "cells": 992451,
+  "note": "19 rare cell types, chosen greedily for datasets kept per matching cell, under 1 M cells"
+ },
+ "rare_24": {
+  "filter": {
+   "cell_type": [
+    "ionocyte",
+    "leukocyte",
+    "myeloid dendritic cell",
+    "erythroid lineage cell",
+    "plasmacytoid dendritic cell, human",
+    "common myeloid progenitor",
+    "granulocyte",
+    "L5 extratelencephalic projecting glutamatergic cortical neuron",
+    "enteroendocrine cell",
+    "myoepithelial cell",
+    "dendritic cell",
+    "podocyte",
+    "ciliated epithelial cell",
+    "ependymal cell",
+    "dendritic cell, human",
+    "plasmablast",
+    "mature NK T cell",
+    "innate lymphoid cell",
+    "retinal ganglion cell",
+    "Bergmann glial cell",
+    "endothelial cell of lymphatic vessel",
+    "plasmacytoid dendritic cell",
+    "vascular leptomeningeal cell",
+    "vascular associated smooth muscle cell"
+   ]
+  },
+  "organism": "homo_sapiens",
+  "datasets_kept": 641,
+  "cells": 1992444,
+  "note": "24 rare cell types, the same greedy choice under 2 M cells"
+ }
+}

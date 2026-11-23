@@ -18,9 +18,10 @@ zarr ships no S3 client. The `s3` extra adds `obstore`, and the SDK uses it only
 
 ## Build the catalog
 
-The catalog is a Parquet table with one row for each store. The Census 2 team publishes it, and the
-SDK only reads it. `tools/build_catalog.py` is the prototype stand-in for the catalog builder.
-It reads a prefix that holds `<dataset_version_id>.zarr` stores. It reads no receipt.
+The catalog is a Parquet table with one row for each dataset. The Census 2 team publishes it, and
+the SDK only reads it. `tools/build_catalog.py` is the prototype stand-in for the catalog builder.
+It reads one or more prefixes that hold `<dataset_version_id>.zarr` stores, and reads up to
+`--workers` stores at the same time. It reads no receipt.
 
 ```bash
 eval "$(aws configure export-credentials --profile <profile> --format env)"
@@ -40,6 +41,38 @@ values are assay, cell type, disease, sex, tissue, and `tissue_general` (each as
 ontology term), and `is_primary_data`. The builder counts in the same pass that reads the values for the catalog row.
 For the 1,258 stores written from Census 1 LTS `2025-11-08`, the column holds
 117,712 entries, and the catalog is 1,014 KiB.
+
+### Consolidated stores
+
+A consolidated store is a lossless second copy of several small datasets in one store; see
+[`consolidate-nf`](../consolidate-nf/README.md). It is not Zarr's consolidated metadata, which every
+store holds. `--consolidated` names a prefix of consolidated stores:
+
+```bash
+python census2-sdk/tools/build_catalog.py s3://bucket/stores/ catalog.parquet \
+    --consolidated s3://bucket/consolidated/
+```
+
+The builder then fills three columns of each member's row: `consolidated_store_uri`, and
+`consolidated_row_start` and `consolidated_row_stop`, the rows of the dataset in that store. The
+row keeps its per-dataset `store_uri`, and all its other fields come from the per-dataset store as
+before. Exclusion therefore stays per dataset. The three columns are null for a dataset that no
+consolidated store holds, and a catalog without consolidated stores has them too.
+
+The builder refuses the catalog when a consolidated store does not agree with the per-dataset
+stores:
+
+- each member has a per-dataset store, with the same `dataset_id`, number of cells, gene reference,
+  `observation_joinid` digest, and number of stored values of `X`
+- the consolidated store holds the member's `dataset_id` and `observation_joinid` values at the
+  member's rows, and that number of stored values of `X`
+- the member's column of `varm["measured"]` is the `measured` column of its per-dataset store
+- the members have one organism, one gene reference, and one spatial value
+- a dataset is in one consolidated store at most
+
+These checks read two `obs` columns and `varm["measured"]` of each consolidated store, and some
+values of `X/indptr`, not the matrix. The `consolidate-nf` pipeline can compare the whole matrix
+when it writes the store.
 
 ## Query
 
@@ -63,10 +96,67 @@ The result holds:
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
-- `obs_names`, `<dataset_id>_<observation_joinid>`
-- `uns["census2"]`, the sources, the count of catalog rows for the organism, and the count of stores opened
+- `obs_names`, `<dataset_id>_<observation_joinid>`. The index has no name, so `write_h5ad` and
+  `write_zarr` accept the result.
+- `uns["census2"]`, the sources, the count of catalog rows for the organism
+  (`datasets_in_catalog`), the count of datasets read (`datasets_read`), and the count of stores
+  opened (`stores_opened`)
 
 When no cell matches, `get_anndata` returns None.
+
+The SDK reads a dataset from the consolidated store that its catalog row names. It opens each
+store once for all of its selected datasets, and reads only the rows of each dataset from `obs` and
+`X`. The result is the same as from the per-dataset stores: the same cells in the same order, the
+same `obs` columns with the same types and categories, the same `var`, and the same `X` and
+`layers["normalized"]`. `open_census(sources, consolidated=False)` reads the per-dataset stores,
+which stay the primary copy.
+
+`max_workers` applies twice: the SDK opens up to `max_workers` stores at the same time, and then
+reads up to `max_workers` datasets at the same time. The datasets of one consolidated store thus
+read at the same time as well.
+
+## Read `obs` only
+
+```python
+obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+obs = census.get_obs(
+    "homo_sapiens", {"tissue": "lung"}, column_names=["sex", "donor_id"]
+)
+```
+
+`get_obs` returns the `obs` of the selected cells as a DataFrame and reads no `X`. The frame equals
+the `obs` of the result of `get_anndata` for the same filter, and the SDK applies the same checks.
+When no cell matches, `get_obs` returns None. It reads a dataset from the consolidated store that
+its catalog row names, as `get_anndata` does.
+
+`column_names` names the columns of the result, in that order. From each store, the SDK then reads
+only these columns, the filter columns, `dataset_id`, and `observation_joinid`. A store without a
+named column raises `ValueError`.
+
+## Read `var`
+
+```python
+var = census.get_var("homo_sapiens")
+```
+
+`get_var` returns the `var` of an organism, which is the pinned gene reference as the stores hold
+it. The frame is the `var` of a `get_anndata` result, and the SDK reads it from one store. Every
+catalog row of the organism must record the gene reference version that the SDK pins.
+
+## Presence matrix
+
+```python
+presence = census.get_presence_matrix("homo_sapiens")
+```
+
+`get_presence_matrix` returns the genes that each dataset of an organism measured, as a boolean
+DataFrame. The index is the `dataset_id` of each store of the organism, and the columns are the
+`feature_id`s of `get_var`. `X` cannot show the difference between an unmeasured gene and a
+measured value of zero, and this matrix can.
+
+The call opens every store of the organism and reads only the `measured` column of its `var`. It
+reads no `obs` and no `X`. The SDK applies the checks of `get_var`, and it checks that each store
+holds one `measured` value for each gene of the reference.
 
 ## Count
 

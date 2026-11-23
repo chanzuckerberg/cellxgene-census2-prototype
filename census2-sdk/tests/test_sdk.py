@@ -134,7 +134,7 @@ def corpus(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     prefix.mkdir()
     for seed, (dataset_id, spec) in enumerate(STORES.items()):
         write_one(prefix, make_store(dataset_id, *spec, seed=seed), dataset_id)
-    frame = build_catalog.build(str(prefix), root / "catalog.parquet")
+    frame = build_catalog.build([str(prefix)], root / "catalog.parquet")
     assert len(frame) == 3
     return {"root": root, "prefix": prefix, "catalog": root / "catalog.parquet"}
 
@@ -147,7 +147,7 @@ def one_store_catalog(
     prefix = tmp_path / "out"
     prefix.mkdir()
     write_one(prefix, adata, dataset_id)
-    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    build_catalog.build([str(prefix)], tmp_path / "catalog.parquet")
     return tmp_path / "catalog.parquet"
 
 
@@ -241,7 +241,7 @@ def test_get_anndata_matches_brute_force(
     census = census2_sdk.open_census([corpus["catalog"]])
     result = query(census, obs_filter)
     assert list(result.var_names) == REFERENCE_IDS
-    assert result.uns["census2"]["stores_in_catalog"] == 3
+    assert result.uns["census2"]["datasets_in_catalog"] == 3
     same(result, expected(corpus, obs_filter))
 
 
@@ -265,28 +265,25 @@ def test_concurrent_reads_match_one_at_a_time(
 
     # Each read waits for all three, so a serial read times out. Each store then
     # waits for the next one in catalog order, so the first store finishes last.
-    read_store = census2_sdk._read_store
+    read_rows = census2_sdk._read_rows
     order = list(STORES)
     all_running = threading.Barrier(len(order), timeout=10)
     done = {dataset_id: threading.Event() for dataset_id in order}
     finished: list[str] = []
 
     def overlapping(
-        row: dict[str, Any],
-        canonical: Any,
-        layers: Any = (),
-        bucket_clients: Any = None,
+        opened: Any, read: Any, canonical: Any, layers: Any = ()
     ) -> anndata.AnnData:
         all_running.wait()
-        part = read_store(row, canonical, layers, bucket_clients)
-        position = order.index(row["dataset_id"])
+        part = read_rows(opened, read, canonical, layers)
+        position = order.index(read.row["dataset_id"])
         if position + 1 < len(order):
             assert done[order[position + 1]].wait(timeout=10)
-        finished.append(str(row["dataset_id"]))
-        done[str(row["dataset_id"])].set()
+        finished.append(str(read.row["dataset_id"]))
+        done[str(read.row["dataset_id"])].set()
         return part
 
-    monkeypatch.setattr(census2_sdk, "_read_store", overlapping)
+    monkeypatch.setattr(census2_sdk, "_read_rows", overlapping)
     many = census.get_anndata("homo_sapiens", obs_filter, max_workers=len(STORES))
     assert many is not None
     assert finished == list(reversed(STORES))
@@ -402,7 +399,7 @@ def test_store_with_another_var_refused(
             dataset_id, 5, REFERENCE_IDS, ["lung"], ["normal"], seed, var_ids=var_ids
         )
         write_one(prefix, adata, dataset_id)
-    build_catalog.build(str(prefix), tmp_path / "catalog.parquet")
+    build_catalog.build([str(prefix)], tmp_path / "catalog.parquet")
     census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
     with pytest.raises(census2_sdk.SourceConflict, match="v-ds-x.zarr: var differs"):
         census.get_anndata("homo_sapiens")
@@ -647,19 +644,28 @@ def test_malformed_store_refused(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("fmt", "max_runs", "row_reads"),
-    [("csr", census2_sdk.MAX_RUNS, 0), ("csr", 3, 1), ("csc", census2_sdk.MAX_RUNS, 3)],
+    ("fmt", "max_runs", "row_reads", "by_position"),
+    [
+        ("csr", census2_sdk.MAX_RUNS, 0, 0),
+        ("csr", 3, 0, 1),
+        ("csc", census2_sdk.MAX_RUNS, 3, 0),
+    ],
 )
+@pytest.mark.parametrize("start", [0, 5])
 def test_rows_read_runs_as_ranges(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     fmt: Literal["csr", "csc"],
     max_runs: int,
     row_reads: int,
+    by_position: int,
+    start: int,
 ) -> None:
-    """Each selection equals the matrix rows.
+    """Each selection equals the matrix rows from row `start`, as a member read starts.
 
-    anndata's row read runs above MAX_RUNS runs, and for a CSC matrix.
+    A CSR read takes `indptr` from the first to the last kept row only, and one slice
+    of `data` for each run. Above MAX_RUNS runs, it selects the values by position.
+    A CSC matrix uses anndata's row read.
     """
     x = sp.random(50, 7, density=0.3, format="csr", dtype="float32", random_state=0)
     group = zarr.open_group(tmp_path / "x.zarr", mode="w")
@@ -672,16 +678,32 @@ def test_rows_read_runs_as_ranges(
         return anndata.io.sparse_dataset(node)
 
     monkeypatch.setattr(census2_sdk, "sparse_dataset", spy)
+    reads: list[tuple[str, Any]] = []
+    getitem = zarr.Array.__getitem__
+
+    def record(array: zarr.Array[Any], selection: Any) -> Any:
+        reads.append((array.basename, selection))
+        return getitem(array, selection)
+
+    monkeypatch.setattr(zarr.Array, "__getitem__", record)
     dense = x.toarray()
-    for keep in ([], [3], list(range(10, 20)), [0, 1, 2, 9, 30, 31, 49]):
+    positions = 0
+    for keep in ([], [3], list(range(10, 20)), [0, 1, 2, 9, 30, 31, 44]):
+        reads.clear()
         rows = np.array(keep, dtype=np.int64)
-        got = census2_sdk._rows(group["X"], rows)
+        got = census2_sdk._rows(group["X"], rows, start)
         assert got.shape == (len(rows), 7) and np.array_equal(
-            got.toarray(), dense[rows]
+            got.toarray(), dense[start + rows]
         )
+        if fmt == "csr" and keep:
+            indptr = [s for name, s in reads if name == "indptr"]
+            assert indptr == [slice(start + keep[0], start + keep[-1] + 2)]
+            data = [s for name, s in reads if name == "data"]
+            positions += sum(isinstance(s, np.ndarray) for s in data)
     # Only the last selection has more than 3 runs (4). A CSC matrix uses the row
     # read for each selection that is not empty.
     assert len(calls) == row_reads
+    assert positions == by_position
 
 
 def test_null_is_not_a_value(corpus: dict[str, Path], tmp_path: Path) -> None:
@@ -838,7 +860,7 @@ def builder_prefix(tmp_path: Path) -> tuple[Path, Path]:
 
 def test_builder_reads_the_summary_record(tmp_path: Path) -> None:
     prefix, _ = builder_prefix(tmp_path)
-    row = build_catalog.build(str(prefix)).iloc[0]
+    row = build_catalog.build([str(prefix)]).iloc[0]
     assert row["dataset_id"] == "ds-s"
     assert row["dataset_version_id"] == "v-ds-s"
     assert row["gene_reference_version"] == "GENCODE v48"
@@ -850,7 +872,7 @@ def test_builder_refuses_a_store_without_a_summary_record(tmp_path: Path) -> Non
     prefix, store = builder_prefix(tmp_path)
     set_summary(store, None)
     with pytest.raises(ValueError, match="v-ds-s.zarr: no summary record"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_refuses_an_unknown_record_version(tmp_path: Path) -> None:
@@ -863,7 +885,7 @@ def test_builder_refuses_an_unknown_record_version(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="summary record version 2"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_refuses_a_record_for_another_store(tmp_path: Path) -> None:
@@ -876,7 +898,7 @@ def test_builder_refuses_a_record_for_another_store(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="names dataset version 'v-other'"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
@@ -889,7 +911,7 @@ def test_builder_refuses_a_malformed_record(tmp_path: Path) -> None:
     }
     set_summary(store, record)
     with pytest.raises(ValueError, match="v-ds-s.zarr: summary record dataset_id is 7"):
-        build_catalog.build(str(prefix))
+        build_catalog.build([str(prefix)])
 
 
 def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
@@ -901,7 +923,7 @@ def test_builder_marks_a_visium_store_spatial(tmp_path: Path) -> None:
     prefix = tmp_path / "out"
     prefix.mkdir()
     write_one(prefix, adata, "ds-v")
-    assert bool(build_catalog.build(str(prefix)).iloc[0]["spatial"]) is True
+    assert bool(build_catalog.build([str(prefix)]).iloc[0]["spatial"]) is True
 
 
 # --- the dataset_id column ------------------------------------------------------
@@ -1015,3 +1037,204 @@ def test_unknown_x_layer_is_refused(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     with pytest.raises(ValueError, match="no layer \\['scaled'\\]"):
         census.get_anndata("homo_sapiens", layers=["scaled"])
+
+
+# --- get_obs ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "obs_filter",
+    [None, {"tissue": "lung"}, {"disease": "flu"}, {"dataset_id": "ds-b"}],
+)
+def test_get_obs_equals_the_obs_of_get_anndata(
+    corpus: dict[str, Path], obs_filter: dict[str, str] | None
+) -> None:
+    """No filter selects three stores, and `lung` selects two."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    want = cast("pd.DataFrame", query(census, obs_filter).obs)
+    for max_workers in (1, len(STORES)):
+        obs = census.get_obs("homo_sapiens", obs_filter, max_workers=max_workers)
+        assert obs is not None
+        pd.testing.assert_frame_equal(obs, want)
+
+
+def test_get_obs_reads_no_x_and_no_var(corpus: dict[str, Path], tmp_path: Path) -> None:
+    """`get_obs` answers from copies of the stores that hold no `X` and no `var`."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    want = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert want is not None
+    shutil.copytree(corpus["prefix"], tmp_path / "out")
+    for store in (tmp_path / "out").iterdir():
+        shutil.rmtree(store / "X")
+        shutil.rmtree(store / "var")
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [str(tmp_path / "out" / name) for name in names]
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert obs is not None
+    pd.testing.assert_frame_equal(obs, want)
+
+
+def test_get_obs_reads_the_named_columns_only(
+    corpus: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The result holds the named columns in the given order, and the same cells."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    full = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert full is not None
+    names: list[str] = []
+
+    def spy(elem: Any) -> Any:
+        names.append(elem.name)
+        return read_elem(elem)
+
+    monkeypatch.setattr(census2_sdk, "read_elem", spy)
+    columns = ["disease", "dataset_id", "disease"]  # a repeated name counts once
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"}, column_names=columns)
+    assert obs is not None
+    pd.testing.assert_frame_equal(obs, full[["disease", "dataset_id"]])
+    # The SDK reads the filter column `tissue` and leaves it out of the result.
+    # It reads no column that the call does not need.
+    assert "is_primary_data" in full.columns
+    assert "/obs/is_primary_data" not in names
+    with pytest.raises(ValueError, match=r"v-ds-a.zarr: obs has no column \['donor"):
+        census.get_obs("homo_sapiens", column_names=["tissue", "donor_id"])
+
+
+def test_get_obs_returns_none_and_applies_the_checks(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    assert census.get_obs("homo_sapiens", {"tissue": "brain"}) is None
+    assert census.get_obs("homo_sapiens", {"tissue_general": "lung"}) is None
+    frame = catalog.load(corpus["catalog"])
+    frame.loc[frame["dataset_id"] == "ds-a", "spatial"] = True
+    frame.to_parquet(tmp_path / "catalog.parquet", index=False)
+    mixed = census2_sdk.open_census([tmp_path / "catalog.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match="spatial"):
+        mixed.get_obs("homo_sapiens", {"tissue": "lung"})
+
+
+# --- get_var ------------------------------------------------------------------
+
+
+def test_get_var_is_the_var_of_a_result(corpus: dict[str, Path]) -> None:
+    census = census2_sdk.open_census([corpus["catalog"]])
+    var = census.get_var("homo_sapiens")
+    pd.testing.assert_frame_equal(var, cast("pd.DataFrame", query(census, None).var))
+    assert list(var.index) == REFERENCE_IDS
+    assert list(var.columns) == list(reference_var(REFERENCE_IDS).columns)
+
+
+def test_get_var_checks_the_reference_of_every_row(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """`get_var` joins no cells, so a spatial store next to the others is no conflict."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    with pytest.raises(ValueError, match="hold no store of mus_musculus"):
+        census.get_var("mus_musculus")
+    frame = catalog.load(corpus["catalog"])
+    frame.loc[frame["dataset_id"] == "ds-a", "spatial"] = True
+    frame.to_parquet(tmp_path / "spatial.parquet", index=False)
+    mixed = census2_sdk.open_census([tmp_path / "spatial.parquet"])
+    assert list(mixed.get_var("homo_sapiens").index) == REFERENCE_IDS
+    frame.loc[frame["dataset_id"] == "ds-c", "gene_reference_version"] = "GENCODE v47"
+    frame.to_parquet(tmp_path / "v47.parquet", index=False)
+    other = census2_sdk.open_census([tmp_path / "v47.parquet"])
+    with pytest.raises(census2_sdk.SourceConflict, match="v47.*pinned.*v48"):
+        other.get_var("homo_sapiens")
+
+
+# --- get_presence_matrix ------------------------------------------------------
+
+
+def test_presence_matrix_holds_the_measured_genes_of_each_store(
+    corpus: dict[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The call answers from copies of the stores that hold no `obs` and no `X`.
+
+    `get_var` opens the first store for the genes. The call then opens each store.
+    """
+    census = census2_sdk.open_census([corpus["catalog"]])
+    shutil.copytree(corpus["prefix"], tmp_path / "out")
+    for store in (tmp_path / "out").iterdir():
+        shutil.rmtree(store / "obs")
+        shutil.rmtree(store / "X")
+    names = [Path(uri).name for uri in census.catalog["store_uri"]]
+    census.catalog["store_uri"] = [str(tmp_path / "out" / name) for name in names]
+    opened: list[str] = []
+
+    def spy(uri: str, bucket_clients: Any = None) -> zarr.Group:
+        opened.append(Path(uri).name)
+        return catalog.open_store(uri, bucket_clients)
+
+    monkeypatch.setattr(census2_sdk, "open_store", spy)
+    for max_workers in (1, len(STORES)):
+        opened.clear()
+        presence = census.get_presence_matrix("homo_sapiens", max_workers=max_workers)
+        assert sorted(opened) == sorted([names[0], *names])
+        assert list(presence.index) == list(STORES)
+        assert list(presence.columns) == REFERENCE_IDS
+        assert set(presence.dtypes) == {np.dtype(bool)}
+        for dataset_id, (_, measured, _, _) in STORES.items():
+            assert (
+                list(presence.columns[presence.loc[dataset_id].to_numpy()]) == measured
+            )
+    with pytest.raises(ValueError, match="hold no store of mus_musculus"):
+        census.get_presence_matrix("mus_musculus")
+
+
+@pytest.mark.parametrize(
+    ("change", "error", "match"),
+    [
+        ("absent", ValueError, "var has no measured column"),
+        ("integer", TypeError, "var measured must be a boolean array"),
+        ("short", ValueError, r"var measured holds 10 values.*has 20 genes"),
+    ],
+)
+def test_presence_matrix_refuses_a_store_without_its_measured_genes(
+    tmp_path: Path, change: str, error: type[Exception], match: str
+) -> None:
+    """The error names the store. The first store supplies the genes."""
+    prefix = tmp_path / "out"
+    prefix.mkdir()
+    var_ids = REFERENCE_IDS[:10] if change == "short" else REFERENCE_IDS
+    for seed, dataset_id in enumerate(["ds-a", "ds-x"]):
+        ids = REFERENCE_IDS if dataset_id == "ds-a" else var_ids
+        adata = make_store(dataset_id, 5, ids, ["lung"], ["normal"], seed, var_ids=ids)
+        if dataset_id == "ds-x" and change == "absent":
+            adata.var = cast("pd.DataFrame", adata.var).drop(columns="measured")
+        if dataset_id == "ds-x" and change == "integer":
+            adata.var["measured"] = adata.var["measured"].astype(np.int8)
+        write_one(prefix, adata, dataset_id)
+    build_catalog.build([str(prefix)], tmp_path / "catalog.parquet")
+    census = census2_sdk.open_census([tmp_path / "catalog.parquet"])
+    with pytest.raises(error, match=f"v-ds-x.zarr: {match}"):
+        census.get_presence_matrix("homo_sapiens")
+
+
+# --- the index of a result ----------------------------------------------------
+
+
+def test_result_of_two_stores_writes_to_h5ad(
+    corpus: dict[str, Path], tmp_path: Path
+) -> None:
+    """The index of a result has no name, so anndata writes the `obs`."""
+    census = census2_sdk.open_census([corpus["catalog"]])
+    result = query(census, {"tissue": "lung"})
+    assert result.uns["census2"]["stores_opened"] == 2
+    assert result.obs.index.name is None
+    result.write_h5ad(tmp_path / "lung.h5ad")
+    back = anndata.read_h5ad(tmp_path / "lung.h5ad")
+    assert list(back.obs_names) == list(result.obs_names)
+    assert list(back.var_names) == list(result.var_names)
+    assert np.array_equal(X(back).toarray(), X(result).toarray())
+    for column in result.obs.columns:
+        assert list(back.obs[column].astype(str)) == list(
+            result.obs[column].astype(str)
+        )
+    result.write_zarr(tmp_path / "lung.zarr")
+    assert list(anndata.read_zarr(tmp_path / "lung.zarr").obs_names) == list(
+        result.obs_names
+    )
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+    assert obs is not None and obs.index.name is None

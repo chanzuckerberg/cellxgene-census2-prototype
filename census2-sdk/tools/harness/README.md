@@ -51,6 +51,12 @@ digests on 2026-10-02 from a clean environment on one host. That run proves the 
 the pins on that host. 64 of the 74 digests equal those of v1.0. The 10 others are the
 human queries that the new human sample changes.
 
+A presence result holds the matrix in the row order and the column order of Census 1. It
+also holds the `dataset_id` of each row and the `feature_id` of each column. The seven
+presence results got these labels on 2026-11-19, and their digests changed. Their matrix
+arrays are byte-equal to those of 2026-10-02. To add the labels to an older snapshot, do
+step 3 with `--only presence_matrix`.
+
 `snapshot_manifest.json` is committed. A change to the dataset sample can change the digest
 of every clamped query, so regenerate it (`oracle_runner build-manifest`) only with a
 corpus version bump.
@@ -115,20 +121,34 @@ The driver prints one line for each query:
 | --- | --- |
 | `pass` | No finding, other than the expected differences below |
 | `fail` | At least one other finding. The first five follow the line. |
-| `vacuous` | Neither side holds a cell. The findings stay on record. |
+| `vacuous` | Neither side holds a cell. For a `get_var` query, neither side holds a gene. For a presence query, neither side holds a dataset. The findings stay on record. |
 | `unsupported` | The SDK cannot express the query. The line names the reason and the task that adds what the query needs. An unsupported query does not fail the run. |
 | `skip` | The catalog holds no store of the experiment's clamp sample |
 
 The adapter translates equality and membership clauses into the SDK's filter mapping and
-adds the clamp as a `dataset_id` filter. The SDK has no var filter, so a `feature_id`
-filter selects genes from the result after the read. A numeric or `!=` clause, a column
-that the catalog does not index, and the `get_obs`, `get_var`, and presence accessors are
-unsupported.
+adds the clamp as a `dataset_id` filter. A `get_obs` query asks the SDK for the columns
+that the oracle runner asks Census 1 for. A `get_var` query has no clamp, as in the oracle
+runner. The SDK has no var filter, so the adapter applies a var filter of one equality or
+membership clause to the result after the read. A numeric or `!=` clause and a column
+that the catalog does not index are unsupported.
+
+A presence query has no clamp either, so the SDK's `get_presence_matrix` opens every store
+of the organism. The adapter reads 32 stores at the same time (`PRESENCE_WORKERS`). The
+driver compares the two matrices by label: a row is a dataset, and a column is a gene.
+
+- Census 1 holds a row for each dataset of the release. A row without a gene is a dataset
+  of another experiment, and the driver removes it.
+- A dataset that only one side holds fails the query. No rule excuses a catalog that holds
+  only a part of the release.
+- The driver compares the values on the datasets that both sides hold.
 
 The SDK's `var` is the whole pinned reference, and the comparator compares no X value
 while the gene sets differ. The driver thus restricts both sides to the shared genes. A
-Census 1 gene that the SDK does not hold fails the query. Each finding names the task that
-owns it (the `OWNERS` table in `compare_stacks.py`).
+Census 1 gene that the SDK does not hold fails the query. In a presence result, a gene
+that only the SDK holds has no Census 1 column. The driver thus requires that no dataset
+measured such a gene, and a measured value in it fails the query. The recorded run finds
+no such gene. Each finding names the task that owns it (the `OWNERS` table in
+`compare_stacks.py`).
 
 ### Expected differences
 
@@ -139,7 +159,7 @@ list.
 
 | Finding | Direction | Reason | Until |
 | --- | --- | --- | --- |
-| The 17,397 human genes of the pinned reference that the Census 1 build lacks | SDK only | The SDK's `var` is the whole pinned reference | Permanent |
+| The genes of the pinned reference that the Census 1 build lacks (17,397 human, 24,933 mouse) | SDK only | The SDK's `var` is the whole pinned reference | Permanent |
 | `var.feature_version` | SDK only | The SDK keeps this column of the pinned reference | Permanent |
 | `var.nnz`, `var.n_measured_obs` | Census 1 only | Corpus aggregates. The release builder sums them from per-gene files, and it does not do so yet. | Temporary |
 | `obs.raw_sum`, `obs.raw_mean_nnz` values | Both | The Census 1 build summed float32 counts in float32, so it rounds a row sum above 2^24. The writer keeps the exact sum. | Permanent |

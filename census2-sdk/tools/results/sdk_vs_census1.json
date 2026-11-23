@@ -6,19 +6,19 @@
  },
  "summary": {
   "status": {
-   "vacuous": 6,
-   "pass": 9,
-   "unsupported": 10,
+   "vacuous": 7,
+   "pass": 16,
+   "unsupported": 2,
    "skip": 49
   },
   "by_owner": {
    "4.14": {
-    "column-set var.n_measured_obs (expected)": 9,
-    "column-set var.nnz (expected)": 9
+    "column-set var.n_measured_obs (expected)": 13,
+    "column-set var.nnz (expected)": 13
    },
    "4.2": {
-    "column-set var.feature_version (expected)": 9,
-    "row-set var genes, SDK only (expected)": 6
+    "column-set var.feature_version (expected)": 13,
+    "row-set var genes, SDK only (expected)": 10
    },
    "4.5": {
     "value obs.raw_mean_nnz (expected)": 1,
@@ -56,7 +56,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 24.8,
+   "seconds": 13.3,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -122,7 +122,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 30.1,
+   "seconds": 19.0,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -174,7 +174,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 12.8,
+   "seconds": 10.9,
    "notes": [],
    "cells": {
     "census1": 4778,
@@ -226,7 +226,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 26.7,
+   "seconds": 18.5,
    "notes": [],
    "cells": {
     "census1": 10277,
@@ -278,7 +278,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 44.3,
+   "seconds": 15.8,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -324,7 +324,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 43.6,
+   "seconds": 13.3,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -370,7 +370,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 25.2,
+   "seconds": 9.0,
    "notes": [],
    "cells": {
     "census1": 12822,
@@ -422,9 +422,45 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_var accessor",
-   "owner": "6.7"
+   "seconds": 2.4,
+   "notes": [
+    "genes selected after the read; the SDK has no var filter"
+   ],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "genes": {
+    "census1": 2,
+    "sdk": 2
+   },
+   "findings": [
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops",
+     "expected": "the SDK's var keeps this column of the pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "both_layers:census_data/homo_sapiens",
@@ -436,7 +472,7 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "seconds": 25.8,
+   "seconds": 13.2,
    "notes": [],
    "cells": {
     "census1": 3575,
@@ -488,9 +524,14 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_obs accessor",
-   "owner": "6.7"
+   "seconds": 2.1,
+   "notes": [],
+   "cells": {
+    "census1": 3575,
+    "sdk": 3575
+   },
+   "findings": [],
+   "status": "pass"
   },
   {
    "query": "var_all_genes:census_data/homo_sapiens",
@@ -502,9 +543,51 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_var accessor",
-   "owner": "6.7"
+   "seconds": 2.1,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "genes": {
+    "census1": 61497,
+    "sdk": 78894
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference that the Census 1 build does not hold",
+     "expected": "the SDK's var is the whole pinned reference"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops",
+     "expected": "the SDK's var keeps this column of the pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "presence_matrix:census_data/homo_sapiens",
@@ -516,9 +599,31 @@
      "6e00ccf7-0749-46ef-a999-dba785630d52"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_presence_matrix accessor",
-   "owner": "6.7"
+   "seconds": 18.2,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "datasets": {
+    "census1": 1086,
+    "sdk": 1086
+   },
+   "genes": {
+    "census1": 61497,
+    "sdk": 78894
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes, SDK only",
+     "detail": "17397 genes; X compared on 61497 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference that the Census 1 build does not hold",
+     "expected": "the SDK's var is the whole pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "wmg_production:census_data/mus_musculus",
@@ -601,7 +706,7 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "seconds": 37.4,
+   "seconds": 15.2,
    "notes": [
     "genes selected after the read; the SDK has no var filter"
    ],
@@ -682,9 +787,45 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_var accessor",
-   "owner": "6.7"
+   "seconds": 2.6,
+   "notes": [
+    "genes selected after the read; the SDK has no var filter"
+   ],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "genes": {
+    "census1": 2,
+    "sdk": 2
+   },
+   "findings": [
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops",
+     "expected": "the SDK's var keeps this column of the pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "both_layers:census_data/mus_musculus",
@@ -715,9 +856,14 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_obs accessor",
-   "owner": "6.7"
+   "seconds": 0.0,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "findings": [],
+   "status": "vacuous"
   },
   {
    "query": "var_all_genes:census_data/mus_musculus",
@@ -729,9 +875,51 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_var accessor",
-   "owner": "6.7"
+   "seconds": 2.8,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "genes": {
+    "census1": 53384,
+    "sdk": 78317
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes, SDK only",
+     "detail": "24933 genes; X compared on 53384 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference that the Census 1 build does not hold",
+     "expected": "the SDK's var is the whole pinned reference"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.n_measured_obs",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.nnz",
+     "detail": "present on left only",
+     "owner": "4.14",
+     "reason": "corpus aggregates that the release builder sums from the per-dataset files",
+     "expected": "the release builder does not add the corpus aggregates yet"
+    },
+    {
+     "kind": "column-set",
+     "where": "var.feature_version",
+     "detail": "present on right only",
+     "owner": "4.2",
+     "reason": "a column of the pinned reference that Census 1 drops",
+     "expected": "the SDK's var keeps this column of the pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "presence_matrix:census_data/mus_musculus",
@@ -743,9 +931,31 @@
      "653c66ca-527b-4cb2-a023-a63764c1289a"
     ]
    },
-   "status": "unsupported",
-   "reason": "the SDK has no get_presence_matrix accessor",
-   "owner": "6.7"
+   "seconds": 5.7,
+   "notes": [],
+   "cells": {
+    "census1": 0,
+    "sdk": 0
+   },
+   "datasets": {
+    "census1": 172,
+    "sdk": 172
+   },
+   "genes": {
+    "census1": 53384,
+    "sdk": 78317
+   },
+   "findings": [
+    {
+     "kind": "row-set",
+     "where": "var genes, SDK only",
+     "detail": "24933 genes; X compared on 53384 shared genes",
+     "owner": "4.2",
+     "reason": "genes of the pinned reference that the Census 1 build does not hold",
+     "expected": "the SDK's var is the whole pinned reference"
+    }
+   ],
+   "status": "pass"
   },
   {
    "query": "wmg_production:census_data/macaca_mulatta",
