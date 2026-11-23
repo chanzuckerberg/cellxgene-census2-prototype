@@ -13,6 +13,10 @@ store, takes 397 to 414 s; the two aggressive rules take 455 to 617 s. The conso
 not address the costs that set the time: the concatenation of one part for each dataset (about
 147 s, in every layout), and per-dataset work that uses about one core of 64.
 
+A scan-heavy `get_anndata` (section 5) is different: there `X` sets the time, Census 2 from the
+per-dataset stores takes 1.2 to 1.6 times the time of Census 1, and consolidation makes the scan of
+part of the corpus slower.
+
 ## 1. Setup
 
 - **Corpus.** The 1,258 datasets of Census 1 LTS `2025-11-08`: 1,086 human and 172 mouse,
@@ -145,7 +149,61 @@ Not tried here; each one applies to every layout.
   consolidated layout saves at most the opens, 15 to 30 ms of CPU each in the pilot, or about 20 s
   for the 1,000 stores fewer of `t8`.
 
-## 5. Reproduce
+## 5. A scan-heavy `get_anndata`
+
+`get_obs` of the whole `obs` is one shape. The other is a `get_anndata` query that the catalog keeps
+for many datasets, but that matches few cells, so the read scans much `obs` and keeps little.
+
+The query (`consolidation-anndata-queries.json`, `rare_19`): 19 rare cell types, chosen from the
+catalog's cell counts for many datasets kept per matching cell. The catalog keeps 530 of the 1,086
+human datasets, which hold 108.7 M cells (68% of the human cells); 992,451 cells match (0.6%). The
+same filter also ran through `get_obs`, which makes the same exclusion and the same `obs` scan, and
+reads neither `X` nor `var`. Medians of 3 runs at 32 workers, single runs at 8 workers:
+
+| layout | stores | `get_anndata`, 32 workers | 8 workers | `get_obs`, 32 workers | 8 workers | `get_anndata` requests | read |
+|---|---|---|---|---|---|---|---|
+| Census 1 (either pandas) | | 302.3 | | | | | |
+| `main` | 530 | 452.4 | 374.3 | | | 215,821 | 84.8 GB |
+| per-dataset (branch) | 530 | 483.7 | 372.0 | 60.3 | 55.2 | 205,076 | 84.8 GB |
+| `halve` | 317 | 510.2 | 371.6 | 71.0 | 61.9 | 209,002 | 83.8 GB |
+| `t3` | 152 | 609.9 | 440.3 | 137.4 | 114.1 | 212,691 | 79.8 GB |
+| `t8` | 79 | 623.3 | 478.4 | 205.4 | 153.5 | 215,950 | 77.9 GB |
+
+`main` at 2ab7c32 has no `get_obs`. Every layout gives the same result (the digests of `obs` and
+of `X` are equal), and the `get_obs` frames are equal too. Census 1 (`get_anndata` with
+`obs_value_filter`) takes 302 s with pandas 2.3.3 and 306 s with pandas 3.1.1, for the same 992,451
+cells, on about 15 cores (4,460 CPU seconds); Census 2 uses 2 to 3 cores.
+
+- **On this path Census 2 is close to Census 1.** From the per-dataset stores, Census 2 takes 1.2
+  to 1.6 times the time of Census 1: 372 s at 8 workers and 484 s at 32, against 302 s; `main`
+  takes 1.24 and 1.50 times. The whole `obs` read is 26 times. Census 1 also spends most of this
+  query in `X`.
+
+- **`X`, not `obs`, sets the time.** The `obs` scan of the 530 stores takes 55 to 60 s; the read of
+  `X` for 0.6% of the cells takes the other 320 to 420 s and reads about 85 GB. The rare cells are
+  scattered, and each run of kept rows reads whole chunks of `X/data` and `X/indices`. In a
+  per-dataset store, anndata's chunks hold about 150,000 values, about 30 cells at about 5,000
+  stored values per cell, so a run of one rare cell reads and decodes two chunks of about 0.6 MB
+  for about 40 KB of values. A consolidated store's `X` chunks hold 131,072 values, so the layout
+  does not change this.
+- **The `obs` scan of few kept cells is cheap.** 60 s for 108.7 M cells, where the whole `obs` of
+  the corpus took 422 s through `get_obs`. The difference is the per-cell work on kept cells: the
+  cell key strings, the uniqueness checks, and the concatenation.
+- **Consolidation makes the partial scan slower.** `get_obs` for the filter: 60 s per-dataset,
+  71 s `halve`, 137 s `t3`, 205 s `t8`. A consolidated store reads whole when the selected datasets
+  hold half of its rows, so it decodes the rows of the other members too, in small chunks; a store
+  below that share reads each member apart, with a shard index for each partial read. The requests
+  grow from 21,430 to 68,887.
+- **The shared `var` index of a consolidated store does not show.** Each per-dataset store reads
+  its own `var` index (289 KB, 78,894 strings), and a consolidated store reads one for all of its
+  members. By a local timing, the saving is about 40 ms of CPU for each store fewer, which the
+  slower scan hides.
+- **8 workers are faster than 32.** 372 s against 484 s for the per-dataset stores. Each dataset
+  read has up to `RUN_THREADS` (16) span reads in flight, so 32 workers keep up to 512 in flight.
+  `main`, which reads the `obs` columns of a dataset one after another, is faster at 32 workers
+  than the branch (452 s against 484 s), and the two are equal at 8.
+
+## 6. Reproduce
 
 ```bash
 # Census 1, with the default resolve and with pandas 3:
@@ -167,9 +225,18 @@ python -m bench.run catalog-halve.parquet --shape obs --organism homo_sapiens --
 
 # The table:
 python spikes/store-consolidation/obs_summary.py census2-sdk/tools/results/consolidation-obs-runs.jsonl
+
+# Section 5: the query is rare_19 in census2-sdk/tools/results/consolidation-anndata-queries.json.
+python -m bench.run catalog-pd.parquet --shape filter --organism homo_sapiens \
+    --filter "$(jq -c .rare_19.filter consolidation-anndata-queries.json)" --workers 32 --per-dataset --digest
+python -m bench.run catalog-pd.parquet --shape obs --organism homo_sapiens \
+    --filter "$(jq -c .rare_19.filter consolidation-anndata-queries.json)" --workers 32 --per-dataset
+uv run --with cellxgene-census python spikes/store-consolidation/census1_anndata.py \
+    homo_sapiens rare_19.json      # a file that holds the filter
 ```
 
 The `members` rows come from the branch at 0aade26, before the whole read of a consolidated store;
 on the current branch, `census2_sdk.WHOLE_STORE_SHARE` above 1 gives that read. The `main` rows come
-from #51 at 7d578cd. The records are in `census2-sdk/tools/results/consolidation-obs-runs.jsonl` and
-`consolidation-full-plans.json`.
+from #51 at 7d578cd, and the `main` rows of section 5 from 2ab7c32. The records are in
+`census2-sdk/tools/results/`: `consolidation-obs-runs.jsonl`, `consolidation-anndata-runs.jsonl`,
+and `consolidation-full-plans.json`.
