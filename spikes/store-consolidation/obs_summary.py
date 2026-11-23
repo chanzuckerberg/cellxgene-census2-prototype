@@ -3,8 +3,9 @@
     python spikes/store-consolidation/obs_summary.py \\
         census2-sdk/tools/results/consolidation-obs-runs.jsonl
 
-The records with `repeat` 0 carry the digest of the frame and are not timed runs.
-The script also checks that every Census 2 configuration gives the same digest.
+A record with a digest also counts as a timed run: the bench takes the digest after
+the clock stops. The script checks that every Census 2 configuration gives the same
+digest.
 """
 
 import json
@@ -19,9 +20,8 @@ def main(path: str) -> None:
     timed = defaultdict(list)
     digests = defaultdict(dict)
     for r in rows:
-        if r.get("repeat") == 0:
-            digests[r["organism"]][r["config"]] = r.get("digest")
-            continue
+        if r.get("digest"):
+            digests[r["organism"]][r["config"]] = r["digest"]
         timed[(r["config"], r["organism"], r.get("workers", "-"))].append(r)
 
     print(
