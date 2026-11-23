@@ -9,6 +9,10 @@ an earlier run. The shapes are:
   is the one whose share of the source datasets is nearest to 15 percent. The
   copies are not part of that share.
 - `filter`: `get_anndata` for the filter that `--filter` gives as JSON.
+- `obs`: `get_obs` for `--organism`, every column, with the filter of `--filter` if
+  given. Without a filter, this is the whole `obs` of the organism. `--digest` adds a
+  digest of the frame to the record, after the clock stops, so that two
+  configurations can show the same result.
 - `open`: open every store of the catalog and read nothing more.
 - `corpus_obs`: open every store and read its whole `obs`.
 - `corpus_x`: open every store and read all of `X`, one shard at a time, and keep
@@ -40,6 +44,7 @@ prints a record with the status `memory_limit` and stops with exit code 3.
 """
 
 import argparse
+import hashlib
 import importlib.metadata
 import json
 import math
@@ -64,8 +69,9 @@ from zarr.core.buffer import Buffer, BufferPrototype
 import census2_sdk
 from census2_sdk import catalog as _catalog
 
-SHAPES = ("single", "cell_type", "filter", "open", "corpus_obs", "corpus_x")
+SHAPES = ("single", "cell_type", "filter", "obs", "open", "corpus_obs", "corpus_x")
 READERS = ("sdk", "lean")
+# The organism of a run; `main` sets it from `--organism`.
 ORGANISM = "homo_sapiens"
 MEMORY_LIMIT_EXIT = 3
 
@@ -375,6 +381,23 @@ def final_record(
     return {**record, "status": "memory_limit", "limit_mb": limit_mb}, MEMORY_LIMIT_EXIT
 
 
+def frame_digest(frame: pd.DataFrame) -> dict[str, str]:
+    """A SHA-256 digest of each column of `frame` with its dtype, and of the index.
+
+    A categorical column hashes its values, so two frames with the same values and
+    the same categories in another order still differ by dtype only.
+    """
+    out = {}
+    index = pd.Series(frame.index.to_numpy(), dtype=frame.index.dtype)
+    named = [("__index__", index), *frame.items()]
+    for name, column in named:
+        hashed = pd.util.hash_pandas_object(column, index=False).to_numpy()
+        digest = hashlib.sha256(str(column.dtype).encode())
+        digest.update(hashed.tobytes())
+        out[str(name)] = digest.hexdigest()[:16]
+    return out
+
+
 def run(
     catalog: str,
     shape: str,
@@ -385,6 +408,7 @@ def run(
     obs_filter: dict[str, Any] | None = None,
     per_dataset: bool = False,
     processes: int = 1,
+    digest: bool = False,
 ) -> dict[str, Any]:
     t0 = time.monotonic()
     # Without the keyword, so that the SDK of an earlier commit runs this as well.
@@ -405,17 +429,18 @@ def run(
         "per_dataset": per_dataset,
         "reader": READER,
         "processes": processes,
+        "organism": ORGANISM,
     }
     cpu = {"cpu_user": 0.0, "cpu_sys": 0.0}
 
-    if shape in ("single", "cell_type", "filter"):
+    if shape in ("single", "cell_type", "filter", "obs"):
         if shape == "single":
             obs_filter = {"dataset_id": dataset_id or str(rows["dataset_id"].iloc[0])}
         elif shape == "cell_type":
             cell_type = cell_type or pick_cell_type(source_rows(rows))
             obs_filter = {"cell_type": cell_type}
             record["cell_type"] = cell_type
-        elif obs_filter is None:
+        elif shape == "filter" and obs_filter is None:
             raise ValueError("the filter shape needs a filter")
         record["filter"] = obs_filter
         # The SDK imports open_store by name, so patch both names, and restore them.
@@ -424,7 +449,11 @@ def run(
         _catalog.open_store = open_counted
         user, system = cpu_seconds()
         try:
-            adata = census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
+            result: pd.DataFrame | anndata.AnnData | None = (
+                census.get_obs(ORGANISM, obs_filter, max_workers=workers)
+                if shape == "obs"
+                else census.get_anndata(ORGANISM, obs_filter, max_workers=workers)
+            )
         finally:
             census2_sdk.__dict__["open_store"] = original
             _catalog.open_store = original
@@ -436,7 +465,15 @@ def run(
         )
         record["datasets"] = len(selected)
         record["stores_opened"] = len(serving_uris(selected, per_dataset))
-        record["cells"] = int(adata.n_obs) if isinstance(adata, anndata.AnnData) else 0
+        if isinstance(result, pd.DataFrame):
+            record["cells"], record["columns"] = len(result), len(result.columns)
+            record["frame_gib"] = round(result.memory_usage().sum() / 2**30, 2)
+            if digest:
+                record["digest"] = frame_digest(result)
+        else:
+            record["cells"] = (
+                int(result.n_obs) if isinstance(result, anndata.AnnData) else 0
+            )
     elif processes > 1:
         uris = serving_uris(rows, per_dataset)
         total, start, t2 = read_corpus_processes(shape, uris, workers, processes)
@@ -488,11 +525,18 @@ def main() -> int:
         "--processes", type=int, default=1, help="processes of the corpus shapes"
     )
     p.add_argument("--max-rss-gb", type=float, default=None)
+    p.add_argument(
+        "--organism", default="homo_sapiens", help="the organism of the queries"
+    )
+    p.add_argument(
+        "--digest", action="store_true", help="digest the frame of the obs shape"
+    )
     args = p.parse_args()
     if args.processes > 1 and args.shape not in CORPUS_READS:
         p.error("--processes applies to the corpus shapes only")
-    global READER
+    global READER, ORGANISM
     READER = args.reader
+    ORGANISM = args.organism
     limit_mb = None if args.max_rss_gb is None else args.max_rss_gb * 1024
     if limit_mb is not None:
         base = {"catalog": args.catalog, "shape": args.shape, "workers": args.workers}
@@ -506,6 +550,7 @@ def main() -> int:
         obs_filter=json.loads(args.filter) if args.filter else None,
         per_dataset=args.per_dataset,
         processes=args.processes,
+        digest=args.digest,
     )
     publish(*final_record(record, limit_mb))
     return 0

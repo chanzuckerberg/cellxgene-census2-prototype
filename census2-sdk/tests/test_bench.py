@@ -120,6 +120,17 @@ def test_every_shape_runs_and_counts(stores: Path, shape: str, workers: int) -> 
     assert record["mb_payload"] > 0
 
 
+def test_obs_digest_follows_the_values(stores: Path) -> None:
+    catalog = str(stores / "catalog.parquet")
+    one = run.run(catalog, "obs", 1, None, digest=True)
+    two = run.run(catalog, "obs", 2, None, digest=True, per_dataset=True)
+    assert one["digest"] == two["digest"]
+    assert {"__index__", "dataset_id", "cell_type"} <= set(one["digest"])
+    frame = pd.DataFrame({"a": pd.Categorical(["x", "y"])}, index=["0", "1"])
+    other = frame.assign(a=pd.Categorical(["y", "x"]))
+    assert run.frame_digest(frame)["a"] != run.frame_digest(other)["a"]
+
+
 @pytest.mark.parametrize("reader", run.READERS)
 def test_readers_open_the_same_store(
     stores: Path, reader: str, monkeypatch: pytest.MonkeyPatch

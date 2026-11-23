@@ -9,7 +9,12 @@ A store is small when it has fewer than `--small-mib` MiB. The planner packs the
 small stores into groups of at most `--target-mib` MiB. A large store stays alone,
 so no consolidated store is larger than a large per-dataset store, and a query can
 still read many stores at the same time. A group with fewer than `--min-members`
-members is dropped, and its stores stay alone.
+members is dropped, and its stores stay alone. `--max-members` bounds the members of
+a group. Each member adds an entry to the consolidation record, which every open of
+the store parses, and a column to `varm["measured"]`.
+
+With `--small-mib` equal to `--target-mib`, one size T sets the policy: every store
+smaller than T joins a group of at most T, and every other store stays alone.
 
 The members of a group must compose: one organism, one gene reference version, and
 all spatial or all non-spatial. The planner packs each such partition apart. They
@@ -80,12 +85,15 @@ def main_tissues(path: str) -> dict[str, str]:
     }
 
 
-def first_fit_decreasing(stores: list[dict], target: int) -> list[list[dict]]:
+def first_fit_decreasing(
+    stores: list[dict], target: int, max_members: int | None = None
+) -> list[list[dict]]:
     groups: list[list[dict]] = []
     sizes: list[int] = []
     for store in sorted(stores, key=lambda s: (-s["bytes"], s["dataset_version_id"])):
         for k, size in enumerate(sizes):
-            if size + store["bytes"] <= target:
+            room = max_members is None or len(groups[k]) < max_members
+            if room and size + store["bytes"] <= target:
                 groups[k].append(store)
                 sizes[k] += store["bytes"]
                 break
@@ -95,11 +103,16 @@ def first_fit_decreasing(stores: list[dict], target: int) -> list[list[dict]]:
     return groups
 
 
-def by_tissue(stores: list[dict], target: int) -> list[list[dict]]:
+def by_tissue(
+    stores: list[dict], target: int, max_members: int | None = None
+) -> list[list[dict]]:
     groups: list[list[dict]] = []
     size = target + 1
     for store in sorted(stores, key=lambda s: (s["tissue"], s["dataset_version_id"])):
-        if size + store["bytes"] > target:
+        full = (
+            bool(groups) and max_members is not None and len(groups[-1]) >= max_members
+        )
+        if size + store["bytes"] > target or full:
             groups.append([])
             size = 0
         groups[-1].append(store)
@@ -107,7 +120,7 @@ def by_tissue(stores: list[dict], target: int) -> list[list[dict]]:
     return groups
 
 
-STRATEGIES: dict[str, Callable[[list[dict], int], list[list[dict]]]] = {
+STRATEGIES: dict[str, Callable[[list[dict], int, int | None], list[list[dict]]]] = {
     "size": first_fit_decreasing,
     "tissue": by_tissue,
 }
@@ -126,6 +139,7 @@ def plan(
     target: int,
     min_members: int,
     strategy: str,
+    max_members: int | None = None,
 ) -> list[dict]:
     """The groups of the plan, from catalog rows that hold `bytes`."""
     out = []
@@ -144,7 +158,7 @@ def plan(
             for r in rows.itertuples()
             if int(r.bytes) < small
         ]
-        for members in STRATEGIES[strategy](stores, target):
+        for members in STRATEGIES[strategy](stores, target, max_members):
             if len(members) < min_members:
                 continue
             out.append(
@@ -170,6 +184,9 @@ def main() -> int:
     p.add_argument("--small-mib", type=float, default=256)
     p.add_argument("--target-mib", type=float, default=1024)
     p.add_argument("--min-members", type=int, default=2)
+    p.add_argument(
+        "--max-members", type=int, default=None, help="members of a group, at most"
+    )
     p.add_argument("--strategy", choices=sorted(STRATEGIES), default="size")
     p.add_argument(
         "--sizes",
@@ -214,6 +231,7 @@ def main() -> int:
         target=int(args.target_mib * MiB),
         min_members=args.min_members,
         strategy=args.strategy,
+        max_members=args.max_members,
     )
     with open(args.out, "w") as fh:
         fh.writelines(json.dumps(group) + "\n" for group in groups)
