@@ -96,7 +96,8 @@ The result holds:
 - `var`, the pinned gene reference for the organism (GENCODE v48 for human, 78,894 rows)
 - `obs`, the columns that all selected stores hold, which include `dataset_id` and
   `observation_joinid`
-- `obs_names`, `<dataset_id>_<observation_joinid>`
+- `obs_names`, `<dataset_id>_<observation_joinid>`. The index has no name, so `write_h5ad` and
+  `write_zarr` accept the result.
 - `uns["census2"]`, the sources, the count of catalog rows for the organism
   (`datasets_in_catalog`), the count of datasets read (`datasets_read`), and the count of stores
   opened (`stores_opened`)
@@ -113,6 +114,49 @@ which stay the primary copy.
 `max_workers` applies twice: the SDK opens up to `max_workers` stores at the same time, and then
 reads up to `max_workers` datasets at the same time. The datasets of one consolidated store thus
 read at the same time as well.
+
+## Read `obs` only
+
+```python
+obs = census.get_obs("homo_sapiens", {"tissue": "lung"})
+obs = census.get_obs(
+    "homo_sapiens", {"tissue": "lung"}, column_names=["sex", "donor_id"]
+)
+```
+
+`get_obs` returns the `obs` of the selected cells as a DataFrame and reads no `X`. The frame equals
+the `obs` of the result of `get_anndata` for the same filter, and the SDK applies the same checks.
+When no cell matches, `get_obs` returns None. It reads a dataset from the consolidated store that
+its catalog row names, as `get_anndata` does.
+
+`column_names` names the columns of the result, in that order. From each store, the SDK then reads
+only these columns, the filter columns, `dataset_id`, and `observation_joinid`. A store without a
+named column raises `ValueError`.
+
+## Read `var`
+
+```python
+var = census.get_var("homo_sapiens")
+```
+
+`get_var` returns the `var` of an organism, which is the pinned gene reference as the stores hold
+it. The frame is the `var` of a `get_anndata` result, and the SDK reads it from one store. Every
+catalog row of the organism must record the gene reference version that the SDK pins.
+
+## Presence matrix
+
+```python
+presence = census.get_presence_matrix("homo_sapiens")
+```
+
+`get_presence_matrix` returns the genes that each dataset of an organism measured, as a boolean
+DataFrame. The index is the `dataset_id` of each store of the organism, and the columns are the
+`feature_id`s of `get_var`. `X` cannot show the difference between an unmeasured gene and a
+measured value of zero, and this matrix can.
+
+The call opens every store of the organism and reads only the `measured` column of its `var`. It
+reads no `obs` and no `X`. The SDK applies the checks of `get_var`, and it checks that each store
+holds one `measured` value for each gene of the reference.
 
 ## Count
 

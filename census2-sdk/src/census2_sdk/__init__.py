@@ -29,6 +29,22 @@ in the same order, and concatenates by position. A store's `var` also marks the
 dataset's assayed genes in a `measured` column, and the result leaves that column out,
 because the result spans datasets.
 
+`get_obs` returns the `obs` of the selected cells as a DataFrame. It reads no `X`,
+and `column_names` limits the columns that it reads.
+
+    obs = census.get_obs("homo_sapiens", {"tissue": "lung"}, column_names=["sex"])
+
+`get_var` returns the `var` of an organism, which is the pinned gene reference as the
+stores hold it. It reads one store.
+
+    var = census.get_var("homo_sapiens")
+
+`get_presence_matrix` returns the genes that each dataset of an organism measured, as
+a boolean DataFrame of `dataset_id` by `feature_id`. It opens every store of the
+organism.
+
+    presence = census.get_presence_matrix("homo_sapiens")
+
 `count_cells` counts the selected cells and opens no store. It sums the cell counts
 that each catalog row holds. Its filter takes the columns of
 `catalog.COUNTED` and `dataset_id`.
@@ -90,7 +106,8 @@ class SourceConflict(ValueError):
 class Census:
     """`Census` holds a set of opened sources.
 
-    Each call to `get_anndata` or `count_cells` runs one query over them.
+    Each call to `get_anndata`, `get_obs`, `get_var`, `get_presence_matrix`, or
+    `count_cells` runs one query over them.
     """
 
     def __init__(
@@ -147,21 +164,10 @@ class Census:
         _check_composition(rows, ORGANISMS[organism]["version"])
 
         reads = _reads(rows, self.consolidated)
-        # Each store opens once, for all of its selected datasets.
-        uris = list(dict.fromkeys(r.uri for r in reads))
-        consolidated = {r.uri for r in reads if r.rows is not None}
-        bucket_clients = _catalog.clients(uris)
         # The default is one store at a time. Raise it after the store-count benchmark.
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            opened = dict(
-                zip(
-                    uris,
-                    pool.map(
-                        lambda u: _open(u, u in consolidated, bucket_clients), uris
-                    ),
-                    strict=True,
-                )
-            )
+            opened = _open_stores(reads, pool, with_var=True)
+            uris = list(opened)
             parts = list(
                 pool.map(
                     lambda r: _read_rows(opened[r.uri], r, canonical, layers), reads
@@ -188,6 +194,102 @@ class Census:
             "stores_opened": len(uris),
         }
         return result
+
+    def get_obs(
+        self,
+        organism: str,
+        obs_filter: Filter | None = None,
+        *,
+        column_names: Sequence[str] | None = None,
+        max_workers: int = 1,
+    ) -> pd.DataFrame | None:
+        """Return the `obs` of the selected cells of `organism`, without a read of `X`.
+
+        The frame equals the `obs` of the result of `get_anndata` for the same
+        filter. It has the same cells and the same index, and the SDK applies the
+        same checks. Return None when no cell matches.
+
+        `column_names` names the columns of the result, in that order. From each
+        store, the SDK then reads only these columns, the filter columns,
+        `dataset_id`, and `observation_joinid`. A store without a named column
+        raises ValueError. Without `column_names`, the result has the columns that
+        all opened stores hold.
+
+        `max_workers` has the same function as in `get_anndata`. A dataset that a
+        catalog row places in a consolidated store reads from there, as in
+        `get_anndata`.
+        """
+        canonical = _catalog.canonicalize(obs_filter)
+        rows = _catalog.exclude(self.catalog, organism, canonical)
+        _check_composition(rows, ORGANISMS[organism]["version"])
+
+        reads = _reads(rows, self.consolidated)
+
+        def read(r: _Read) -> anndata.AnnData:
+            obs = _read_obs(opened[r.uri], r, canonical, column_names)[0]
+            return anndata.AnnData(obs=obs)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            opened = _open_stores(reads, pool, with_var=False)
+            parts = list(pool.map(read, reads))
+        if not sum(part.n_obs for part in parts):
+            return None
+        # `anndata.concat` gives the frame the dtypes of the `get_anndata` result.
+        result = cast("pd.DataFrame", anndata.concat(parts, join="inner").obs)
+        if not result.index.is_unique:
+            raise SourceConflict("the cell key is not unique across the result")
+        return result
+
+    def get_var(self, organism: str) -> pd.DataFrame:
+        """Return the `var` of `organism`: the pinned gene reference, as the stores hold it.
+
+        The frame is the `var` of a `get_anndata` result. Every store of one organism
+        holds the same reference (design 1.5), so the SDK reads the `var` of one
+        store. The frame leaves out the `measured` column, which describes one dataset.
+
+        Every catalog row of the organism must record the gene reference version
+        that the SDK pins. Sources that hold no store of the organism raise
+        ValueError.
+        """
+        rows = _catalog.exclude(self.catalog, organism, None)
+        if not len(rows):
+            raise ValueError(f"the sources hold no store of {organism}")
+        _check_reference(rows, ORGANISMS[organism]["version"])
+        uri = str(rows["store_uri"].iloc[0])
+        return _read_var(uri, _catalog.clients([uri]))
+
+    def get_presence_matrix(
+        self, organism: str, *, max_workers: int = 1
+    ) -> pd.DataFrame:
+        """Return the genes that each dataset of `organism` measured.
+
+        The result is a boolean DataFrame. It has one row for each store of the
+        organism, in catalog order, and the index is the `dataset_id`. It has one
+        column for each gene of `get_var`, in reference order, and the column
+        labels are the `feature_id`s. A value is True when the dataset measured
+        the gene.
+
+        The call opens every store of the organism, and it reads only the
+        `measured` column of `var` from each. `get_var` supplies the genes, so the
+        first store opens one more time. `max_workers` is the largest number of
+        stores that the SDK reads at the same time.
+
+        The SDK applies the checks of `get_var`. It also checks that each store
+        holds one `measured` value for each gene of the reference. It does not
+        compare the gene identifiers of each store.
+        """
+        genes = self.get_var(organism).index
+        rows = _catalog.exclude(self.catalog, organism, None)
+        uris = list(rows["store_uri"].astype(str))
+        bucket_clients = _catalog.clients(uris)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            measured = list(
+                pool.map(
+                    lambda uri: _read_measured(uri, len(genes), bucket_clients), uris
+                )
+            )
+        datasets = list(rows["dataset_id"].astype(str))
+        return pd.DataFrame(np.stack(measured), index=datasets, columns=genes)
 
     def count_cells(
         self,
@@ -255,15 +357,30 @@ def open_census(sources: Sequence[PathLike], *, consolidated: bool = True) -> Ce
 def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
     """Design 4.3: the checks before concatenation. Name the conflicting values.
 
-    Every row must record the `gene_reference_version` that this SDK pins for the
-    organism. The SDK does not remap a store onto another reference. A row that
-    records none has no summary record that names the reference of its store. A
-    catalog without the column records none.
+    Every row must record the pinned gene reference (`_check_reference`).
 
     Spatial and non-spatial stores do not compose. A row that records no
     `spatial` value cannot prove that its store composes with another, so a
     result of two or more stores refuses it. One store always composes with
     itself. A catalog without the column records no value.
+    """
+    _check_reference(rows, pinned)
+    if len(rows) < 2:
+        return
+    spatial = _recorded(rows, "spatial")
+    unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
+    if unknown:
+        raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
+    if len({bool(v) for v in spatial}) > 1:
+        raise SourceConflict("spatial and non-spatial stores in one result")
+
+
+def _check_reference(rows: pd.DataFrame, pinned: str) -> None:
+    """Every row records the `gene_reference_version` that this SDK pins for the organism.
+
+    The SDK does not remap a store onto another reference. A row that records
+    none has no summary record that names the reference of its store. A catalog
+    without the column records none.
     """
     recorded = _recorded(rows, "gene_reference_version")
     missing = sorted(
@@ -276,14 +393,6 @@ def _check_composition(rows: pd.DataFrame, pinned: str) -> None:
         raise SourceConflict(
             f"gene_reference_version {versions} differs from the pinned {pinned!r}"
         )
-    if len(rows) < 2:
-        return
-    spatial = _recorded(rows, "spatial")
-    unknown = [d for d, v in zip(rows["dataset_id"], spatial, strict=True) if v is None]
-    if unknown:
-        raise SourceConflict(f"no spatial value is recorded for {sorted(unknown)}")
-    if len({bool(v) for v in spatial}) > 1:
-        raise SourceConflict("spatial and non-spatial stores in one result")
 
 
 def _recorded(rows: pd.DataFrame, column: str) -> list[Any]:
@@ -338,14 +447,15 @@ class _Read:
 class _Opened:
     """One open store, and what all of its datasets share.
 
-    `var` holds only the index. `n_obs` is the number of rows of the store.
+    `var` holds only the index, or is None when the query reads no `X`. `n_obs` is
+    the number of rows of the store.
     `categories` holds the categories of each categorical `obs` column of a
     consolidated store, read once for all the datasets of the store.
     """
 
     uri: str
     group: zarr.Group
-    var: pd.DataFrame
+    var: pd.DataFrame | None
     n_obs: int
     categories: dict[str, pd.Index] = field(default_factory=dict)
 
@@ -377,8 +487,30 @@ def _group(parent: zarr.Group, name: str, uri: str, kind: str) -> zarr.Group:
     return node
 
 
+def _open_stores(
+    reads: list[_Read], pool: ThreadPoolExecutor, *, with_var: bool
+) -> dict[str, _Opened]:
+    """Open each store of `reads` once, in order, with the threads of `pool`.
+
+    The stores of one bucket share one obstore client (`catalog.clients`). `with_var`
+    reads the var index of each store, which `get_anndata` compares.
+    """
+    uris = list(dict.fromkeys(r.uri for r in reads))
+    consolidated = {r.uri for r in reads if r.rows is not None}
+    bucket_clients = _catalog.clients(uris)
+
+    def one(uri: str) -> _Opened:
+        return _open(uri, uri in consolidated, bucket_clients, with_var=with_var)
+
+    return dict(zip(uris, pool.map(one, uris), strict=True))
+
+
 def _open(
-    uri: str, consolidated: bool, bucket_clients: _catalog.Clients | None = None
+    uri: str,
+    consolidated: bool,
+    bucket_clients: _catalog.Clients | None = None,
+    *,
+    with_var: bool = True,
 ) -> _Opened:
     """Open a store, and read what its datasets share: the var index, and categories.
 
@@ -389,9 +521,11 @@ def _open(
     `bucket_clients` holds the obstore clients of the query (`catalog.clients`).
     """
     group = open_store(uri, bucket_clients)
-    var_group = _group(group, "var", uri, "an encoded dataframe")
-    index = read_elem(var_group[str(var_group.attrs["_index"])])
-    var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
+    var = None
+    if with_var:
+        var_group = _group(group, "var", uri, "an encoded dataframe")
+        index = read_elem(var_group[str(var_group.attrs["_index"])])
+        var = pd.DataFrame(index=pd.Index(np.asarray(index).astype(str)))
     x = _group(group, "X", uri, "an encoded sparse matrix")
     opened = _Opened(uri, group, var, int(cast("list[int]", x.attrs["shape"])[0]))
     if not consolidated:
@@ -450,17 +584,19 @@ def _member_rows(opened: _Opened, read: _Read) -> tuple[int, int]:
     return read.rows
 
 
-def _read_rows(
+def _read_obs(
     opened: _Opened,
     read: _Read,
     obs_filter: CanonicalFilter,
-    layers: Sequence[str] = (),
-) -> anndata.AnnData:
-    """The selected cells of one dataset. `X` holds the counts on the reference genes.
+    column_names: Sequence[str] | None = None,
+) -> tuple[pd.DataFrame, np.ndarray, int]:
+    """The `obs` of the selected cells of one dataset, their rows, and the first row.
 
-    The read takes only the rows of the dataset from `obs` and `X`: all of a
-    per-dataset store, or the member's rows of a consolidated store. `layers` names
-    the layers to calculate from the counts.
+    The read takes only the rows of the dataset: all of a per-dataset store, or the
+    member's rows of a consolidated store. The row positions count from the first
+    row of the dataset. The index is the cell key, `<dataset_id>_<observation_joinid>`,
+    and it has no name. `column_names` names the columns of the frame. Without it,
+    the frame has every column of the store.
     """
     dataset_id = str(read.row["dataset_id"])
     if read.rows is None:
@@ -474,15 +610,39 @@ def _read_rows(
     # reads the cell key after the filter, for the kept cells only.
     columns = [str(c) for c in cast("list[str]", obs_group.attrs["column-order"])]
     key = "observation_joinid"
-    names = [c for c in columns if c != key]
+    named = columns if column_names is None else list(dict.fromkeys(column_names))
+    absent = sorted(set(named) - set(columns))
+    if absent:
+        raise ValueError(f"{where}: obs has no column {absent}")
+    # The filter and the dataset check need their columns also when the frame
+    # leaves them out.
+    needed = {*named, *obs_filter, "dataset_id"} - {key}
+    names = [c for c in columns if c in needed]
     obs = _obs_rows(opened, obs_group, names, read.row, start, stop)
     _check_dataset_id(obs, dataset_id, where)
     keep = np.flatnonzero(_mask(obs, obs_filter))
     obs = obs.iloc[keep].copy()
     if key in columns:
-        kept = _read_column_rows(obs_group[key], start + keep)
-        obs.insert(columns.index(key), key, kept)
+        obs[key] = _read_column_rows(obs_group[key], start + keep)
     _check_cell_key(obs, where)
+    # pandas gives the index the name of the key column. `write_h5ad` refuses an
+    # index name that is also a column with other values, so the index has no name.
+    obs.index = pd.Index(dataset_id + "_" + obs[key].astype(str)).rename(None)
+    return obs[named], keep, start
+
+
+def _read_rows(
+    opened: _Opened,
+    read: _Read,
+    obs_filter: CanonicalFilter,
+    layers: Sequence[str] = (),
+) -> anndata.AnnData:
+    """The selected cells of one dataset. `X` holds the counts on the reference genes.
+
+    The read takes only the rows of the dataset from `obs` and `X` (`_read_obs`).
+    `layers` names the layers to calculate from the counts.
+    """
+    obs, keep, start = _read_obs(opened, read, obs_filter)
     x = _rows(opened.group["X"], keep, start)
     computed = {}
     if "normalized" in layers:
@@ -494,7 +654,6 @@ def _read_rows(
             length = np.asarray(read_elem(var_group["feature_length"]), dtype=np.int64)
         computed["normalized"] = _normalize.normalized(x, full_gene, length)
 
-    obs.index = pd.Index(dataset_id + "_" + obs["observation_joinid"].astype(str))
     return anndata.AnnData(X=x, obs=obs, var=opened.var, layers=computed)
 
 
@@ -564,6 +723,32 @@ def _column_rows(
         return _read_column_rows(node, np.arange(start, stop))
     # `read_elem` is typed for every element kind; here it is an array.
     return cast("Any", read_elem(node))[start:stop]
+
+
+def _read_var(store_uri: str, bucket_clients: _catalog.Clients) -> pd.DataFrame:
+    """The `var` of one store, without the assayed genes of its own dataset."""
+    var = cast("pd.DataFrame", read_elem(open_store(store_uri, bucket_clients)["var"]))
+    return var.drop(columns=MEASURED_COLUMN, errors="ignore")
+
+
+def _read_measured(
+    store_uri: str, n_genes: int, bucket_clients: _catalog.Clients
+) -> np.ndarray:
+    """The `measured` column of one store: True for each gene that the dataset assayed."""
+    var_group = open_store(store_uri, bucket_clients)["var"]
+    if not isinstance(var_group, zarr.Group):
+        raise TypeError(f"{store_uri}: var must be an encoded dataframe")
+    if MEASURED_COLUMN not in var_group:
+        raise ValueError(f"{store_uri}: var has no {MEASURED_COLUMN} column")
+    node = var_group[MEASURED_COLUMN]
+    if not isinstance(node, zarr.Array) or node.dtype != np.bool_:
+        raise TypeError(f"{store_uri}: var {MEASURED_COLUMN} must be a boolean array")
+    if node.shape != (n_genes,):
+        raise ValueError(
+            f"{store_uri}: var {MEASURED_COLUMN} holds {node.size} values, and "
+            f"the reference has {n_genes} genes"
+        )
+    return np.asarray(node[:])
 
 
 def _read_obs_column(node: zarr.Array[Any] | zarr.Group, listed: Any, name: str) -> Any:

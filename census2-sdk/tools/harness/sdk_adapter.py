@@ -1,30 +1,45 @@
 """The Census 2 SDK as the stack under test of the validation harness.
 
 `answer` takes one bound corpus query and the clamp of its recorded Census 1 result. It
-translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping, runs
-`get_anndata` over the catalog, and returns the canonical arrays of the result. The
-comparator then reads the two sides in the same form.
+translates the query's TileDB-SOMA `value_filter` into the SDK's filter mapping. It runs
+`get_anndata`, `get_obs`, `get_var`, or `get_presence_matrix` over the catalog and returns
+the canonical arrays of the result. The comparator then reads the two sides in the same
+form.
 
 The SDK takes equality and membership on the indexed catalog columns and on
 `dataset_id`. A query that it cannot express raises `Unsupported` with the reason, so
-the driver lists the query instead of a false difference. The SDK has no `get_obs`,
-`get_var`, or presence accessor and no var filter. A var filter on `feature_id` is
-applied to the result after the read, and the notes of the answer say so.
+the driver lists the query instead of a false difference. The SDK has no var filter.
+The adapter applies a var filter of one equality or membership clause to the result
+after the read. The notes of the answer say so.
+
+A presence result is the matrix of `get_presence_matrix` in the order of the SDK. It
+also holds the `dataset_id` of each row and the `feature_id` of each column. The driver
+aligns it with the Census 1 matrix by these labels.
 """
 
 import ast
 import re
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
+import numpy as np
 import pandas as pd
+from scipy import sparse
 
 import census2_sdk
 from census2_sdk.gene_reference import ORGANISMS
-from harness.canonical import Arrays, canonicalize_anndata
+from harness.canonical import (
+    Arrays,
+    canonicalize_anndata,
+    canonicalize_frame,
+    presence_arrays,
+)
 from harness.corpus import BoundQuery
 
 CLAUSE = re.compile(r"^(?P<column>\w+) (?P<op>==|in) (?P<value>.+)$")
+# A presence query opens every store of the organism. With 32 workers, the read of the
+# 1,086 human stores took 18 s from a laptop.
+PRESENCE_WORKERS = 32
 
 
 class Unsupported(Exception):
@@ -32,7 +47,7 @@ class Unsupported(Exception):
 
 
 class NoCells(Exception):
-    """The SDK selected no cell, so `get_anndata` returned None."""
+    """The SDK selected no cell, so `get_anndata` or `get_obs` returned None."""
 
 
 def _values(text: str) -> list[str]:
@@ -95,11 +110,13 @@ def translate(value_filter: str, pins: dict[str, Any]) -> dict[str, list[str]]:
     return mapping
 
 
-def _genes(var_filter: str) -> list[str]:
+def _var_rows(var: pd.DataFrame, var_filter: str) -> np.ndarray:
+    """The rows of `var` that one equality or membership clause selects."""
     match = CLAUSE.match(var_filter.strip())
-    if match is None or match["column"] != "feature_id":
+    if match is None or match["column"] not in var.columns:
         raise Unsupported(f"the SDK has no var filter: {var_filter!r}")
-    return _values(match["value"])
+    values = _values(match["value"])
+    return var[match["column"]].astype(str).isin(values).to_numpy()
 
 
 def answer(
@@ -109,13 +126,27 @@ def answer(
     pins: dict[str, Any],
 ) -> tuple[Arrays, list[str]]:
     """The canonical arrays of the SDK's answer to `query`, and notes on how it ran."""
-    if query.accessor != "get_anndata":
+    accessors = {"get_anndata", "get_obs", "get_var", "get_presence_matrix"}
+    if query.accessor not in accessors:
         raise Unsupported(f"the SDK has no {query.accessor} accessor")
     if query.modality != "census_data":
         raise Unsupported("the SDK reads no spatial experiment")
     organism = query.experiment
     if organism not in ORGANISMS:
         raise Unsupported(f"the SDK pins no gene reference for {organism}")
+    if query.accessor == "get_presence_matrix":
+        # The oracle runner does not clamp a presence query, so the clamp does not apply.
+        presence = census.get_presence_matrix(organism, max_workers=PRESENCE_WORKERS)
+        matrix = sparse.csr_matrix(presence.to_numpy())
+        return presence_arrays(matrix, presence.index, presence.columns), []
+    selected = "genes selected after the read; the SDK has no var filter"
+    if query.accessor == "get_var":
+        # The oracle runner does not clamp a `get_var` query, so the clamp does not apply.
+        var = census.get_var(organism)
+        if not query.var_filter:
+            return canonicalize_frame("var", var), []
+        kept = var[_var_rows(var, query.var_filter)]
+        return canonicalize_frame("var", kept), [selected]
 
     obs_filter = translate(query.obs_filter, pins) if query.obs_filter else {}
     clamped = set(clamp)
@@ -127,6 +158,13 @@ def answer(
     except ValueError as error:
         raise Unsupported(str(error)) from error
     # Any other error of the read is a defect of the stores or the SDK, so it fails the run.
+    if query.accessor == "get_obs":
+        # The oracle runner asks Census 1 for the same columns.
+        columns = ["dataset_id", "observation_joinid", *query.obs_columns]
+        obs = census.get_obs(organism, obs_filter, column_names=columns)
+        if obs is None:
+            raise NoCells("the SDK selected no cell")
+        return canonicalize_frame("obs", obs), []
     layers = [name for name in query.layers if name != "raw"]
     adata = census.get_anndata(organism, obs_filter, layers=layers)
     if adata is None:
@@ -134,9 +172,8 @@ def answer(
 
     notes = []
     if query.var_filter:
-        genes = set(_genes(query.var_filter))
-        keep = pd.Series(adata.var["feature_id"]).isin(genes).to_numpy()
+        keep = _var_rows(cast("pd.DataFrame", adata.var), query.var_filter)
         adata = adata[:, keep].copy()
-        notes.append("genes selected after the read; the SDK has no var filter")
+        notes.append(selected)
     adata.uns["x_layer_name"] = "raw"
     return canonicalize_anndata(adata), notes

@@ -111,6 +111,26 @@ def test_consolidated_reads_equal_per_dataset_reads(
     assert want.uns["census2"]["stores_opened"] == want.uns["census2"]["datasets_read"]
 
 
+@pytest.mark.parametrize("obs_filter", FILTERS)
+@pytest.mark.parametrize("column_names", [None, ["disease", "dataset_id", "tissue"]])
+def test_get_obs_from_consolidated_stores_equals_per_dataset(
+    corpus: dict[str, Path], obs_filter: dict[str, Any], column_names: Any
+) -> None:
+    fast = census2_sdk.open_census([corpus["catalog"]])
+    slow = census2_sdk.open_census([corpus["catalog"]], consolidated=False)
+    got = fast.get_obs("homo_sapiens", obs_filter, column_names=column_names)
+    want = slow.get_obs(
+        "homo_sapiens", obs_filter, column_names=column_names, max_workers=4
+    )
+    assert got is not None and want is not None
+    pd.testing.assert_frame_equal(got, want)
+    whole = fast.get_anndata("homo_sapiens", obs_filter)
+    assert whole is not None
+    pd.testing.assert_frame_equal(
+        got, cast("pd.DataFrame", whole.obs)[list(got.columns)]
+    )
+
+
 def test_one_open_serves_every_member(corpus: dict[str, Path]) -> None:
     census = census2_sdk.open_census([corpus["catalog"]])
     result = census.get_anndata("homo_sapiens")
